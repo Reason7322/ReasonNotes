@@ -3,38 +3,57 @@
 ## Checkpoint
 
 - Sender branch: `forge/kdeconnect-feasibility`
-- Base: `54eb64188d08d70aaedc87534db488b72684fdaa`
-- Corrected specification commit: `b1d531617782dfac79964cc6c1c2ca1b2975f720`
-- Planning checkpoint: the commit containing this document; verify the pushed remote SHA before checkout.
+- Received Qwen checkpoint:
+  `73710b088fb0d8f167a054916fef57ffc78a233c`
+- Latest source checkpoint before this handoff documentation:
+  `0482711e0a4db132c7608a98358fa0b630806e47`
+- Verify the final pushed remote SHA before checkout; this file cannot contain
+  the hash of its own commit.
 
 ## Delta
 
-Milestone 1 implementation Tasks 1–9 are complete at `926099ec1f28fc7b08eabd44b1b5c2a6e58e8491`. Task 10 is waiting for physical POCO procedure P0.
+Forge fixed the Android self-targeting bug, corrected the Android 16 action-bar
+overlap, made the probe display every imported note, and fixed CLI resolutions
+so `--target-device android` registers the resolution in the outbox.
 
-The implementation plan is at:
+Physical POCO acceptance P0–P6 is complete. Both directions transferred through
+KDE Connect without a chooser or per-file file-manager operation after setup.
+Linux and Android converged by exact head ID and body hash. Physical safety
+fixtures verified duplicate delivery, offline retry limits, Skip, Keep Linux,
+Keep Android, edit/deletion choices, stale resolution plus a third head, and a
+late ancestor. Full evidence is in
+`docs/milestone1/PHONE_TEST_RESULTS.md`.
 
-`docs/superpowers/plans/2026-10-12-milestone1-kde-connect-feasibility.md`
+## Artifact
 
-The Python core, Linux adapter, two-device simulation, Android-compatible envelope/graph, durable Android repository, SAF scanner, retry ledger, sender intent, minimal activity, and APK are implemented.
+- Source commit: `7d9c597ee68720b7ac0f547f2f320123990a24ed`
+- APK:
+  `/home/reason/Codex-Projects/ReasonNotes-artifacts/ReasonNotes-Probe-multinote-7d9c597-31002579.apk`
+- SHA-256:
+  `310025791599f0c226cfaef5f59f6d143d2cdf23578b3436927165d60936d03e`
 
-## Evidence and test state
+The original frozen APK was preserved unchanged.
 
-- 61 Python tests pass. Android host tests pass. App and instrumentation APKs build.
-- App APK SHA-256 is `ef19db85b723b6e495759cb5cb48313157801f20fc3f4260b4f1703d612f1c90`.
-- POCO reachability is Linux-live verified; Android runtime behavior remains pending.
-- Nothing has yet been installed on the POCO by this branch.
+Final verification: 61/61 Python tests and 17/17 Android host tests passed;
+`assembleDebug` and `assembleDebugAndroidTest` succeeded. The rebuilt app APK
+matched the physical-test artifact SHA-256 exactly.
 
-## Blockers
+## Evidence boundary
 
-- Physical POCO interaction is required for ADB authorization, SAF grants, APK installation, intent behavior, interrupted/offline cases, and actual convergence.
-- The absence of a ReasonNotes acknowledgement is intentional in Milestone 1; bounded explicit retry must be evaluated before adding receipt envelopes.
+- The test-only instrumentation APK did not install through ADB because HyperOS
+  blocks that route. Equivalent assertions were verified directly on the
+  physical device.
+- A deliberately interrupted large in-flight transfer was not attempted.
+- KDE Connect still does not provide application-level import acknowledgement.
+  The sender can safely retain an already imported revision as unconfirmed;
+  default sync does not resend it and explicit retry is capped.
+- Do not reinterpret a transfer request or KDE completion as ReasonNotes import.
 
-## Next action
+## Recommendation and next action
 
-Follow `docs/milestone1/PHONE_TEST_PROCEDURE.md` from P0, one labeled action at a time. Do not claim KDE Connect feasibility until exact head IDs and body hashes converge on both devices.
-
-## Do not redo
-
-- Manual bidirectional KDE Connect file transfer and matching SHA-256 are accepted starting evidence, not synchronization proof.
-- The Linux D-Bus share methods and `shareReceived(url)` signal have already been inspected.
-- The conflict, multi-parent, retry, and bidirectional sequence decisions are fixed by the corrected specification unless new implementation evidence contradicts them.
+Continue with KDE Connect. The next plan is
+`docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md`.
+Begin with the small receipt envelope, then build only the minimal CRUD/search
+shell around the proven Python and native Android cores. Do not restart the
+Milestone 1 investigation or repeat the completed phone matrix without a
+specific regression.

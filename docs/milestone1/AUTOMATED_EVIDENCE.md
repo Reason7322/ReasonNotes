@@ -24,10 +24,14 @@ scripts/run-two-device-demo.sh "$(mktemp -d)"
 - Scan-before-send Linux orchestration without live KDE Connect calls.
 - Two isolated repository directories reaching equal revision IDs and body hashes.
 
-## Evidence still pending
+## Final automated verification
 
-- Android build and Java/Python compatibility vectors.
-- Persisted Storage Access Framework directory access on the POCO X6 5G.
-- KDE Connect Android direct activity targeting and URI permission behavior.
-- Actual LAN delivery, receiver discovery, interaction count, interrupted transfer, and bidirectional convergence on the physical devices.
+- Python: 61/61 tests passed.
+- Android host: 17/17 tests passed, including the Java/Python compatibility
+  vectors, routing regression, system-chrome layout, and multi-note repository.
+- `assembleDebug` and `assembleDebugAndroidTest` succeeded.
+
+Physical runtime claims remain outside the scope of this document. They are
+recorded separately in `PHONE_TEST_RESULTS.md`. The only physical matrix item
+not run was a deliberately interrupted large in-flight transfer.
 

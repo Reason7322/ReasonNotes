@@ -1,5 +1,8 @@
 # POCO X6 5G Acceptance Procedure
 
+Completed results are recorded in `PHONE_TEST_RESULTS.md`. This procedure keeps
+the original frozen-artifact instructions for reproducibility.
+
 ## Frozen artifacts
 
 - Source commit: `926099ec1f28fc7b08eabd44b1b5c2a6e58e8491`

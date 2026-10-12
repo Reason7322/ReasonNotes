@@ -10,13 +10,15 @@
 | Java canonical vector matches Python | Python and Android host tests | automated — passed |
 | Android repository, retry ledger, SAF scanner, and sender compile | Android host tests; app and instrumentation APK builds | automated — passed |
 | Linux sees paired POCO `52548cf9710c43cab2fa73ed4671aea9` | Live `kdeconnect-cli --list-available --id-only` on 2026-10-12 | Linux-live — passed |
-| APK installs and launches on POCO | Requires P0/P1 | pending |
-| Persisted dedicated SAF tree works on POCO | Requires P2/P3 | pending |
-| Installed KDE Connect resolves the explicit Android share activity | Requires P3 | pending |
-| Android direct target bypasses repeated file selection/chooser | Requires P4/P5 | pending |
-| Incoming Android files are discovered without file-manager work | Requires P4 | pending |
-| Actual bidirectional exchange converges | Requires P4/P5 exact ID/hash comparison | pending |
-| Offline, duplicate, interruption, conflicts, deletion, and late delivery are safe on hardware | Requires P6 | pending |
+| Corrected APK installs and launches on POCO | Manual file-manager install plus ADB package/runtime inspection | Android-live — passed with HyperOS workaround |
+| Persisted dedicated SAF tree works on POCO | User grant, reopen/resume scan, direct repository inspection | Android-live — passed |
+| Installed KDE Connect resolves the explicit Android share activity | Android package/activity resolution and successful direct outgoing transfer | Android-live — passed |
+| Android direct target bypasses repeated file selection/chooser | Android `Sync now` sent to Linux peer without chooser | Android-user-observed / Linux-live — passed |
+| Incoming Android files are discovered without file-manager work | Configured KDE receive directory plus probe scan/import | Android-live — passed |
+| Actual bidirectional exchange converges | P4/P5 exact complete head-ID and body-hash comparison | Android-live / Linux-live — passed |
+| Duplicate, offline retry, conflicts, deletion, out-of-order, and late delivery are safe on hardware | P6 physical matrix and private repository inspection | Android-live / Linux-live — passed |
+| Deliberately interrupted large in-flight transfer | Not attempted; partial-file quarantine and restart reconciliation verified separately | pending / non-gating |
+| Sender knows that remote ReasonNotes imported a revision | KDE Connect exposes no application receipt; bounded unconfirmed state observed | known limitation — Milestone 2 receipt planned |
 
 ## Frozen toolchain evidence
 
@@ -29,5 +31,10 @@
 
 ## Current evidence boundary
 
-No ADB device is connected. The app and instrumentation APKs are built but not installed. No Android runtime, SAF, intent, LAN transfer, or convergence claim is currently verified.
+Physical results, exact revision IDs, hashes, interaction counts, and exclusions
+are recorded in `PHONE_TEST_RESULTS.md`. The test-only instrumentation runner
+was not installed, and a deliberately interrupted large in-flight transfer was
+not run. Neither limitation invalidates the observed two-way exchange or the
+tested conflict/data-retention behavior. KDE Connect completion still does not
+prove remote ReasonNotes import without a future receipt envelope.
 
