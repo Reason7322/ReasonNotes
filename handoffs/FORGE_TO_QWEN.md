@@ -9,30 +9,29 @@
 
 ## Delta
 
-Milestone 1 planning is complete. The corrected specification adds explicit device-labeled conflict selection, sorted multi-parent resolution revisions, durable history reconciliation, bounded observable retries, three distinct delivery/import evidence stages, and a complete bidirectional scan-then-send sequence.
+Milestone 1 implementation Tasks 1–9 are complete at `926099ec1f28fc7b08eabd44b1b5c2a6e58e8491`. Task 10 is waiting for physical POCO procedure P0.
 
 The implementation plan is at:
 
 `docs/superpowers/plans/2026-10-12-milestone1-kde-connect-feasibility.md`
 
-It defines ten test-first tasks: canonical envelopes, durable graph storage, explicit resolution, delivery ledger, Linux adapter, two-device simulation, Android compatibility, SAF import, Android KDE Connect sending, and physical acceptance/reporting.
+The Python core, Linux adapter, two-device simulation, Android-compatible envelope/graph, durable Android repository, SAF scanner, retry ledger, sender intent, minimal activity, and APK are implemented.
 
 ## Evidence and test state
 
-- Initial and corrected planning state is committed; `git diff --check` passed before the planning checkpoint.
-- No product code exists yet, so no implementation suite was run.
-- Linux KDE Connect 26.08.1, the live D-Bus share interface, and current POCO reachability were inspected during Forge planning.
-- Nothing was deployed or installed on Android.
+- 61 Python tests pass. Android host tests pass. App and instrumentation APKs build.
+- App APK SHA-256 is `ef19db85b723b6e495759cb5cb48313157801f20fc3f4260b4f1703d612f1c90`.
+- POCO reachability is Linux-live verified; Android runtime behavior remains pending.
+- Nothing has yet been installed on the POCO by this branch.
 
 ## Blockers
 
-- Android build tools are absent: no `javac`, Android SDK, Gradle, or ADB. A JDK 17 compiler and pinned project-external Android toolchain are required for plan Task 7.
-- Physical POCO interaction is required for SAF grants, APK installation, intent behavior, interrupted/offline cases, and actual convergence.
+- Physical POCO interaction is required for ADB authorization, SAF grants, APK installation, intent behavior, interrupted/offline cases, and actual convergence.
 - The absence of a ReasonNotes acknowledgement is intentional in Milestone 1; bounded explicit retry must be evaluated before adding receipt envelopes.
 
 ## Next action
 
-After the user approves the plan, start Task 1 in the existing Forge worktree and follow the plan's red-green test sequence. Do not redo the architecture or broad KDE Connect research.
+Follow `docs/milestone1/PHONE_TEST_PROCEDURE.md` from P0, one labeled action at a time. Do not claim KDE Connect feasibility until exact head IDs and body hashes converge on both devices.
 
 ## Do not redo
 

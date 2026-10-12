@@ -25,8 +25,8 @@ public final class ExchangeDirectoryInstrumentedTest {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         Bundle arguments = InstrumentationRegistry.getArguments();
         String supplied = arguments.getString("exchangeTreeUri");
-        Assume.assumeTrue("requires user-granted isolated exchangeTreeUri", supplied != null);
-        Uri tree = Uri.parse(supplied);
+        Uri tree = supplied == null ? ExchangeDirectory.savedTree(context) : Uri.parse(supplied);
+        Assume.assumeTrue("requires user-granted isolated exchange tree", tree != null);
         ExchangeDirectory.persistGrant(context, tree);
         assertEquals(tree, ExchangeDirectory.savedTree(context));
         DocumentFile directory = DocumentFile.fromTreeUri(context, tree);

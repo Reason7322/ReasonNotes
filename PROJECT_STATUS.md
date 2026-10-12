@@ -4,7 +4,7 @@
 
 Milestone 1: KDE Connect synchronization feasibility.
 
-Planning is complete and awaiting review before implementation.
+Tasks 1–9 are implemented. Task 10 physical POCO acceptance is ready and waiting at procedure step P0.
 
 ## Current branch and provenance
 
@@ -14,38 +14,37 @@ Planning is complete and awaiting review before implementation.
 - Corrected specification commit: `b1d531617782dfac79964cc6c1c2ca1b2975f720`
 - Corrected specification: `docs/superpowers/specs/2026-10-12-kde-connect-feasibility-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-10-12-milestone1-kde-connect-feasibility.md`
+- Last completed implementation commit: `926099ec1f28fc7b08eabd44b1b5c2a6e58e8491`
 
 ## Current owner
 
 Forge.
 
-## Planning delta
+## Implementation checkpoint
 
-- Conflicts require explicit keep-Linux, keep-Android, or skip selection.
-- Resolution revisions acknowledge every observed maximal head through a sorted multi-parent set.
-- Immutable history is authoritative and repairs generated state after interruption.
-- Delivery uses a bounded per-target ledger: request once by default, explicit retries, attention after three requests.
-- Transfer requested, KDE Connect completion, and ReasonNotes import are distinct evidence events.
-- The complete scan-then-send sequence and physical convergence criteria are specified for both directions.
+- Python core, Linux adapter, Android probe, SAF scanner, bounded ledgers, and explicit conflict resolution are implemented.
+- 61 Python tests pass; Android host unit tests pass; app and instrumentation APKs build.
+- App APK SHA-256: `ef19db85b723b6e495759cb5cb48313157801f20fc3f4260b4f1703d612f1c90`.
+- Physical procedure: `docs/milestone1/PHONE_TEST_PROCEDURE.md`.
 
 ## Verification state
 
 - Repository started clean at the exact initial SHA and the neutral `main` ref matched.
 - KDE Connect Linux 26.08.1 and the installed D-Bus share interface were inspected live.
 - POCO X6 5G device ID `52548cf9710c43cab2fa73ed4671aea9` was reachable during planning.
-- Planning documents pass `git diff --check`.
-- No product code or automated tests exist yet; no implementation tests were run.
-- Nothing has been installed on Android, deployed, or transferred by this branch.
+- Automated filesystem evidence and Android host builds pass; details are in `docs/milestone1/EVIDENCE_MATRIX.md`.
+- Live Linux reachability passed for the paired POCO on 2026-10-12.
+- No ADB device is currently connected; nothing has been installed on Android by this branch.
+- Android runtime, SAF, intent, transfer, and convergence evidence remains pending.
 
 ## Actual implementation blockers
 
-- Host has OpenJDK runtime 25 but no `javac`, Android SDK, Gradle, or ADB. The plan requires an external JDK 17 compiler and pinned Android toolchain before the APK can be built.
-- Android intent routing, persisted SAF access, KDE Connect UI/completion behavior, and convergence need short labeled interaction on the physical POCO.
+- Android intent routing, persisted SAF access, KDE Connect UI/completion behavior, and convergence need the labeled physical procedure beginning at P0.
 - KDE Connect has no ReasonNotes-level import acknowledgement; the milestone must test whether bounded explicit retry is acceptable before adding receipts.
 
 ## Next action
 
-Review and approve the implementation plan. Then execute Task 1 with test-first development in the existing Forge worktree; do not restart architectural investigation.
+User connects and authorizes the POCO for ADB as procedure P0. Forge then verifies the exact device and installs only the frozen APK.
 
 ## Important constraints
 
