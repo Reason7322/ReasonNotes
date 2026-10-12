@@ -98,4 +98,18 @@ public final class ProbeRepositoryTest {
                         StandardCharsets.UTF_8));
         assertNull(reopened.current(UUID.fromString("cccccccc-3333-4333-8333-cccccccccccc")));
     }
+
+    @Test
+    public void allHeadsExposeEveryNoteForAcceptancePreviews() throws Exception {
+        ProbeRepository repository = ProbeRepository.open(temporary.newFolder("repo"));
+        RevisionEnvelope first = revision("first note", List.of(), "linux", 0, false);
+        UUID secondNote = UUID.fromString("cccccccc-3333-4333-8333-cccccccccccc");
+        RevisionEnvelope second = RevisionEnvelope.create(
+                secondNote, List.of(), "android", Instant.parse("2026-10-12T11:00:01Z"),
+                false, "second note");
+        repository.importEnvelope(first.serialize(), "first.md");
+        repository.importEnvelope(second.serialize(), "second.md");
+
+        assertEquals(List.of(first, second), repository.heads());
+    }
 }

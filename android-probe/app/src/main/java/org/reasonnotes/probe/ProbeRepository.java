@@ -117,6 +117,16 @@ public final class ProbeRepository {
         return graph(load()).heads(noteId);
     }
 
+    public List<RevisionEnvelope> heads() {
+        Map<String, RevisionEnvelope> revisions = load();
+        RevisionGraph graph = graph(revisions);
+        Set<UUID> noteIds = new TreeSet<>(Comparator.comparing(UUID::toString));
+        revisions.values().forEach(revision -> noteIds.add(revision.noteId()));
+        ArrayList<RevisionEnvelope> heads = new ArrayList<>();
+        noteIds.forEach(noteId -> heads.addAll(graph.heads(noteId)));
+        return List.copyOf(heads);
+    }
+
     public List<String> pending(UUID noteId) {
         return graph(load()).pending(noteId);
     }

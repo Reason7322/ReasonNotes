@@ -141,8 +141,9 @@ public final class MainActivity extends Activity {
         if (status == null) return;
         StringBuilder value = new StringBuilder(message).append("\n\n");
         value.append("Heads and previews:\n");
-        for (RevisionEnvelope head : repository.heads(PROBE_NOTE)) {
-            value.append(head.originDevice()).append(" ").append(head.revisionId()).append("\n")
+        for (RevisionEnvelope head : repository.heads()) {
+            value.append("note ").append(head.noteId()).append("\n")
+                    .append(head.originDevice()).append(" ").append(head.revisionId()).append("\n")
                     .append(head.deleted() ? "[deleted note]" : head.body()).append("\n");
         }
         value.append("\nEvents (distinct evidence):\n");
