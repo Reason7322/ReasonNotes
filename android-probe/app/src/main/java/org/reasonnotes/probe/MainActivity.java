@@ -4,12 +4,16 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,7 +34,17 @@ public final class MainActivity extends Activity {
         ledger = new DeliveryLedger(new File(getFilesDir(), "delivery-state"), 3);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(24, 24, 24, 24);
+        int basePadding = 24;
+        int actionBarHeight = actionBarHeight();
+        content.setPadding(basePadding, contentTopPadding(basePadding, 0, actionBarHeight),
+                basePadding, basePadding);
+        ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
+            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(basePadding,
+                    contentTopPadding(basePadding, systemBars.top, actionBarHeight),
+                    basePadding, basePadding + systemBars.bottom);
+            return windowInsets;
+        });
         addButton(content, "Choose ReasonNotes Exchange", view -> chooseTree());
         addButton(content, "Create deterministic probe note", view -> createProbe());
         addButton(content, "Sync now", view -> sync(false));
@@ -41,7 +55,19 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         setContentView(scroll);
+        ViewCompat.requestApplyInsets(content);
         render("Ready. Transfer requests are not completion acknowledgements.");
+    }
+
+    static int contentTopPadding(int basePadding, int systemBarTop, int actionBarHeight) {
+        return basePadding + systemBarTop + actionBarHeight;
+    }
+
+    private int actionBarHeight() {
+        TypedValue value = new TypedValue();
+        if (!getTheme().resolveAttribute(android.R.attr.actionBarSize, value, true)) return 0;
+        return TypedValue.complexToDimensionPixelSize(
+                value.data, getResources().getDisplayMetrics());
     }
 
     @Override protected void onResume() {
