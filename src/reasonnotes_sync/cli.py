@@ -55,6 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     resolve.add_argument("--revision-id")
     resolve.add_argument("--device-id", required=True)
+    resolve.add_argument("--target-device")
     resolve.add_argument("--modified-utc", required=True, type=_utc_timestamp)
 
     outbox = commands.add_parser("outbox")

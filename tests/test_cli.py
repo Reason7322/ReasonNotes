@@ -71,6 +71,8 @@ class CliTests(unittest.TestCase):
             "keep-android",
             "--device-id",
             "linux",
+            "--target-device",
+            "android",
             "--modified-utc",
             "2026-10-12T13:00:03Z",
         )
@@ -84,6 +86,9 @@ class CliTests(unittest.TestCase):
             output,
         )
         self.assertEqual(head.body, self.android.body)
+        entry = DeliveryLedger(self.root).entry(head.revision_id, "android")
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.state.value, "pending")
 
     def test_resolve_skip_reports_no_change(self):
         history_before = {
