@@ -19,7 +19,7 @@ import java.util.UUID;
 public final class MainActivity extends Activity {
     private static final int TREE_REQUEST = 41;
     private static final UUID PROBE_NOTE = UUID.fromString("52548cf9-710c-43ca-b2fa-73ed4671aea9");
-    private static final String KDE_DEVICE_ID = "52548cf9710c43cab2fa73ed4671aea9";
+    private static final String KDE_DEVICE_ID = "254997f28f11499d80928fe8a109749e";
     private ProbeRepository repository;
     private DeliveryLedger ledger;
     private TextView status;
