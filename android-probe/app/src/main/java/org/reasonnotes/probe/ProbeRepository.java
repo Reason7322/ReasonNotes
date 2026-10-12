@@ -121,6 +121,10 @@ public final class ProbeRepository {
         return graph(load()).pending(noteId);
     }
 
+    public RevisionEnvelope revision(String revisionId) {
+        return load().get(revisionId);
+    }
+
     private File currentIdPath(UUID noteId) { return new File(state, "current-" + noteId + ".txt"); }
 
     public RevisionEnvelope current(UUID noteId) {
