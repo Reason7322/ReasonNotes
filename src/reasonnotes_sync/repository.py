@@ -1,6 +1,7 @@
 """Durable immutable revision storage and generated-state reconciliation."""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ from uuid import UUID
 
 from .envelope import EnvelopeError, Revision
 from .graph import RevisionGraph
+from .delivery import DeliveryLedger, EventKind
 
 
 class ConflictRequired(RuntimeError):
@@ -37,8 +39,16 @@ class ReconcileReport:
 class Repository:
     """A repository whose immutable history is the source of truth."""
 
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        local_device: str | None = None,
+        target_device: str | None = None,
+    ):
         self.root = root
+        self.local_device = local_device
+        self.target_device = target_device
         self.history_dir = root / "history"
         self.state_dir = root / "state"
         self.notes_dir = root / "notes"
@@ -46,8 +56,16 @@ class Repository:
         self.quarantine_dir = root / "quarantine"
 
     @classmethod
-    def open(cls, root: Path) -> "Repository":
-        repository = cls(Path(root))
+    def open(
+        cls,
+        root: Path,
+        *,
+        local_device: str | None = None,
+        target_device: str | None = None,
+    ) -> "Repository":
+        repository = cls(
+            Path(root), local_device=local_device, target_device=target_device
+        )
         repository._ensure_layout()
         repository.reconcile()
         return repository
@@ -328,6 +346,15 @@ class Repository:
         self.reconcile()
         if not created:
             return ImportOutcome("duplicate", revision.revision_id, "revision already imported")
+        if self.local_device is not None:
+            safe_source = Path(source_name).name.replace("\n", "_").replace("\r", "_")
+            DeliveryLedger(self.root).record_event(
+                EventKind.REASONNOTES_IMPORTED,
+                revision.revision_id,
+                self.local_device,
+                datetime.now(timezone.utc).replace(microsecond=0),
+                f"source={safe_source}",
+            )
         return ImportOutcome("imported", revision.revision_id, "revision imported durably")
 
     def create_revision(
@@ -359,6 +386,10 @@ class Repository:
     def _store_local_revision(self, revision: Revision) -> None:
         self._write_history(revision)
         self.reconcile()
+        if self.target_device is not None:
+            DeliveryLedger(self.root).register_local(
+                revision.revision_id, self.target_device
+            )
 
     def store_resolution(self, revision: Revision) -> None:
         status = self.graph().status(revision.note_id)

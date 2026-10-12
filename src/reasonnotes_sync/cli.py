@@ -8,6 +8,7 @@ import sys
 from uuid import UUID
 
 from .conflicts import ConflictSelectionError, list_conflict, resolve_conflict
+from .delivery import DeliveryLedger, DeliveryLedgerError
 from .envelope import EnvelopeError
 from .repository import ConflictRequired, Repository
 
@@ -53,6 +54,16 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("--revision-id")
     resolve.add_argument("--device-id", required=True)
     resolve.add_argument("--modified-utc", required=True, type=_utc_timestamp)
+
+    outbox = commands.add_parser("outbox")
+    outbox.add_argument("--target-device", required=True)
+
+    retry = commands.add_parser("retry-unconfirmed")
+    retry.add_argument("--target-device", required=True)
+
+    force = commands.add_parser("force-retry")
+    force.add_argument("--target-device", required=True)
+    force.add_argument("--revision-id", required=True)
     return parser
 
 
@@ -122,6 +133,47 @@ def _resolve(repository: Repository, arguments, stdout) -> int:
     return 0
 
 
+def _outbox(repository: Repository, target_device: str, stdout) -> int:
+    ledger = DeliveryLedger(repository.root)
+    for entry in ledger.entries(target_device):
+        last = (
+            entry.last_requested_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if entry.last_requested_utc is not None
+            else "-"
+        )
+        print(
+            f"revision={entry.revision_id} target={entry.target_device} "
+            f"state={entry.state.value} attempts={entry.attempts} last-requested={last}",
+            file=stdout,
+        )
+    for event in ledger.events():
+        observed = event.observed_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(
+            f"event={event.kind.value} revision={event.revision_id} "
+            f"observer={event.observer_device} observed={observed} "
+            f"detail={json.dumps(event.detail)}",
+            file=stdout,
+        )
+    return 0
+
+
+def _eligible(repository: Repository, arguments, mode: str, stdout) -> int:
+    ledger = DeliveryLedger(repository.root)
+    if mode == "force-retry":
+        revision_ids = ledger.eligible(
+            arguments.target_device, force_ids=(arguments.revision_id,)
+        )
+    else:
+        revision_ids = ledger.eligible(
+            arguments.target_device, retry_unconfirmed=True
+        )
+    if not revision_ids:
+        print(f"eligible=- mode={mode}", file=stdout)
+    for revision_id in revision_ids:
+        print(f"eligible={revision_id} mode={mode}", file=stdout)
+    return 0
+
+
 def main(argv=None, *, stdout=None, stderr=None) -> int:
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
@@ -134,7 +186,18 @@ def main(argv=None, *, stdout=None, stderr=None) -> int:
             return _conflicts(repository, arguments.note_id, stdout)
         if arguments.command == "resolve":
             return _resolve(repository, arguments, stdout)
-    except (ConflictSelectionError, ConflictRequired, EnvelopeError) as error:
+        if arguments.command == "outbox":
+            return _outbox(repository, arguments.target_device, stdout)
+        if arguments.command == "retry-unconfirmed":
+            return _eligible(repository, arguments, "retry-unconfirmed", stdout)
+        if arguments.command == "force-retry":
+            return _eligible(repository, arguments, "force-retry", stdout)
+    except (
+        ConflictSelectionError,
+        ConflictRequired,
+        DeliveryLedgerError,
+        EnvelopeError,
+    ) as error:
         print(f"error={json.dumps(str(error))}", file=stderr)
         return 2
     raise AssertionError("unhandled command")

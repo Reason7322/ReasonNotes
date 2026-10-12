@@ -6,6 +6,7 @@ import unittest
 from uuid import UUID
 
 from reasonnotes_sync.cli import main
+from reasonnotes_sync.delivery import DeliveryLedger, EventKind
 from reasonnotes_sync.envelope import Revision
 from reasonnotes_sync.repository import Repository
 
@@ -150,6 +151,48 @@ class CliTests(unittest.TestCase):
             self.assertEqual(
                 resolution.parents, tuple(sorted((first.revision_id, second.revision_id)))
             )
+
+    def test_outbox_retry_and_event_output_keep_evidence_distinct(self):
+        ledger = DeliveryLedger(self.root)
+        ledger.register_local(self.linux.revision_id, "android")
+        ledger.record_requested(self.linux.revision_id, "android", time_at(3), "linux")
+        ledger.record_event(
+            EventKind.KDECONNECT_TRANSFER_COMPLETE,
+            self.linux.revision_id,
+            "android",
+            time_at(4),
+            "KDE Connect receiver completed",
+        )
+        ledger.record_event(
+            EventKind.REASONNOTES_IMPORTED,
+            self.linux.revision_id,
+            "android",
+            time_at(5),
+            "ReasonNotes durable import",
+        )
+
+        outbox = self.run_cli("outbox", "--target-device", "android")
+        retry = self.run_cli("retry-unconfirmed", "--target-device", "android")
+        forced = self.run_cli(
+            "force-retry",
+            "--target-device",
+            "android",
+            "--revision-id",
+            self.linux.revision_id,
+        )
+
+        self.assertIn("state=transfer-requested attempts=1", outbox)
+        self.assertIn("event=transfer-requested", outbox)
+        self.assertIn("event=kdeconnect-transfer-complete", outbox)
+        self.assertIn("event=reasonnotes-imported", outbox)
+        self.assertIn(
+            f"eligible={self.linux.revision_id} mode=retry-unconfirmed", retry
+        )
+        self.assertIn(f"eligible={self.linux.revision_id} mode=force-retry", forced)
+        self.assertEqual(
+            DeliveryLedger(self.root).entry(self.linux.revision_id, "android").attempts,
+            1,
+        )
 
 
 if __name__ == "__main__":
