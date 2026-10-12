@@ -353,6 +353,17 @@ class Repository:
             deleted=deleted,
             body=body,
         )
+        self._store_local_revision(revision)
+        return revision
+
+    def _store_local_revision(self, revision: Revision) -> None:
         self._write_history(revision)
         self.reconcile()
-        return revision
+
+    def store_resolution(self, revision: Revision) -> None:
+        status = self.graph().status(revision.note_id)
+        if not status.conflicted:
+            raise ConflictRequired("note no longer has a conflict")
+        if revision.parents != status.head_ids:
+            raise ConflictRequired("resolution does not acknowledge every current head")
+        self._store_local_revision(revision)
