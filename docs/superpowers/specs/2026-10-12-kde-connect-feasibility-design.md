@@ -49,37 +49,40 @@ Each transferred artifact is an immutable, readable Markdown revision with a str
 - format version;
 - note UUID;
 - revision SHA-256;
-- zero or one parent revision SHA-256;
+- zero or more unique parent revision SHA-256 values, sorted for canonical serialization;
 - originating device ID;
 - UTC modification timestamp;
 - deletion flag;
 - body SHA-256.
 
-The revision filename contains the note and revision IDs but is never trusted for identity. Import validates the front matter, UUIDs, timestamps, revision hash, and body hash before changing local state. A partial or corrupt file therefore remains rejected even if KDE Connect created its final filename before finishing the payload.
+The revision SHA-256 covers the canonical metadata, sorted parent set, and body. The revision filename contains the note and revision IDs but is never trusted for identity. Import validates the front matter, UUIDs, timestamps, revision hash, and body hash before changing local state. A partial or corrupt file therefore remains rejected even if KDE Connect created its final filename before finishing the payload.
 
 Local state consists of:
 
 - a user-readable `notes/` working view;
 - an immutable `history/` archive of every validated revision and tombstone;
-- a persistent `outbox/` of revisions available for retry;
+- a persistent outbox delivery ledger that references revisions in history rather than owning their sole recoverable copies;
 - an atomic state index recording the current heads and seen revisions;
 - a visible `conflicts/` area and conflict report.
 
-State-index writes use write-then-rename in the same directory. Existing history is never deleted as part of import. The prototype may compact nothing.
+Immutable history is the source of truth. A durable update writes and syncs the validated history artifact before atomically replacing the state index, then atomically rematerializes the working view. On startup the application can rebuild the revision graph, state index, conflict records, and working view from history. An interruption at any step therefore cannot leave an index or visible note that refers to missing history. Existing history is never deleted as part of import. The prototype performs no compaction.
 
 ### Merge rules
 
-The importer applies these deterministic rules:
+The importer derives the maximal heads of each complete revision graph: a head is a revision that is not an ancestor of another complete revision. It applies these deterministic rules:
 
 1. A known revision ID is a duplicate and produces no state change.
-2. A revision whose parent is the current head is a fast-forward.
-3. A revision whose current head is its recorded ancestor is also a fast-forward after missing intermediate revisions have been imported.
-4. Two revisions descending from the same older revision are a conflict. Both immutable revisions are preserved, the existing working note is not silently replaced, and a conflict copy/report is created.
-5. A tombstone is a revision, not physical history deletion. It fast-forwards only under the same ancestry rules.
-6. A deletion concurrent with an edit is a conflict and preserves the edited content.
-7. An unknown-parent revision is retained in history as pending until its ancestry arrives; it does not replace the working note.
+2. A note with one complete maximal head is converged. Its working view follows that head, including a tombstone.
+3. A note with more than one complete maximal head is conflicted. Every head remains available with its originating-device label and readable body preview. The application does not replace the prior working note silently.
+4. A revision with any unknown parent is retained in history as pending. It cannot become a head or change the working view until every parent arrives.
+5. A concurrent deletion and edit produce separate maximal heads and therefore a conflict; edited content remains recoverable.
+6. Duplicate or out-of-order ancestors delivered after a resolution cannot become heads because they are already ancestors of the resolution revision.
 
-This is revision exchange, not a text merge algorithm. Manual conflict resolution creates a new revision with an explicit chosen parent and preserves the conflicting inputs.
+Conflict resolution is an explicit user operation. The eventual desktop interface presents Linux and Android versions side by side; Android presents them vertically. Both show device labels and readable previews. The choices are **Keep Linux version**, **Keep Android version**, and **Skip for now**. Skipping leaves the graph and conflict unchanged.
+
+Choosing a version creates a new resolution revision whose body and deletion state exactly match the selected head and whose parent set contains every maximal head observed in that conflict. The unselected revisions remain in immutable history. Once both devices import the resolution revision and its parents, it becomes the single maximal head and both working views converge. A resolution made from stale knowledge acknowledges only the heads it saw; any concurrent unacknowledged head remains maximal and the note correctly stays conflicted.
+
+Milestone 1 implements this deterministic selection through the Python CLI and fixtures. It does not build the graphical conflict dialog or a general-purpose text merge engine.
 
 ### Linux adapter
 
@@ -91,7 +94,8 @@ The Linux probe will:
 - import only files with the ReasonNotes format marker;
 - rescan a configured inbox on startup to recover signals missed while the app was stopped;
 - expose a one-shot scan command for deterministic testing;
-- keep revisions in the outbox because KDE Connect delivery is not an application-level acknowledgement.
+- record transfer requests in a per-target delivery ledger without calling them completed or imported;
+- keep every revision in immutable history even when it is no longer eligible for an automatic resend.
 
 The adapter will not rewrite KDE Connect configuration. The live test can use the existing Linux Downloads directory as the configured inbox while filtering strictly for valid ReasonNotes envelopes.
 
@@ -103,9 +107,10 @@ A minimal native Android application will test platform integration without buil
 - persisted read/write URI permission;
 - a scan/import report when the activity starts or resumes;
 - creation of one test Markdown revision;
-- a user-triggered `Sync now` action that shares pending revisions with KDE Connect using a content URI and temporary read permission;
+- a user-triggered `Sync now` action that first scans/imports the granted exchange directory and then shares eligible local revisions with KDE Connect using content URIs and temporary read permission;
 - an explicit KDE Connect share activity target and the known `deviceId`, with a generic Android chooser fallback if direct targeting is rejected;
-- clear status showing that KDE Connect delivery is requested but not remotely acknowledged.
+- a minimal current-note/status view capable of demonstrating non-conflicting convergence after import;
+- clear status showing transfer requested, KDE Connect completion when externally observable, and local import as three separate events.
 
 The probe will not claim continuous background synchronization. Android restricts background activity launches, and KDE Connect's public integration point is an activity. Foreground, user-initiated sharing is the expected best case. Directory scanning on application start/resume satisfies “no manual file-manager operation per transfer” if the one-time grants work reliably.
 
@@ -115,9 +120,13 @@ The app will use a minimal native project rather than Flutter so Milestone 1 tes
 
 ### Offline changes
 
-Each device can create revisions without connectivity. Revisions remain in its persistent outbox. A later user-initiated sync sends all unacknowledged revisions; repeated sends are safe because imports are idempotent.
+Each device can create revisions without connectivity. New revisions start as `pending` in a per-target delivery ledger and remain in immutable history. A sync action makes at most one request per eligible revision and target during that run. If the target is known to be unavailable, no request is recorded and the revision remains pending.
 
-KDE Connect does not provide ReasonNotes-level receipt acknowledgements. Milestone 1 therefore retains sent revisions and labels delivery as requested, not confirmed. A future protocol can exchange acknowledgement or inventory envelopes, but that is outside this probe unless the lack of acknowledgement alone makes the workflow unusable.
+After the KDE Connect IPC call or Android activity launch succeeds, the ledger records `transfer-requested`, the attempt count, and the request time. This means only that KDE Connect accepted the request. The normal sync path does not resend `transfer-requested` entries indefinitely. The user may explicitly request a retry of unconfirmed entries; each retry makes one additional request, with three requests per revision and target before the entry becomes `needs-attention`. A targeted force-retry remains available and is always explicit and observable.
+
+`kdeconnect-transfer-complete` is recorded only where completion is actually observed: for example, the receiving Linux KDE Connect `shareReceived(url)` signal or a labeled physical-test observation of KDE Connect Android's completed-transfer notification. `reasonnotes-imported` is recorded only by the receiving ReasonNotes instance after validation and durable import. These are separate logs on separate devices unless a future acknowledgement is exchanged.
+
+Milestone 1 does not add a ReasonNotes acknowledgement protocol. Consequently, a sender may retain `transfer-requested` entries after the receiver has imported them. The revision remains recoverable in history, but default sync does not repeatedly transfer it. Physical testing will determine whether the resulting explicit retry and unconfirmed status are acceptable or whether Milestone 2 needs small receipt/inventory envelopes.
 
 ### Duplicate delivery
 
@@ -129,7 +138,19 @@ An importer never trusts file appearance alone. It validates complete metadata a
 
 ### Conflicting edits and deletion
 
-Revision ancestry detects divergent edits. Neither side wins by timestamp. Concurrent edits, or an edit concurrent with a tombstone, create a visible conflict while preserving every revision.
+Revision ancestry detects divergent edits. Neither side wins by timestamp. Concurrent edits, or an edit concurrent with a tombstone, create a visible conflict while preserving every revision. A keep selection produces a multi-parent resolution revision; skip produces no revision. Importing that resolution collapses only the heads it explicitly acknowledges.
+
+## Complete synchronization sequence
+
+For the feasibility prototype, synchronization is a scan-then-send action on each platform rather than a one-way push:
+
+1. Linux `sync` scans its configured inbox, validates and imports incoming revisions, reports conflicts, and requests transfer of eligible Linux revisions to Android.
+2. Android `Sync now` scans the persisted exchange directory, validates and imports Linux revisions, reports its current state, and requests transfer of eligible Android revisions to Linux through KDE Connect.
+3. While the Linux listener is running, KDE Connect's successful incoming-transfer signal triggers Linux import. If it was not running, the next Linux `sync` recovers the file through its inbox scan.
+4. With only non-conflicting changes, one Linux sync followed by one Android sync lets Android import the Linux changes and Linux import the Android changes. Both working views then have the same single heads.
+5. With a conflict, both competing revisions must first reach one resolver. The Milestone 1 CLI shows both previews and device labels. **Skip for now** changes nothing. A keep choice creates a resolution revision acknowledging every observed head. That revision must then be sent to the other device and imported there before convergence is complete.
+
+If either device is offline, the online device retains pending or unconfirmed delivery state and immutable history. It does not report bidirectional synchronization complete. The user retries after reachability returns. A conflict can require an additional sync round after resolution. These extra actions are explicit Milestone 1 limitations; a one-way transfer is never reported as completed bidirectional synchronization.
 
 ## Verification strategy
 
@@ -143,9 +164,17 @@ The sync core will use test-first development for:
 - sequential fast-forward revisions;
 - out-of-order ancestry arrival;
 - divergent edit conflicts;
+- user selection of either conflicting device version;
+- skip preserving an unresolved conflict;
+- multi-parent resolution convergence on two devices;
+- stale resolution leaving an unacknowledged concurrent head conflicted;
+- late duplicate/ancestor delivery not resurrecting a resolved conflict;
 - edit-versus-delete conflicts;
+- resolving an edit-versus-delete conflict in either direction;
 - tombstone fast-forward;
-- persistence and atomic state replacement;
+- interrupted history/index/working-view updates followed by reconciliation;
+- bounded delivery attempts and explicit force-retry;
+- distinct transfer-requested, KDE Connect completion, and ReasonNotes import records;
 - two isolated device directories making offline edits and later exchanging all artifacts.
 
 The Linux adapter will test command construction, device-unavailable behavior, URL/path filtering, and rescan recovery without sending live files during the automated suite.
@@ -158,13 +187,16 @@ The user will be given a short, labeled procedure using only isolated test notes
 
 1. Install the probe APK and grant its dedicated exchange directory.
 2. Configure KDE Connect Android's share destination to the same dedicated directory once.
-3. Android to Linux: create a probe revision, tap `Sync now`, observe whether KDE Connect sends directly or presents additional UI, and verify Linux imports the exact revision.
-4. Linux to Android: send a probe revision, reopen/resume the Android probe without using a file manager, and verify discovery/import and hashes.
-5. Repeat the same revision to verify deduplication.
-6. Edit the same note offline on both sides, exchange both revisions, and verify a visible non-destructive conflict.
-7. Exercise a tombstone against a concurrent edit.
-8. Interrupt one larger transfer if practical and verify no partial revision enters the working view.
-9. Attempt Android send while the computer is unreachable and record the interaction and retained outbox state.
+3. Create independent non-conflicting revisions, run Linux `sync`, then Android `Sync now`; verify Android imports Linux changes and Linux imports Android changes without file-manager operations.
+4. Verify the two devices show the same current revision IDs and note bodies after the Linux listener imports the return transfer.
+5. Repeat the same revision under an auto-renamed transport filename and verify deduplication.
+6. Edit the same note offline on both sides, exchange both revisions, and verify both device-labeled contents remain available without a selected winner.
+7. Choose each keep option in separate resettable fixtures. Verify the resulting multi-parent resolution converges on both devices and the superseded revision remains in history. Verify skip changes nothing.
+8. Exercise an edit-versus-tombstone conflict and resolve it in each direction.
+9. Deliver a late ancestor and duplicate after resolution; verify neither resurrects the conflict or changes the working view.
+10. Interrupt one larger transfer if practical and verify no partial revision enters the working view.
+11. Attempt Android send while Linux is unreachable; verify no false import/completion claim, bounded retry state, and retained history.
+12. Record every required action and visible KDE Connect transition so the final recommendation reflects the actual interaction cost.
 
 Every result will be labeled as source-inspected, automated, Linux-live, user-observed Android, or still pending.
 
@@ -176,7 +208,8 @@ Recommend KDE Connect when all of the following hold on the actual phone:
 - incoming revisions are discovered by opening/resuming ReasonNotes, without per-file file-manager import;
 - `Sync now` initiates outgoing transfer with no repeated file selection and no more than a brief acceptable KDE Connect foreground transition;
 - offline retry and duplicate delivery do not lose or overwrite notes;
-- conflicts and deletion races remain visible and recoverable;
+- conflicts and deletion races offer explicit keep-Linux, keep-Android, and skip choices, with superseded revisions retained;
+- the tested sequence leaves both devices on the same revision IDs and note bodies before it is called converged;
 - the remaining lack of immediate remote acknowledgement is acceptable for a manual sync action.
 
 Recommend Syncthing when dependable folder mirroring is available through a maintained Android client and its companion-app/background requirements are preferable to KDE Connect's repeated foreground interaction.
