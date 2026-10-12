@@ -10,7 +10,9 @@ from uuid import UUID
 from .conflicts import ConflictSelectionError, list_conflict, resolve_conflict
 from .delivery import DeliveryLedger, DeliveryLedgerError
 from .envelope import EnvelopeError
+from .kdeconnect_linux import KdeConnectLinux
 from .repository import ConflictRequired, Repository
+from .sync import scan_inbox, sync_linux
 
 
 def _uuid(value: str) -> UUID:
@@ -64,6 +66,23 @@ def _parser() -> argparse.ArgumentParser:
     force = commands.add_parser("force-retry")
     force.add_argument("--target-device", required=True)
     force.add_argument("--revision-id", required=True)
+
+    scan = commands.add_parser("scan")
+    scan.add_argument("--inbox", required=True, type=Path)
+    scan.add_argument("--local-device", default="linux")
+
+    sync = commands.add_parser("sync")
+    sync.add_argument("--inbox", required=True, type=Path)
+    sync.add_argument("--local-device", default="linux")
+    sync.add_argument("--target-device", default="android")
+    sync.add_argument("--device-id", required=True)
+    sync.add_argument("--retry-unconfirmed", action="store_true")
+    sync.add_argument("--force-revision-id", action="append", default=[])
+
+    watch = commands.add_parser("watch")
+    watch.add_argument("--local-device", default="linux")
+    watch.add_argument("--target-device", default="android")
+    watch.add_argument("--device-id", required=True)
     return parser
 
 
@@ -174,11 +193,86 @@ def _eligible(repository: Repository, arguments, mode: str, stdout) -> int:
     return 0
 
 
-def main(argv=None, *, stdout=None, stderr=None) -> int:
+def _print_scan(report, stdout) -> None:
+    for revision_id in report.imported:
+        print(f"imported={revision_id}", file=stdout)
+    for revision_id in report.duplicates:
+        print(f"duplicate={revision_id}", file=stdout)
+    for source in report.quarantined:
+        print(f"quarantined={json.dumps(source)}", file=stdout)
+    for note_id in report.conflicts:
+        print(f"conflict={note_id}", file=stdout)
+    for error in report.errors:
+        print(f"error={json.dumps(error)}", file=stdout)
+
+
+def _sync(repository: Repository, arguments, stdout, adapter_factory) -> int:
+    adapter = adapter_factory(arguments.device_id)
+    report = sync_linux(
+        repository,
+        arguments.inbox,
+        adapter,
+        retry_unconfirmed=arguments.retry_unconfirmed,
+        force_ids=tuple(arguments.force_revision_id),
+    )
+    for revision_id in report.imports:
+        print(f"imported={revision_id}", file=stdout)
+    for note_id in report.conflicts:
+        print(f"conflict={note_id}", file=stdout)
+    for revision_id in report.pending:
+        print(f"pending={revision_id}", file=stdout)
+    for revision_id in report.requested:
+        print(f"transfer-requested={revision_id}", file=stdout)
+    for error in report.errors:
+        print(f"error={json.dumps(error)}", file=stdout)
+    return 0 if not report.errors else 1
+
+
+def _watch(repository: Repository, arguments, stdin, stdout, adapter_factory) -> int:
+    adapter = adapter_factory(arguments.device_id)
+    ledger = DeliveryLedger(repository.root)
+    for path in adapter.received_paths(stdin):
+        try:
+            data = path.read_bytes()
+            from .envelope import Revision
+
+            revision = Revision.parse(data)
+            observed = datetime.now(timezone.utc).replace(microsecond=0)
+            ledger.record_event(
+                "kdeconnect-transfer-complete",
+                revision.revision_id,
+                arguments.local_device,
+                observed,
+                f"received-path={path.name}",
+            )
+            outcome = repository.import_bytes(data, path.name)
+            print(
+                f"kdeconnect-transfer-complete={revision.revision_id} "
+                f"reasonnotes-{outcome.kind}={outcome.revision_id or '-'}",
+                file=stdout,
+            )
+        except (OSError, EnvelopeError, DeliveryLedgerError) as error:
+            print(f"error={json.dumps(f'{path}: {error}')}", file=stdout)
+    return 0
+
+
+def main(
+    argv=None,
+    *,
+    stdin=None,
+    stdout=None,
+    stderr=None,
+    adapter_factory=KdeConnectLinux,
+) -> int:
+    stdin = sys.stdin if stdin is None else stdin
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
     arguments = _parser().parse_args(argv)
-    repository = Repository.open(arguments.root)
+    repository = Repository.open(
+        arguments.root,
+        local_device=getattr(arguments, "local_device", None),
+        target_device=getattr(arguments, "target_device", None),
+    )
     try:
         if arguments.command == "status":
             return _status(repository, arguments.note_id, stdout)
@@ -192,6 +286,14 @@ def main(argv=None, *, stdout=None, stderr=None) -> int:
             return _eligible(repository, arguments, "retry-unconfirmed", stdout)
         if arguments.command == "force-retry":
             return _eligible(repository, arguments, "force-retry", stdout)
+        if arguments.command == "scan":
+            report = scan_inbox(repository, arguments.inbox, arguments.local_device)
+            _print_scan(report, stdout)
+            return 0 if not report.errors else 1
+        if arguments.command == "sync":
+            return _sync(repository, arguments, stdout, adapter_factory)
+        if arguments.command == "watch":
+            return _watch(repository, arguments, stdin, stdout, adapter_factory)
     except (
         ConflictSelectionError,
         ConflictRequired,
