@@ -8,10 +8,35 @@ from uuid import UUID
 from reasonnotes_sync.cli import main
 from reasonnotes_sync.delivery import DeliveryLedger, EventKind
 from reasonnotes_sync.envelope import Revision
+from reasonnotes_sync.kdeconnect_linux import TransferRequest
+from reasonnotes_sync.receipt import ReceiptEnvelope, ReceiptStore
 from reasonnotes_sync.repository import Repository
 
 
 NOTE_ID = UUID("dddddddd-4444-4444-8444-dddddddddddd")
+REMOTE_NOTE_ID = UUID("eeeeeeee-5555-4555-8555-eeeeeeeeeeee")
+
+
+class FakeAdapter:
+    device_id = "android-kde-device"
+
+    def __init__(self):
+        self.paths = []
+
+    def reachable(self):
+        return True
+
+    def request_transfer(self, path):
+        self.paths.append(Path(path))
+        return TransferRequest(True, False, "request accepted")
+
+
+class FakeWatchAdapter:
+    def __init__(self, paths):
+        self.paths = tuple(paths)
+
+    def received_paths(self, _lines):
+        return iter(self.paths)
 
 
 def time_at(second):
@@ -197,6 +222,166 @@ class CliTests(unittest.TestCase):
         self.assertEqual(
             DeliveryLedger(self.root).entry(self.linux.revision_id, "android").attempts,
             1,
+        )
+
+    def test_scan_sync_and_outbox_report_receipts_separately(self):
+        inbox = self.root / "transport-inbox"
+        inbox.mkdir()
+        remote = Revision.create(
+            REMOTE_NOTE_ID,
+            (),
+            "android",
+            time_at(3),
+            False,
+            "remote body",
+        )
+        (inbox / "remote.md").write_bytes(remote.serialize())
+
+        scan = self.run_cli(
+            "scan", "--inbox", str(inbox), "--local-device", "linux"
+        )
+        receipt_id = ReceiptStore(self.root).entries("android")[0].receipt_id
+        self.assertIn(f"imported={remote.revision_id}", scan)
+        self.assertIn(f"receipt-queued={receipt_id}", scan)
+
+        output = StringIO()
+        adapter = FakeAdapter()
+        result = main(
+            [
+                "--root",
+                str(self.root),
+                "sync",
+                "--inbox",
+                str(inbox),
+                "--local-device",
+                "linux",
+                "--target-device",
+                "android",
+                "--device-id",
+                adapter.device_id,
+            ],
+            stdout=output,
+            adapter_factory=lambda _device_id: adapter,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertIn(f"receipt-transfer-requested={receipt_id}", output.getvalue())
+        self.assertEqual(adapter.paths, [ReceiptStore(self.root).outbox_path(receipt_id)])
+        outbox = self.run_cli("outbox", "--target-device", "android")
+        self.assertIn(
+            f"receipt={receipt_id} revision={remote.revision_id} "
+            "target=android state=transfer-requested attempts=1",
+            outbox,
+        )
+
+    def test_force_retry_accepts_receipt_identity(self):
+        remote = Revision.create(
+            REMOTE_NOTE_ID,
+            (),
+            "android",
+            time_at(3),
+            False,
+            "remote body",
+        )
+        receipt = ReceiptStore(self.root).queue(remote, "linux", time_at(4))
+        store = ReceiptStore(self.root)
+        for second in (5, 6, 7):
+            store.record_requested(receipt.receipt_id, "android", time_at(second))
+
+        output = self.run_cli(
+            "force-retry",
+            "--target-device",
+            "android",
+            "--receipt-id",
+            receipt.receipt_id,
+        )
+
+        self.assertIn(
+            f"eligible-receipt={receipt.receipt_id} mode=force-retry", output
+        )
+
+    def test_watch_classifies_receipt_and_confirms_requested_revision(self):
+        ledger = DeliveryLedger(self.root)
+        ledger.register_local(self.linux.revision_id, "android")
+        ledger.record_requested(self.linux.revision_id, "android", time_at(3))
+        receipt = ReceiptEnvelope.create(
+            self.linux.note_id,
+            self.linux.revision_id,
+            "android",
+            "linux",
+            time_at(4),
+        )
+        path = self.root / "incoming-receipt.md"
+        path.write_bytes(receipt.serialize())
+        output = StringIO()
+
+        result = main(
+            [
+                "--root",
+                str(self.root),
+                "watch",
+                "--local-device",
+                "linux",
+                "--target-device",
+                "android",
+                "--device-id",
+                "android-kde-device",
+            ],
+            stdin=StringIO(),
+            stdout=output,
+            adapter_factory=lambda _device_id: FakeWatchAdapter((path,)),
+        )
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            f"kdeconnect-transfer-complete={receipt.receipt_id} "
+            f"reasonnotes-confirmed={self.linux.revision_id}",
+            output.getvalue(),
+        )
+        self.assertEqual(
+            DeliveryLedger(self.root).entry(self.linux.revision_id, "android").state.value,
+            "confirmed",
+        )
+
+    def test_watch_startup_recovers_stored_receipt_without_new_path(self):
+        ledger = DeliveryLedger(self.root)
+        ledger.register_local(self.linux.revision_id, "android")
+        ledger.record_requested(self.linux.revision_id, "android", time_at(3))
+        receipt = ReceiptEnvelope.create(
+            self.linux.note_id,
+            self.linux.revision_id,
+            "android",
+            "linux",
+            time_at(4),
+        )
+        store = ReceiptStore(self.root)
+        store.inbox_path(receipt.receipt_id).write_bytes(receipt.serialize())
+        output = StringIO()
+
+        result = main(
+            [
+                "--root",
+                str(self.root),
+                "watch",
+                "--local-device",
+                "linux",
+                "--target-device",
+                "android",
+                "--device-id",
+                "android-kde-device",
+            ],
+            stdin=StringIO(),
+            stdout=output,
+            adapter_factory=lambda _device_id: FakeWatchAdapter(()),
+        )
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            f"recovered-confirmed={self.linux.revision_id}", output.getvalue()
+        )
+        self.assertEqual(
+            DeliveryLedger(self.root).entry(self.linux.revision_id, "android").state.value,
+            "confirmed",
         )
 
 

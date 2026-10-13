@@ -26,12 +26,14 @@ public final class MainActivity extends Activity {
     private static final String KDE_DEVICE_ID = "254997f28f11499d80928fe8a109749e";
     private ProbeRepository repository;
     private DeliveryLedger ledger;
+    private ReceiptStore receiptStore;
     private TextView status;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         repository = ProbeRepository.open(new File(getFilesDir(), "probe-repository"));
         ledger = new DeliveryLedger(new File(getFilesDir(), "delivery-state"), 3);
+        receiptStore = new ReceiptStore(repository.root(), 3);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         int basePadding = 24;
@@ -73,8 +75,12 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (repository != null && ExchangeDirectory.savedTree(this) != null) {
-            ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(this, repository);
-            render("Resume scan: imported=" + report.imported() + " rejected=" + report.rejected());
+            ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
+                    this, repository, ledger, receiptStore, "android");
+            render("Resume scan: imported=" + report.imported()
+                    + " confirmed=" + report.confirmed()
+                    + " receipt-queued=" + report.receiptsQueued()
+                    + " rejected=" + report.rejected());
         }
     }
 
@@ -113,10 +119,13 @@ public final class MainActivity extends Activity {
     }
 
     private void sync(boolean retry) {
-        ExchangeDirectory.ScanReport scan = ExchangeDirectory.scan(this, repository);
+        ExchangeDirectory.ScanReport scan = ExchangeDirectory.scan(
+                this, repository, ledger, receiptStore, "android");
         List<String> eligible = ledger.eligible("linux", retry, List.of());
+        List<String> eligibleReceipts = receiptStore.eligible("linux", retry, List.of());
         ArrayList<Uri> uris = new ArrayList<>();
         ArrayList<String> ids = new ArrayList<>();
+        ArrayList<String> receiptIds = new ArrayList<>();
         for (String id : eligible) {
             RevisionEnvelope revision = repository.revision(id);
             if (revision == null) continue;
@@ -124,16 +133,25 @@ public final class MainActivity extends Activity {
             uris.add(FileProvider.getUriForFile(this, getPackageName() + ".files", file));
             ids.add(id);
         }
+        for (String id : eligibleReceipts) {
+            File file = receiptStore.outboxFile(id);
+            uris.add(FileProvider.getUriForFile(this, getPackageName() + ".files", file));
+            receiptIds.add(id);
+        }
         if (uris.isEmpty()) {
-            render("Scan imported=" + scan.imported() + "; no eligible local revisions.");
+            render("Scan imported=" + scan.imported()
+                    + " confirmed=" + scan.confirmed()
+                    + "; no eligible revisions or receipts.");
             return;
         }
         KdeConnectSender.RequestOutcome outcome = KdeConnectSender.request(this, uris, KDE_DEVICE_ID);
         if (outcome.requested()) {
             Instant observed = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
             for (String id : ids) ledger.recordRequested(id, "linux", observed);
+            for (String id : receiptIds) receiptStore.recordRequested(id, "linux", observed);
         }
         render("Scan imported=" + scan.imported() + "; transfer-requested=" + ids
+                + "; receipt-transfer-requested=" + receiptIds
                 + "; route=" + outcome.detail());
     }
 
@@ -149,6 +167,11 @@ public final class MainActivity extends Activity {
         value.append("\nEvents (distinct evidence):\n");
         for (DeliveryLedger.Event event : ledger.events()) {
             value.append(event.kind()).append(" ").append(event.revisionId()).append("\n");
+        }
+        value.append("\nReceipt outbox:\n");
+        for (ReceiptStore.DeliveryEntry entry : receiptStore.entries("linux")) {
+            value.append(entry.state()).append(" ").append(entry.receiptId())
+                    .append(" revision ").append(entry.revisionId()).append("\n");
         }
         status.setText(value.toString());
     }

@@ -1,8 +1,10 @@
 """Bounded delivery intent tracking and non-equivalent event evidence."""
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,12 +20,14 @@ class DeliveryState(StrEnum):
     PENDING = "pending"
     TRANSFER_REQUESTED = "transfer-requested"
     NEEDS_ATTENTION = "needs-attention"
+    CONFIRMED = "confirmed"
 
 
 class EventKind(StrEnum):
     TRANSFER_REQUESTED = "transfer-requested"
     KDECONNECT_TRANSFER_COMPLETE = "kdeconnect-transfer-complete"
     REASONNOTES_IMPORTED = "reasonnotes-imported"
+    REASONNOTES_CONFIRMED = "reasonnotes-confirmed"
 
 
 class DeliveryLedgerError(ValueError):
@@ -37,6 +41,8 @@ class DeliveryEntry:
     state: DeliveryState
     attempts: int
     last_requested_utc: datetime | None
+    receipt_id: str | None = None
+    confirmed_utc: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +98,18 @@ class DeliveryLedger:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.delivery_path = self.state_dir / "delivery.json"
         self.events_path = self.state_dir / "events.jsonl"
+        self.delivery_lock_path = self.state_dir / "delivery.lock"
+        self.events_lock_path = self.state_dir / "events.lock"
         self.max_requests = max_requests
+
+    @contextmanager
+    def _lock(self, path: Path):
+        with path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:
@@ -122,7 +139,10 @@ class DeliveryLedger:
             return {}
         try:
             document = json.loads(self.delivery_path.read_text(encoding="utf-8"))
-            if document.get("format") != 1 or not isinstance(document.get("entries"), list):
+            format_version = document.get("format")
+            if format_version not in (1, 2) or not isinstance(
+                document.get("entries"), list
+            ):
                 raise DeliveryLedgerError("unsupported delivery ledger format")
             entries: dict[tuple[str, str], DeliveryEntry] = {}
             for raw in document["entries"]:
@@ -134,10 +154,33 @@ class DeliveryLedger:
                     raise DeliveryLedgerError("invalid request attempt count")
                 raw_last = raw["last_requested_utc"]
                 last = None if raw_last is None else _parse_timestamp(raw_last)
+                raw_receipt = raw.get("receipt_id") if format_version == 2 else None
+                receipt_id = (
+                    None if raw_receipt is None else _validate_hash(raw_receipt)
+                )
+                raw_confirmed = (
+                    raw.get("confirmed_utc") if format_version == 2 else None
+                )
+                confirmed = (
+                    None if raw_confirmed is None else _parse_timestamp(raw_confirmed)
+                )
+                if state == DeliveryState.CONFIRMED:
+                    if attempts < 1 or receipt_id is None or confirmed is None:
+                        raise DeliveryLedgerError("invalid confirmed delivery entry")
+                elif receipt_id is not None or confirmed is not None:
+                    raise DeliveryLedgerError("unconfirmed entry has receipt metadata")
                 key = (revision_id, target)
                 if key in entries:
                     raise DeliveryLedgerError("duplicate delivery ledger entry")
-                entries[key] = DeliveryEntry(revision_id, target, state, attempts, last)
+                entries[key] = DeliveryEntry(
+                    revision_id,
+                    target,
+                    state,
+                    attempts,
+                    last,
+                    receipt_id,
+                    confirmed,
+                )
             return entries
         except (KeyError, TypeError, json.JSONDecodeError, OSError) as error:
             if isinstance(error, DeliveryLedgerError):
@@ -155,14 +198,20 @@ class DeliveryLedger:
                         else None
                     ),
                     "revision_id": entry.revision_id,
+                    "receipt_id": entry.receipt_id,
                     "state": entry.state.value,
                     "target_device": entry.target_device,
+                    "confirmed_utc": (
+                        _timestamp(entry.confirmed_utc)
+                        if entry.confirmed_utc is not None
+                        else None
+                    ),
                 }
                 for entry in sorted(
                     entries.values(), key=lambda item: (item.target_device, item.revision_id)
                 )
             ],
-            "format": 1,
+            "format": 2,
         }
         self._atomic_write(
             self.delivery_path,
@@ -172,34 +221,36 @@ class DeliveryLedger:
     def register_local(self, revision_id: str, target_device: str) -> None:
         revision_id = _validate_hash(revision_id)
         target_device = _validate_device(target_device)
-        entries = self._read()
-        key = (revision_id, target_device)
-        if key in entries:
-            return
-        entries[key] = DeliveryEntry(
-            revision_id, target_device, DeliveryState.PENDING, 0, None
-        )
-        self._write(entries)
+        with self._lock(self.delivery_lock_path):
+            entries = self._read()
+            key = (revision_id, target_device)
+            if key in entries:
+                return
+            entries[key] = DeliveryEntry(
+                revision_id, target_device, DeliveryState.PENDING, 0, None
+            )
+            self._write(entries)
 
     def entries(self, target_device: str | None = None) -> tuple[DeliveryEntry, ...]:
         if target_device is not None:
             target_device = _validate_device(target_device)
-        values = self._read().values()
-        return tuple(
-            sorted(
-                (
-                    entry
-                    for entry in values
-                    if target_device is None or entry.target_device == target_device
-                ),
-                key=lambda item: (item.target_device, item.revision_id),
+        with self._lock(self.delivery_lock_path):
+            values = self._read().values()
+            return tuple(
+                sorted(
+                    (
+                        entry
+                        for entry in values
+                        if target_device is None or entry.target_device == target_device
+                    ),
+                    key=lambda item: (item.target_device, item.revision_id),
+                )
             )
-        )
 
     def entry(self, revision_id: str, target_device: str) -> DeliveryEntry | None:
-        return self._read().get(
-            (_validate_hash(revision_id), _validate_device(target_device))
-        )
+        key = (_validate_hash(revision_id), _validate_device(target_device))
+        with self._lock(self.delivery_lock_path):
+            return self._read().get(key)
 
     def eligible(
         self,
@@ -208,30 +259,33 @@ class DeliveryLedger:
         force_ids=(),
     ) -> tuple[str, ...]:
         target_device = _validate_device(target_device)
-        entries = self._read()
-        forced = tuple(force_ids)
-        if forced:
-            forced_set = {_validate_hash(revision_id) for revision_id in forced}
-            return tuple(
-                sorted(
-                    revision_id
-                    for revision_id in forced_set
-                    if (revision_id, target_device) in entries
+        with self._lock(self.delivery_lock_path):
+            entries = self._read()
+            forced = tuple(force_ids)
+            if forced:
+                forced_set = {_validate_hash(revision_id) for revision_id in forced}
+                return tuple(
+                    sorted(
+                        revision_id
+                        for revision_id in forced_set
+                        if (revision_id, target_device) in entries
+                        and entries[(revision_id, target_device)].state
+                        != DeliveryState.CONFIRMED
+                    )
                 )
-            )
-        eligible_ids = []
-        for entry in entries.values():
-            if entry.target_device != target_device:
-                continue
-            if entry.state == DeliveryState.PENDING:
-                eligible_ids.append(entry.revision_id)
-            elif (
-                retry_unconfirmed
-                and entry.state == DeliveryState.TRANSFER_REQUESTED
-                and entry.attempts < self.max_requests
-            ):
-                eligible_ids.append(entry.revision_id)
-        return tuple(sorted(eligible_ids))
+            eligible_ids = []
+            for entry in entries.values():
+                if entry.target_device != target_device:
+                    continue
+                if entry.state == DeliveryState.PENDING:
+                    eligible_ids.append(entry.revision_id)
+                elif (
+                    retry_unconfirmed
+                    and entry.state == DeliveryState.TRANSFER_REQUESTED
+                    and entry.attempts < self.max_requests
+                ):
+                    eligible_ids.append(entry.revision_id)
+            return tuple(sorted(eligible_ids))
 
     def record_requested(
         self,
@@ -243,28 +297,90 @@ class DeliveryLedger:
         revision_id = _validate_hash(revision_id)
         target_device = _validate_device(target_device)
         _timestamp(observed_utc)
-        entries = self._read()
-        key = (revision_id, target_device)
-        existing = entries.get(key)
-        if existing is None:
-            raise DeliveryLedgerError("revision is not registered for this target")
-        attempts = existing.attempts + 1
-        state = (
-            DeliveryState.NEEDS_ATTENTION
-            if attempts >= self.max_requests
-            else DeliveryState.TRANSFER_REQUESTED
-        )
-        entries[key] = DeliveryEntry(
-            revision_id, target_device, state, attempts, observed_utc
-        )
-        self._write(entries)
-        self.record_event(
-            EventKind.TRANSFER_REQUESTED,
-            revision_id,
-            observer_device,
-            observed_utc,
-            f"target-device={target_device}",
-        )
+        with self._lock(self.delivery_lock_path):
+            entries = self._read()
+            key = (revision_id, target_device)
+            existing = entries.get(key)
+            if existing is None:
+                raise DeliveryLedgerError("revision is not registered for this target")
+            if existing.state == DeliveryState.CONFIRMED:
+                raise DeliveryLedgerError("confirmed revision cannot be requested again")
+            attempts = existing.attempts + 1
+            state = (
+                DeliveryState.NEEDS_ATTENTION
+                if attempts >= self.max_requests
+                else DeliveryState.TRANSFER_REQUESTED
+            )
+            entries[key] = DeliveryEntry(
+                revision_id, target_device, state, attempts, observed_utc
+            )
+            self._write(entries)
+            self.record_event(
+                EventKind.TRANSFER_REQUESTED,
+                revision_id,
+                observer_device,
+                observed_utc,
+                f"target-device={target_device}",
+            )
+
+    def record_confirmed(
+        self,
+        revision_id: str,
+        target_device: str,
+        receipt_id: str,
+        observed_utc: datetime,
+        observer_device: str = "local",
+    ) -> bool:
+        revision_id = _validate_hash(revision_id)
+        target_device = _validate_device(target_device)
+        receipt_id = _validate_hash(receipt_id)
+        _timestamp(observed_utc)
+        with self._lock(self.delivery_lock_path):
+            entries = self._read()
+            key = (revision_id, target_device)
+            existing = entries.get(key)
+            if existing is None:
+                raise DeliveryLedgerError("revision is not registered for this target")
+            if existing.attempts < 1:
+                raise DeliveryLedgerError("revision was never requested to this peer")
+            if existing.state == DeliveryState.CONFIRMED:
+                if existing.receipt_id != receipt_id:
+                    raise DeliveryLedgerError(
+                        "confirmed revision has a different receipt"
+                    )
+                detail = f"receipt-id={receipt_id} target-device={target_device}"
+                if not any(
+                    event.kind == EventKind.REASONNOTES_CONFIRMED
+                    and event.revision_id == revision_id
+                    and event.detail == detail
+                    for event in self.events()
+                ):
+                    self.record_event(
+                        EventKind.REASONNOTES_CONFIRMED,
+                        revision_id,
+                        observer_device,
+                        existing.confirmed_utc,
+                        detail,
+                    )
+                return False
+            entries[key] = DeliveryEntry(
+                revision_id,
+                target_device,
+                DeliveryState.CONFIRMED,
+                existing.attempts,
+                existing.last_requested_utc,
+                receipt_id,
+                observed_utc,
+            )
+            self._write(entries)
+            self.record_event(
+                EventKind.REASONNOTES_CONFIRMED,
+                revision_id,
+                observer_device,
+                observed_utc,
+                f"receipt-id={receipt_id} target-device={target_device}",
+            )
+            return True
 
     def record_event(
         self,
@@ -290,28 +406,30 @@ class DeliveryLedger:
             "observer_device": observer_device,
             "revision_id": revision_id,
         }
-        with self.events_path.open("ab") as handle:
-            handle.write((json.dumps(record, sort_keys=True) + "\n").encode("utf-8"))
-            handle.flush()
-            os.fsync(handle.fileno())
-        self._fsync_directory(self.state_dir)
+        with self._lock(self.events_lock_path):
+            with self.events_path.open("ab") as handle:
+                handle.write((json.dumps(record, sort_keys=True) + "\n").encode("utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            self._fsync_directory(self.state_dir)
 
     def events(self) -> tuple[EventRecord, ...]:
-        if not self.events_path.exists():
-            return ()
-        events = []
-        try:
-            for line in self.events_path.read_text(encoding="utf-8").splitlines():
-                raw = json.loads(line)
-                events.append(
-                    EventRecord(
-                        kind=EventKind(raw["kind"]),
-                        revision_id=_validate_hash(raw["revision_id"]),
-                        observer_device=_validate_device(raw["observer_device"]),
-                        observed_utc=_parse_timestamp(raw["observed_utc"]),
-                        detail=raw["detail"],
+        with self._lock(self.events_lock_path):
+            if not self.events_path.exists():
+                return ()
+            events = []
+            try:
+                for line in self.events_path.read_text(encoding="utf-8").splitlines():
+                    raw = json.loads(line)
+                    events.append(
+                        EventRecord(
+                            kind=EventKind(raw["kind"]),
+                            revision_id=_validate_hash(raw["revision_id"]),
+                            observer_device=_validate_device(raw["observer_device"]),
+                            observed_utc=_parse_timestamp(raw["observed_utc"]),
+                            detail=raw["detail"],
+                        )
                     )
-                )
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError) as error:
-            raise DeliveryLedgerError("invalid delivery event log") from error
-        return tuple(events)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError) as error:
+                raise DeliveryLedgerError("invalid delivery event log") from error
+            return tuple(events)

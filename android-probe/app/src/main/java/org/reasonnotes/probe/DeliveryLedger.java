@@ -16,7 +16,14 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public final class DeliveryLedger {
-    public record Entry(String revisionId, String targetDevice, String state, int attempts, Instant lastRequested) {}
+    public record Entry(
+            String revisionId,
+            String targetDevice,
+            String state,
+            int attempts,
+            Instant lastRequested,
+            String receiptId,
+            Instant confirmedUtc) {}
     public record Event(String kind, String revisionId, Instant observed, String detail) {}
 
     private static final Pattern HASH = Pattern.compile("[0-9a-f]{64}");
@@ -46,9 +53,28 @@ public final class DeliveryLedger {
             for (String line : Files.readAllLines(entriesFile.toPath(), StandardCharsets.UTF_8)) {
                 if (line.isEmpty()) continue;
                 String[] values = line.split("\\t", -1);
+                if (values.length != 5 && values.length != 7) {
+                    throw new IllegalArgumentException("delivery entry field count");
+                }
+                validateRevision(values[0]);
+                if (!List.of("pending", "transfer-requested", "needs-attention", "confirmed")
+                        .contains(values[2])) {
+                    throw new IllegalArgumentException("delivery state");
+                }
                 Entry entry = new Entry(
                         values[0], values[1], values[2], Integer.parseInt(values[3]),
-                        values[4].isEmpty() ? null : Instant.parse(values[4]));
+                        values[4].isEmpty() ? null : Instant.parse(values[4]),
+                        values.length == 5 || values[5].isEmpty() ? null : values[5],
+                        values.length == 5 || values[6].isEmpty() ? null : Instant.parse(values[6]));
+                if (entry.attempts() < 0) throw new IllegalArgumentException("attempt count");
+                if (entry.state().equals("confirmed")) {
+                    if (entry.attempts() < 1 || entry.receiptId() == null || entry.confirmedUtc() == null) {
+                        throw new IllegalArgumentException("invalid confirmed delivery");
+                    }
+                    validateRevision(entry.receiptId());
+                } else if (entry.receiptId() != null || entry.confirmedUtc() != null) {
+                    throw new IllegalArgumentException("unconfirmed delivery has receipt metadata");
+                }
                 result.put(key(entry.revisionId(), entry.targetDevice()), entry);
             }
             return result;
@@ -64,7 +90,9 @@ public final class DeliveryLedger {
                 .forEach(entry -> value.append(entry.revisionId()).append('\t')
                         .append(entry.targetDevice()).append('\t').append(entry.state()).append('\t')
                         .append(entry.attempts()).append('\t')
-                        .append(entry.lastRequested() == null ? "" : entry.lastRequested()).append('\n'));
+                        .append(entry.lastRequested() == null ? "" : entry.lastRequested()).append('\t')
+                        .append(entry.receiptId() == null ? "" : entry.receiptId()).append('\t')
+                        .append(entry.confirmedUtc() == null ? "" : entry.confirmedUtc()).append('\n'));
         atomicWrite(entriesFile, value.toString().getBytes(StandardCharsets.UTF_8));
     }
 
@@ -91,7 +119,7 @@ public final class DeliveryLedger {
         validateRevision(revisionId);
         Map<String, Entry> entries = readEntries();
         entries.putIfAbsent(key(revisionId, targetDevice),
-                new Entry(revisionId, targetDevice, "pending", 0, null));
+                new Entry(revisionId, targetDevice, "pending", 0, null, null, null));
         writeEntries(entries);
     }
 
@@ -109,7 +137,9 @@ public final class DeliveryLedger {
         Map<String, Entry> entries = readEntries();
         if (!forceIds.isEmpty()) {
             return forceIds.stream().distinct().sorted()
-                    .filter(id -> entries.containsKey(key(id, targetDevice))).toList();
+                    .filter(id -> entries.containsKey(key(id, targetDevice)))
+                    .filter(id -> !entries.get(key(id, targetDevice)).state().equals("confirmed"))
+                    .toList();
         }
         return entries.values().stream()
                 .filter(entry -> entry.targetDevice().equals(targetDevice))
@@ -124,17 +154,90 @@ public final class DeliveryLedger {
         String key = key(revisionId, targetDevice);
         Entry prior = entries.get(key);
         if (prior == null) throw new IllegalArgumentException("unregistered revision");
+        if (prior.state().equals("confirmed")) {
+            throw new IllegalArgumentException("confirmed revision cannot be requested again");
+        }
         int attempts = prior.attempts() + 1;
         entries.put(key, new Entry(revisionId, targetDevice,
                 attempts >= maxRequests ? "needs-attention" : "transfer-requested",
-                attempts, observed));
+                attempts, observed, null, null));
         writeEntries(entries);
         recordEvent("transfer-requested", revisionId, observed, "target=" + targetDevice);
     }
 
+    public boolean recordConfirmed(
+            String revisionId,
+            String targetDevice,
+            String receiptId,
+            Instant observed) {
+        validateRevision(revisionId);
+        validateRevision(receiptId);
+        if (observed == null || observed.getNano() != 0) {
+            throw new IllegalArgumentException("whole-second confirmation time required");
+        }
+        Map<String, Entry> entries = readEntries();
+        String key = key(revisionId, targetDevice);
+        Entry prior = entries.get(key);
+        if (prior == null) throw new IllegalArgumentException("unregistered revision");
+        if (prior.attempts() < 1) {
+            throw new IllegalArgumentException("revision was never requested to this peer");
+        }
+        if (prior.state().equals("confirmed")) {
+            if (!receiptId.equals(prior.receiptId())) {
+                throw new IllegalArgumentException("confirmed revision has a different receipt");
+            }
+            String detail = "receipt=" + receiptId + " target=" + targetDevice;
+            boolean recorded = events().stream().anyMatch(event ->
+                    event.kind().equals("reasonnotes-confirmed")
+                            && event.revisionId().equals(revisionId)
+                            && event.detail().equals(detail));
+            if (!recorded) {
+                recordEvent(
+                        "reasonnotes-confirmed",
+                        revisionId,
+                        prior.confirmedUtc(),
+                        detail);
+            }
+            return false;
+        }
+        entries.put(key, new Entry(
+                revisionId,
+                targetDevice,
+                "confirmed",
+                prior.attempts(),
+                prior.lastRequested(),
+                receiptId,
+                observed));
+        writeEntries(entries);
+        recordEvent(
+                "reasonnotes-confirmed",
+                revisionId,
+                observed,
+                "receipt=" + receiptId + " target=" + targetDevice);
+        return true;
+    }
+
+    public boolean recordImported(
+            String revisionId, Instant observed, String detail) {
+        validateRevision(revisionId);
+        if (observed == null || observed.getNano() != 0) {
+            throw new IllegalArgumentException("whole-second import time required");
+        }
+        boolean recorded = events().stream().anyMatch(event ->
+                event.kind().equals("reasonnotes-imported")
+                        && event.revisionId().equals(revisionId));
+        if (recorded) return false;
+        recordEvent("reasonnotes-imported", revisionId, observed, detail);
+        return true;
+    }
+
     public void recordEvent(String kind, String revisionId, Instant observed, String detail) {
         validateRevision(revisionId);
-        if (!List.of("transfer-requested", "kdeconnect-transfer-complete", "reasonnotes-imported").contains(kind)) {
+        if (!List.of(
+                "transfer-requested",
+                "kdeconnect-transfer-complete",
+                "reasonnotes-imported",
+                "reasonnotes-confirmed").contains(kind)) {
             throw new IllegalArgumentException("event kind");
         }
         String encoded = Base64.getEncoder().encodeToString(detail.getBytes(StandardCharsets.UTF_8));

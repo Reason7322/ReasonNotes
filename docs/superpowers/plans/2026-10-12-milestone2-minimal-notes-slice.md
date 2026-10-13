@@ -41,28 +41,30 @@
 - Create: `android-probe/app/src/main/java/org/reasonnotes/probe/ReceiptEnvelope.java`
 - Modify: `android-probe/app/src/main/java/org/reasonnotes/probe/DeliveryLedger.java`
 - Modify: `android-probe/app/src/main/java/org/reasonnotes/probe/ExchangeDirectory.java`
+- Create: `android-probe/app/src/main/java/org/reasonnotes/probe/ReceiptStore.java`
 - Create: `android-probe/app/src/test/java/org/reasonnotes/probe/ReceiptEnvelopeTest.java`
+- Create: `android-probe/app/src/test/java/org/reasonnotes/probe/ReceiptStoreTest.java`
 - Modify: `android-probe/app/src/test/java/org/reasonnotes/probe/DeliveryLedgerTest.java`
 
 **Interfaces:**
-- Produces: canonical `ReceiptEnvelope(acknowledging_device, destination_device, revision_ids, created_utc)` with deterministic UTF-8 serialization and SHA-256 identity.
+- Produces: canonical `ReceiptEnvelope(note_id, revision_id, acknowledging_device, destination_device, imported_utc)` with deterministic UTF-8 serialization and SHA-256 identity.
 - Produces: `DeliveryState.CONFIRMED` only after a valid receipt names an existing ledger entry for the expected peer.
 - Produces: scan results that report receipts separately from note revisions.
 
 The canonical LF-terminated metadata order is
-`reasonnotes-receipt-format: 1`, `receipt-id`, `acknowledging-device`,
-`destination-device`, `created-utc`, and `revision-ids`. `revision-ids` contains
-1–128 sorted, unique lowercase SHA-256 IDs separated by commas. `receipt-id` is
-SHA-256 over the same canonical metadata with the `receipt-id` line omitted.
-There is no body.
+`reasonnotes-receipt-format: 1`, `receipt-id`, `note-id`, `revision-id`,
+`acknowledging-device`, `destination-device`, and `imported-utc`. One envelope
+acknowledges one revision. `receipt-id` is SHA-256 over the same canonical
+metadata with the `receipt-id` line omitted. There is no body. The complete
+lifecycle is fixed in `docs/milestone2/RECEIPT_LIFECYCLE.md`.
 
 - [ ] **Step 1: Write failing Python receipt and ledger tests**
 
-Cover canonical round-trip, sorted unique revision IDs, malformed hash, wrong sender/receiver, unknown revision, duplicate receipt, durable-import-only generation, and `transfer-requested` remaining unconfirmed without a receipt.
+Cover canonical round-trip, note/revision mismatch, malformed hash, wrong sender/receiver, unknown or never-requested revision, duplicate receipt, durable-import-only generation, interrupted confirmation recovery, offline receipt retry, and `transfer-requested` remaining unconfirmed without a receipt.
 
 - [ ] **Step 2: Run the focused Python tests and verify RED**
 
-Run: `PYTHONPATH=src python3 -m unittest tests.test_receipt tests.test_delivery tests.test_sync -v`
+Run: `PYTHONPATH=src python3 -m unittest tests.test_receipt tests.test_delivery tests.test_sync tests.test_conflicts -v`
 
 Expected: FAIL because receipt parsing and `confirmed` state do not exist.
 
@@ -72,7 +74,7 @@ Generate a receipt only after `Repository.import_bytes` completes its durable hi
 
 - [ ] **Step 4: Write and run failing Android receipt tests**
 
-Run from `android-probe`: `./gradlew testDebugUnitTest --tests '*ReceiptEnvelopeTest' --tests '*DeliveryLedgerTest'`
+Run from `android-probe`: `./gradlew testDebugUnitTest --tests '*ReceiptEnvelopeTest' --tests '*ReceiptStoreTest' --tests '*DeliveryLedgerTest'`
 
 Expected: FAIL because Android receipt support does not exist.
 

@@ -11,6 +11,7 @@ from .conflicts import ConflictSelectionError, list_conflict, resolve_conflict
 from .delivery import DeliveryLedger, DeliveryLedgerError
 from .envelope import EnvelopeError
 from .kdeconnect_linux import KdeConnectLinux
+from .receipt import ReceiptEnvelope, ReceiptError, ReceiptStore
 from .repository import ConflictRequired, Repository
 from .sync import scan_inbox, sync_linux
 
@@ -66,7 +67,9 @@ def _parser() -> argparse.ArgumentParser:
 
     force = commands.add_parser("force-retry")
     force.add_argument("--target-device", required=True)
-    force.add_argument("--revision-id", required=True)
+    force_identity = force.add_mutually_exclusive_group(required=True)
+    force_identity.add_argument("--revision-id")
+    force_identity.add_argument("--receipt-id")
 
     scan = commands.add_parser("scan")
     scan.add_argument("--inbox", required=True, type=Path)
@@ -79,6 +82,7 @@ def _parser() -> argparse.ArgumentParser:
     sync.add_argument("--device-id", required=True)
     sync.add_argument("--retry-unconfirmed", action="store_true")
     sync.add_argument("--force-revision-id", action="append", default=[])
+    sync.add_argument("--force-receipt-id", action="append", default=[])
 
     watch = commands.add_parser("watch")
     watch.add_argument("--local-device", default="linux")
@@ -163,7 +167,22 @@ def _outbox(repository: Repository, target_device: str, stdout) -> int:
         )
         print(
             f"revision={entry.revision_id} target={entry.target_device} "
-            f"state={entry.state.value} attempts={entry.attempts} last-requested={last}",
+            f"state={entry.state.value} attempts={entry.attempts} last-requested={last} "
+            f"receipt={entry.receipt_id or '-'} "
+            f"confirmed={entry.confirmed_utc.strftime('%Y-%m-%dT%H:%M:%SZ') if entry.confirmed_utc else '-'}",
+            file=stdout,
+        )
+    receipt_store = ReceiptStore(repository.root)
+    for entry in receipt_store.entries(target_device):
+        last = (
+            entry.last_requested_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if entry.last_requested_utc is not None
+            else "-"
+        )
+        print(
+            f"receipt={entry.receipt_id} revision={entry.revision_id} "
+            f"target={entry.target_device} state={entry.state.value} "
+            f"attempts={entry.attempts} last-requested={last}",
             file=stdout,
         )
     for event in ledger.events():
@@ -179,18 +198,35 @@ def _outbox(repository: Repository, target_device: str, stdout) -> int:
 
 def _eligible(repository: Repository, arguments, mode: str, stdout) -> int:
     ledger = DeliveryLedger(repository.root)
+    receipt_store = ReceiptStore(repository.root)
     if mode == "force-retry":
-        revision_ids = ledger.eligible(
-            arguments.target_device, force_ids=(arguments.revision_id,)
+        revision_ids = (
+            ledger.eligible(
+                arguments.target_device, force_ids=(arguments.revision_id,)
+            )
+            if arguments.revision_id
+            else ()
+        )
+        receipt_ids = (
+            receipt_store.eligible(
+                arguments.target_device, force_ids=(arguments.receipt_id,)
+            )
+            if arguments.receipt_id
+            else ()
         )
     else:
         revision_ids = ledger.eligible(
             arguments.target_device, retry_unconfirmed=True
         )
-    if not revision_ids:
+        receipt_ids = receipt_store.eligible(
+            arguments.target_device, retry_unconfirmed=True
+        )
+    if not revision_ids and not receipt_ids:
         print(f"eligible=- mode={mode}", file=stdout)
     for revision_id in revision_ids:
         print(f"eligible={revision_id} mode={mode}", file=stdout)
+    for receipt_id in receipt_ids:
+        print(f"eligible-receipt={receipt_id} mode={mode}", file=stdout)
     return 0
 
 
@@ -199,6 +235,12 @@ def _print_scan(report, stdout) -> None:
         print(f"imported={revision_id}", file=stdout)
     for revision_id in report.duplicates:
         print(f"duplicate={revision_id}", file=stdout)
+    for revision_id in report.confirmed:
+        print(f"confirmed={revision_id}", file=stdout)
+    for receipt_id in report.duplicate_receipts:
+        print(f"duplicate-receipt={receipt_id}", file=stdout)
+    for receipt_id in report.receipts_queued:
+        print(f"receipt-queued={receipt_id}", file=stdout)
     for source in report.quarantined:
         print(f"quarantined={json.dumps(source)}", file=stdout)
     for note_id in report.conflicts:
@@ -215,15 +257,22 @@ def _sync(repository: Repository, arguments, stdout, adapter_factory) -> int:
         adapter,
         retry_unconfirmed=arguments.retry_unconfirmed,
         force_ids=tuple(arguments.force_revision_id),
+        force_receipt_ids=tuple(arguments.force_receipt_id),
     )
     for revision_id in report.imports:
         print(f"imported={revision_id}", file=stdout)
+    for revision_id in report.confirmations:
+        print(f"confirmed={revision_id}", file=stdout)
     for note_id in report.conflicts:
         print(f"conflict={note_id}", file=stdout)
     for revision_id in report.pending:
         print(f"pending={revision_id}", file=stdout)
     for revision_id in report.requested:
         print(f"transfer-requested={revision_id}", file=stdout)
+    for receipt_id in report.receipt_pending:
+        print(f"receipt-pending={receipt_id}", file=stdout)
+    for receipt_id in report.receipt_requested:
+        print(f"receipt-transfer-requested={receipt_id}", file=stdout)
     for error in report.errors:
         print(f"error={json.dumps(error)}", file=stdout)
     return 0 if not report.errors else 1
@@ -232,9 +281,34 @@ def _sync(repository: Repository, arguments, stdout, adapter_factory) -> int:
 def _watch(repository: Repository, arguments, stdin, stdout, adapter_factory) -> int:
     adapter = adapter_factory(arguments.device_id)
     ledger = DeliveryLedger(repository.root)
+    receipt_store = ReceiptStore(repository.root)
+    recovery = receipt_store.reconcile_confirmations(
+        repository,
+        ledger,
+        local_device=arguments.local_device,
+    )
+    for revision_id in recovery.confirmed:
+        print(f"recovered-confirmed={revision_id}", file=stdout)
+    for error in recovery.errors:
+        print(f"error={json.dumps(error)}", file=stdout)
     for path in adapter.received_paths(stdin):
         try:
             data = path.read_bytes()
+            if data.startswith(b"---\nreasonnotes-receipt-format: 1\n"):
+                receipt = ReceiptEnvelope.parse(data)
+                outcome = receipt_store.accept(
+                    data,
+                    repository,
+                    ledger,
+                    local_device=arguments.local_device,
+                    source_name=path.name,
+                )
+                print(
+                    f"kdeconnect-transfer-complete={receipt.receipt_id} "
+                    f"reasonnotes-{outcome.kind}={outcome.revision_id}",
+                    file=stdout,
+                )
+                continue
             from .envelope import Revision
 
             revision = Revision.parse(data)
@@ -247,12 +321,23 @@ def _watch(repository: Repository, arguments, stdin, stdout, adapter_factory) ->
                 f"received-path={path.name}",
             )
             outcome = repository.import_bytes(data, path.name)
+            receipt_id = None
+            if outcome.revision_id:
+                durable = repository.revision(outcome.revision_id)
+                if durable is not None and durable.origin_device != arguments.local_device:
+                    receipt = receipt_store.queue(
+                        durable,
+                        arguments.local_device,
+                        observed,
+                    )
+                    receipt_id = receipt.receipt_id
             print(
                 f"kdeconnect-transfer-complete={revision.revision_id} "
-                f"reasonnotes-{outcome.kind}={outcome.revision_id or '-'}",
+                f"reasonnotes-{outcome.kind}={outcome.revision_id or '-'}"
+                + (f" receipt-queued={receipt_id}" if receipt_id else ""),
                 file=stdout,
             )
-        except (OSError, EnvelopeError, DeliveryLedgerError) as error:
+        except (OSError, EnvelopeError, DeliveryLedgerError, ReceiptError) as error:
             print(f"error={json.dumps(f'{path}: {error}')}", file=stdout)
     return 0
 
@@ -300,6 +385,7 @@ def main(
         ConflictRequired,
         DeliveryLedgerError,
         EnvelopeError,
+        ReceiptError,
     ) as error:
         print(f"error={json.dumps(str(error))}", file=stderr)
         return 2
