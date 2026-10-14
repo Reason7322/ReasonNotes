@@ -154,53 +154,53 @@ git commit -m "feat: add minimal note application service"
 - Produces: PySide6 list models and bridge properties/signals/slots consumed by QML.
 - Produces: a 1200 × 800 dark two-pane Qt Quick shell, persistent draggable sidebar, 500 ms autosave, keyboard shortcuts, selective-sync dialog, and full-content conflict panel.
 
-- [ ] **Step 1: Write failing selective-sync tests**
+- [x] **Step 1: Write failing selective-sync tests**
 
 Assert all-note behavior is unchanged; explicit selection excludes other notes; all eligible ancestry and tombstones for selected notes are requested; incoming envelopes are scanned; and eligible receipts are sent even for an empty note selection.
 
-- [ ] **Step 2: Run selective-sync tests and verify RED**
+- [x] **Step 2: Run selective-sync tests and verify RED**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_selective_sync -v`
 
 Expected: FAIL because `sync_linux` has no ordinary note selection.
 
-- [ ] **Step 3: Implement ordinary note selection in the synchronization layer**
+- [x] **Step 3: Implement ordinary note selection in the synchronization layer**
 
 Add `selected_note_ids` without changing `force_ids`. Filter only eligible note revisions after the inbox scan. Keep receipt eligibility independent. Add repeatable `--note-id` to the CLI sync command.
 
-- [ ] **Step 4: Run selective-sync and existing sync tests**
+- [x] **Step 4: Run selective-sync and existing sync tests**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_sync tests.test_delivery tests.test_receipt -v`
 
-- [ ] **Step 5: Write failing presenter tests**
+- [x] **Step 5: Write failing presenter tests**
 
 Test create/load/save, unchanged autosave, failed-save draft preservation, switch and pre-sync flush, draft preservation during sync completion, Unicode search, deletion, evidence-accurate delivery status, full immutable conflict bodies, deletion and multiple-head candidates, exact Keep actions, Skip, and stale-head refresh.
 
-- [ ] **Step 6: Run presenter tests and verify RED**
+- [x] **Step 6: Run presenter tests and verify RED**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_linux_presenter -v`
 
 Expected: FAIL because `reasonnotes_app.presenter` does not exist.
 
-- [ ] **Step 7: Implement the UI-independent presenter**
+- [x] **Step 7: Implement the UI-independent presenter**
 
 Keep all note writes in `NoteService`. Flush before switch, close, and sync. Preserve draft text and Error state on failure. Build conflict candidates from immutable revisions, not truncated previews.
 
-- [ ] **Step 8: Run presenter and service tests**
+- [x] **Step 8: Run presenter and service tests**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_linux_presenter tests.test_note_service -v`
 
-- [ ] **Step 9: Write the Qt bridge, QML shell, and failing offscreen smoke test**
+- [x] **Step 9: Write the Qt bridge, QML shell, and failing offscreen smoke test**
 
 Expose event-driven `QAbstractListModel` instances and properties through PySide6. Run sync work through `QThreadPool`. Centralize theme values in `Theme.qml`; use `SplitView`, persist sidebar width, and implement the approved controls, shortcuts, sync dialog, and conflict view.
 
-- [ ] **Step 10: Run the real QML component tree offscreen**
+- [x] **Step 10: Run the real QML component tree offscreen**
 
 Run: `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_qml_smoke -v`
 
 Expected: the real `Main.qml` tree loads without QML warnings or errors. This is not visual acceptance.
 
-- [ ] **Step 11: Run focused Task 3 verification and commit**
+- [x] **Step 11: Run focused Task 3 verification and commit**
 
 Run: `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_linux_presenter tests.test_qml_smoke tests.test_note_service tests.test_sync tests.test_delivery tests.test_receipt tests.test_conflicts -v`
 

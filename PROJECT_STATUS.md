@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 1 is complete. Milestone 2 Tasks 1 and 2 are implemented:
+Milestone 1 is complete. Milestone 2 Tasks 1 through 3 are implemented:
 
 - Durable one-revision import receipts distinguish transfer request, KDE
   Connect completion, durable import, and application confirmation without
@@ -11,10 +11,17 @@ Milestone 1 is complete. Milestone 2 Tasks 1 and 2 are implemented:
   deletion, coalesced unchanged saves, Unicode-aware search, conflict
   inspection and explicit resolution, stale-choice rejection, and
   history-derived restart recovery.
+- The Fedora desktop application is a Qt 6 / Qt Quick interface backed by a
+  thin PySide6 bridge and the existing `NoteService`. It provides draft-safe
+  editing and autosave, search, deletion, asynchronous synchronization,
+  evidence-accurate delivery status, selective outgoing synchronization, and
+  full immutable-history conflict comparison and resolution.
 
 The Milestone 2 receipt path has focused automated verification but has not
-been physically synchronized on the POCO. The GTK and Android note interfaces
-have not been started.
+been physically synchronized on the POCO. The Qt interface has passed
+offscreen component loading but has not received visible graphical or
+interactive owner acceptance. The Android Task 4 note interface has not been
+started.
 
 ## Current branch and provenance
 
@@ -33,6 +40,10 @@ have not been started.
   `8a26d6f74438acd781d50db10278b19d835c6c6b`
 - Initial Python note application service:
   `c99987a000ddd48f727c27ecba9eea14df619342`
+- Task 2 accepted checkpoint:
+  `1c413fa09292d8f0eac944c0c6ce8c22c98ed906`
+- Task 3 Qt Quick design checkpoint:
+  `de63f2f657585162767b413ab774408955b0cdfd`
 
 ## Current owner
 
@@ -100,6 +111,14 @@ The original APK remains frozen and preserved with SHA-256
   `PYTHONPATH=src python3 -m unittest tests.test_note_service tests.test_repository tests.test_conflicts tests.test_sync -v`
   passed 37/37, including deterministic remote-edit, remote-deletion, and
   history-before-generated-view interleavings.
+- Task 3:
+  `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_linux_presenter tests.test_qml_smoke tests.test_note_service tests.test_sync tests.test_delivery tests.test_receipt tests.test_conflicts tests.test_cli -v`
+  passed 83/83. All test repositories and KDE Connect adapters were
+  disposable or mocked.
+- The real `Main.qml` component tree loaded offscreen without warnings using
+  PySide6 6.11.2 and Qt 6.11.2. The smoke test also instantiated a populated
+  note delegate and selected-note sync controls. This is component-wiring
+  evidence, not visual or interactive acceptance.
 - These are automated results. No physical POCO receipt-runtime claim is made.
 
 ## Current architecture
@@ -107,15 +126,18 @@ The original APK remains frozen and preserved with SHA-256
 KDE Connect remains the proven transport. Immutable revision history in
 `Repository` is the only durable note-content source; generated views and
 application summaries are rebuildable. Receipts remain separate transport
-evidence and never alter note ancestry or conflict selection.
+evidence and never alter note ancestry or conflict selection. The Qt presenter
+and bridge contain no second note store. Selective sync filters ordinary
+Fedora outgoing note revisions only; incoming scanning and receipts remain
+unconditional.
 
 ## Next action
 
-Proceed with Task 3 in
-`docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md`: the
-Fedora presenter and minimal GTK 4 shell. Preserve the tested NoteService and
-keep GTK callbacks thin. Do not claim receipt confirmation on the POCO until
-that path receives separate physical runtime verification.
+Task 3 stops at an operational, offscreen-tested checkpoint. The next product
+gate is owner-approved visible and interactive Qt desktop acceptance against a
+disposable repository. Task 4 is not started and requires a new assignment.
+Do not claim receipt confirmation on the POCO until that path receives
+separate physical runtime verification.
 
 ## Important constraints
 

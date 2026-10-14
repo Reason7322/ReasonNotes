@@ -6,10 +6,15 @@ from .service import (
     NoteSummary,
     StaleConflictChoice,
 )
+from .presenter import ConflictVersion, ConflictView, NotePresenter, NoteRow
 
 __all__ = [
     "NoteNotFoundError",
     "NoteService",
     "NoteSummary",
     "StaleConflictChoice",
+    "ConflictVersion",
+    "ConflictView",
+    "NotePresenter",
+    "NoteRow",
 ]

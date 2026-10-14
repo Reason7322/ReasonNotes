@@ -53,6 +53,10 @@ The always-visible sidebar contains, in order:
    outgoing delivery state.
 7. Local-save and synchronization status at the bottom.
 
+Deletion is available beside the primary actions and requires confirmation;
+it creates the normal tombstone revision and explains that immutable history
+remains recoverable.
+
 The note model updates through Qt model notifications. Search uses
 `NoteService.list_notes(query)`, including its Unicode-aware matching and
 deleted-note exclusion.

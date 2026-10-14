@@ -83,6 +83,7 @@ def _parser() -> argparse.ArgumentParser:
     sync.add_argument("--retry-unconfirmed", action="store_true")
     sync.add_argument("--force-revision-id", action="append", default=[])
     sync.add_argument("--force-receipt-id", action="append", default=[])
+    sync.add_argument("--note-id", action="append", type=_uuid)
 
     watch = commands.add_parser("watch")
     watch.add_argument("--local-device", default="linux")
@@ -258,6 +259,9 @@ def _sync(repository: Repository, arguments, stdout, adapter_factory) -> int:
         retry_unconfirmed=arguments.retry_unconfirmed,
         force_ids=tuple(arguments.force_revision_id),
         force_receipt_ids=tuple(arguments.force_receipt_id),
+        selected_note_ids=(
+            None if arguments.note_id is None else tuple(arguments.note_id)
+        ),
     )
     for revision_id in report.imports:
         print(f"imported={revision_id}", file=stdout)

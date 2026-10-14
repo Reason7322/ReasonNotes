@@ -1,8 +1,10 @@
 """Scan-before-send Linux synchronization orchestration."""
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID
 
 from .delivery import DeliveryLedger, DeliveryState
 from .receipt import ReceiptError, ReceiptStore
@@ -143,6 +145,7 @@ def sync_linux(
     retry_unconfirmed: bool = False,
     force_ids=(),
     force_receipt_ids=(),
+    selected_note_ids: Collection[UUID] | None = None,
 ) -> SyncReport:
     local_device = repository.local_device or "linux"
     target_device = repository.target_device
@@ -150,10 +153,31 @@ def sync_linux(
         raise ValueError("repository must configure a target device for sync")
     scan = scan_inbox(repository, inbox, local_device)
     ledger = DeliveryLedger(repository.root)
-    eligible = ledger.eligible(
+    forced_revision_ids = tuple(force_ids)
+    all_eligible = ledger.eligible(
         target_device,
         retry_unconfirmed=retry_unconfirmed,
-        force_ids=force_ids,
+        force_ids=forced_revision_ids,
+    )
+    selected = (
+        None
+        if selected_note_ids is None or forced_revision_ids
+        else frozenset(selected_note_ids)
+    )
+    if selected is not None and any(not isinstance(note_id, UUID) for note_id in selected):
+        raise ValueError("selected note IDs must be UUID values")
+    missing_revisions = tuple(
+        revision_id
+        for revision_id in all_eligible
+        if repository.revision(revision_id) is None
+    )
+    eligible = tuple(
+        revision_id
+        for revision_id in all_eligible
+        if (
+            (revision := repository.revision(revision_id)) is not None
+            and (selected is None or revision.note_id in selected)
+        )
     )
     receipt_store = ReceiptStore(repository.root)
     eligible_receipts = receipt_store.eligible(
@@ -163,15 +187,19 @@ def sync_linux(
     )
     requested = []
     receipt_requested = []
-    errors = list(scan.errors)
+    errors = [
+        *scan.errors,
+        *(
+            f"outbox revision missing from history: {revision_id}"
+            for revision_id in missing_revisions
+        ),
+    ]
     if (eligible or eligible_receipts) and not adapter.reachable():
         errors.append(f"KDE Connect device unavailable: {adapter.device_id}")
     elif eligible or eligible_receipts:
         for revision_id in eligible:
             revision = repository.revision(revision_id)
-            if revision is None:
-                errors.append(f"outbox revision missing from history: {revision_id}")
-                continue
+            assert revision is not None
             path = (
                 repository.history_dir
                 / str(revision.note_id)
