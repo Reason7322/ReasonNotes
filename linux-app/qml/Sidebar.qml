@@ -170,12 +170,11 @@ Rectangle {
                 objectName: "noteDelegate"
                 required property string noteId
                 required property string title
-                required property string preview
                 required property bool conflicted
                 required property string deliveryStatus
 
                 width: notesList.width
-                height: 72
+                height: 56
                 padding: 0
                 highlighted: noteId === root.presenter.activeNoteId
                 hoverEnabled: true
@@ -213,38 +212,22 @@ Rectangle {
                         font.pixelSize: 21
                     }
 
-                    ColumnLayout {
+                    Label {
                         Layout.fillWidth: true
-                        spacing: 2
+                        text: noteDelegate.title
+                        color: root.theme.textPrimary
+                        font.pixelSize: root.theme.sidebarTitleSize
+                        font.weight: noteDelegate.highlighted ? Font.DemiBold : Font.Medium
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: noteDelegate.title
-                            color: root.theme.textPrimary
-                            font.pixelSize: root.theme.sidebarTitleSize
-                            font.weight: noteDelegate.highlighted ? Font.DemiBold : Font.Medium
-                            elide: Text.ElideRight
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: root.theme.spacingSmall
-                            Label {
-                                objectName: "notePreview"
-                                Layout.fillWidth: true
-                                text: noteDelegate.conflicted
-                                    ? qsTr("Conflict requires attention")
-                                    : noteDelegate.preview.replace(/\s+/g, " ").trim()
-                                color: noteDelegate.conflicted ? root.theme.error : root.theme.textSecondary
-                                font.pixelSize: root.theme.smallSize
-                                elide: Text.ElideRight
-                            }
-                            Label {
-                                text: noteDelegate.deliveryStatus
-                                color: noteDelegate.deliveryStatus === "Confirmed" ? root.theme.success : root.theme.textSecondary
-                                font.pixelSize: 11
-                            }
-                        }
+                    Label {
+                        visible: noteDelegate.conflicted
+                        text: "!"
+                        color: root.theme.error
+                        font.pixelSize: root.theme.sidebarTitleSize
+                        font.weight: Font.Bold
                     }
                 }
             }

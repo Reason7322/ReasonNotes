@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from .note_document import change_content, change_title, split_note
 from .presenter import ConflictVersion, NotePresenter, NoteRow
 
 
@@ -198,6 +199,14 @@ class QtNotePresenter(QObject):
     def currentBody(self):
         return self.presenter.draft
 
+    @Property(str, notify=currentBodyChanged)
+    def currentTitle(self):
+        return split_note(self.presenter.draft).title
+
+    @Property(str, notify=currentBodyChanged)
+    def currentContent(self):
+        return split_note(self.presenter.draft).content
+
     @Property(str, notify=stateChanged)
     def activeNoteId(self):
         return self.presenter.active_note_id or ""
@@ -255,6 +264,22 @@ class QtNotePresenter(QObject):
     @Slot(str, result=bool)
     def editDraft(self, body: str):
         changed = self.presenter.edit_draft(body)
+        self._notify()
+        return changed
+
+    @Slot(str, result=bool)
+    def editTitle(self, title: str):
+        changed = self.presenter.edit_draft(
+            change_title(self.presenter.draft, title)
+        )
+        self._notify()
+        return changed
+
+    @Slot(str, result=bool)
+    def editContent(self, content: str):
+        changed = self.presenter.edit_draft(
+            change_content(self.presenter.draft, content)
+        )
         self._notify()
         return changed
 

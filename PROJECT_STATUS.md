@@ -22,6 +22,11 @@ Milestone 1 is complete. Milestone 2 Tasks 1 through 3 are implemented:
   accurate local/phone status, responsive empty/editor states, and matching
   Sync and conflict surfaces.
 
+A coordinator-owned follow-up branch `sol/editable-titles` makes the
+Concept C heading directly editable and separates title/body editing while
+retaining the single Markdown document in immutable history. The sidebar
+now shows note titles only. The original Forge checkpoint remains untouched.
+
 The Milestone 2 receipt path has focused automated verification but has not
 been physically synchronized on the POCO. The Qt interface has passed
 offscreen component loading but has not received visible graphical or

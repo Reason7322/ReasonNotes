@@ -10,17 +10,6 @@ Rectangle {
 
     color: theme.mainBackground
 
-    function displayTitle(body) {
-        const lines = body.split("\n")
-        for (let index = 0; index < lines.length; ++index) {
-            const value = lines[index].trim()
-            if (value.length === 0)
-                continue
-            const title = value.replace(/^#+\s*/, "").trim()
-            return title.length > 0 ? title : qsTr("Untitled")
-        }
-        return qsTr("Untitled")
-    }
 
     Item {
         id: emptyState
@@ -131,18 +120,34 @@ Rectangle {
                     }
                 }
 
-                Label {
+                TextField {
                     id: currentNoteHeading
                     objectName: "currentNoteHeading"
                     Layout.fillWidth: true
                     Layout.topMargin: root.theme.spacingLarge
                     Layout.bottomMargin: root.theme.spacing
-                    text: root.displayTitle(editor.text)
+                    text: ""
+                    placeholderText: qsTr("Untitled")
+                    placeholderTextColor: root.theme.textSecondary
                     color: root.theme.textPrimary
                     font.family: root.theme.fontFamily
                     font.pixelSize: root.theme.noteHeadingSize
                     font.weight: Font.DemiBold
-                    elide: Text.ElideRight
+                    readOnly: !root.presenter.canEdit
+                    selectByMouse: true
+                    leftPadding: 0
+                    rightPadding: 0
+                    background: null
+                    onTextEdited: {
+                        if (!root.applyingBody && !readOnly) {
+                            root.presenter.editTitle(text)
+                            autosaveTimer.restart()
+                        }
+                    }
+                    onEditingFinished: {
+                        if (text.trim().length === 0 && root.presenter.activeNoteId !== "")
+                            text = root.presenter.currentTitle
+                    }
                 }
 
                 Rectangle { Layout.fillWidth: true; Layout.bottomMargin: root.theme.spacingLarge; implicitHeight: 1; color: root.theme.border }
@@ -178,7 +183,7 @@ Rectangle {
 
                         onTextChanged: {
                             if (!root.applyingBody && activeFocus && !readOnly) {
-                                root.presenter.editDraft(text)
+                                root.presenter.editContent(text)
                                 autosaveTimer.restart()
                             }
                         }
@@ -195,23 +200,28 @@ Rectangle {
         onTriggered: root.presenter.autosave()
     }
 
+    function loadDocumentFields() {
+        root.applyingBody = true
+        if (currentNoteHeading.text !== root.presenter.currentTitle)
+            currentNoteHeading.text = root.presenter.currentTitle
+        if (editor.text !== root.presenter.currentContent)
+            editor.text = root.presenter.currentContent
+        root.applyingBody = false
+        if (root.presenter.activeNoteId !== ""
+                && root.presenter.canEdit
+                && root.presenter.currentTitle === "")
+            currentNoteHeading.forceActiveFocus()
+    }
+
     Connections {
         target: root.presenter
 
         function onCurrentBodyChanged() {
-            if (editor.text === root.presenter.currentBody)
-                return
-            root.applyingBody = true
-            editor.text = root.presenter.currentBody
-            root.applyingBody = false
+            root.loadDocumentFields()
         }
     }
 
-    Component.onCompleted: {
-        root.applyingBody = true
-        editor.text = root.presenter.currentBody
-        root.applyingBody = false
-    }
+    Component.onCompleted: root.loadDocumentFields()
 
     function focusEditor() {
         editor.forceActiveFocus()

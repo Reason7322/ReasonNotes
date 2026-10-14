@@ -309,6 +309,24 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual("# QML note\nBody", self.bridge.currentBody)
         self.assertEqual("QML note", self.bridge.notesModel.row(0)["title"])
 
+    def test_title_is_editable_and_body_is_separate_in_qml(self):
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("Sleep log"))
+        self.assertTrue(self.bridge.editContent("Bed Time:\nWake up:"))
+        self.assertEqual("# Sleep log\n\nBed Time:\nWake up:", self.bridge.currentBody)
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        QCoreApplication.processEvents()
+
+        heading = root.findChild(object, "currentNoteHeading")
+        editor = root.findChild(object, "markdownEditor")
+        self.assertIsNotNone(heading)
+        self.assertFalse(heading.property("readOnly"))
+        self.assertEqual("Sleep log", heading.property("text"))
+        self.assertEqual("Bed Time:\nWake up:", editor.property("text"))
+        self.assertIsNone(root.findChild(object, "notePreview"))
+        self.assertEqual([], [warning.toString() for warning in warnings])
+
     def test_sync_catalogue_is_independent_of_sidebar_search(self):
         self.assertTrue(self.bridge.createNote())
         self.bridge.editDraft("# Alpha")

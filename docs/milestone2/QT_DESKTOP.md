@@ -21,6 +21,25 @@ functional empty state. The heading is derived from the first nonempty
 Markdown line; it is not a second persisted title field. The editor narrows
 responsively at smaller window sizes and retains normal scrolling.
 
+## Editable titles and title-only navigation
+
+The heading above the editor is a directly editable title field. It and the
+body editor are two views of **one** persisted Markdown document. A title
+edit serializes the first nonempty line as a level-one heading; the body
+remains unchanged. The body editor excludes the heading and the one optional
+blank separator following it. Older notes with a plain-text first line are
+displayed without rewriting the source until a deliberate edit occurs.
+
+New notes focus the title field. Body text entered before naming a new note
+uses an explicit `# Untitled` heading so body content cannot turn into the
+title unexpectedly. Both fields retain the same autosave, immutable-history,
+race protection, and conflict restrictions.
+
+The permanent sidebar displays **titles only** with a conflict indicator;
+content previews and per-note delivery labels are not shown in its note
+rows. Detailed delivery information remains in the existing app status and
+sync controls.
+
 The theme is centralized in `linux-app/qml/Theme.qml`. The initial palette is:
 
 - main `#15171C`, sidebar `#1D2026`, and secondary surfaces `#262931`;
