@@ -58,13 +58,13 @@ def resolve_conflict(
         return None
 
     heads = repository.graph().heads(note_id)
-    if len(heads) < 2:
-        raise ConflictSelectionError("note does not have a current conflict")
     if (
         expected_head_ids is not None
         and tuple(head.revision_id for head in heads) != expected_head_ids
     ):
         raise ConflictChangedError("conflict heads changed after inspection")
+    if len(heads) < 2:
+        raise ConflictSelectionError("note does not have a current conflict")
     expected_origin = "linux" if choice == "keep-linux" else "android"
     matching = tuple(head for head in heads if head.origin_device == expected_origin)
 

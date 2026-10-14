@@ -74,6 +74,7 @@ class NoteService:
         )
         self._note_id_factory = note_id_factory
         self._conflict_snapshots: dict[UUID, tuple[str, ...]] = {}
+        self._edit_bases: dict[UUID, str] = {}
 
     def _now(self) -> datetime:
         value = self._clock()
@@ -115,9 +116,8 @@ class NoteService:
             if len(heads) == 1 and heads[0].deleted:
                 continue
 
-            body = self._working_body(note_id)
-            if body is None:
-                body = ""
+            working_body = self._working_body(note_id)
+            body = working_body if working_body is not None else ""
             searchable = "\n".join(
                 [body, *(head.body for head in heads if not head.deleted)]
             )
@@ -127,7 +127,11 @@ class NoteService:
             summaries.append(
                 NoteSummary(
                     note_id=note_id,
-                    title=_title(body) if body else "Conflict",
+                    title=(
+                        _title(body)
+                        if working_body is not None
+                        else "Conflict"
+                    ),
                     preview=_preview(body),
                     conflicted=status.conflicted,
                     modified_utc=max(head.modified_utc for head in heads),
@@ -149,38 +153,53 @@ class NoteService:
         body = self._working_body(note_id)
         if body is None:
             raise NoteNotFoundError(str(note_id))
+        if len(status.head_ids) == 1:
+            self._edit_bases[note_id] = status.head_ids[0]
         return body
 
     def create_note(self, body: str) -> UUID:
         note_id = self._note_id_factory()
-        self.repository.create_revision(
+        revision = self.repository.create_revision(
             note_id,
             body,
             self.origin_device,
             self._now(),
         )
+        self._edit_bases[note_id] = revision.revision_id
         return note_id
 
     def save_note(self, note_id: UUID, body: str) -> Revision:
         current = self._require_live_head(note_id)
+        expected_head = self._edit_bases.get(note_id, current.revision_id)
+        if current.revision_id != expected_head:
+            raise ConflictRequired("note changed since it was opened")
         if current.body == body:
             return current
-        return self.repository.create_revision(
+        revision = self.repository.create_revision(
             note_id,
             body,
             self.origin_device,
             self._now(),
+            expected_head_ids=(expected_head,),
         )
+        self._edit_bases[note_id] = revision.revision_id
+        return revision
 
     def delete_note(self, note_id: UUID) -> Revision:
-        self._require_live_head(note_id)
-        return self.repository.create_revision(
+        current = self._require_live_head(note_id)
+        expected_head = self._edit_bases.get(note_id, current.revision_id)
+        if current.revision_id != expected_head:
+            raise ConflictRequired("note changed since it was opened")
+        revision = self.repository.create_revision(
             note_id,
             "",
             self.origin_device,
             self._now(),
             deleted=True,
+            expected_head_ids=(expected_head,),
         )
+        self._edit_bases.pop(note_id, None)
+        return revision
 
     def conflict(self, note_id: UUID) -> tuple[ConflictCandidate, ...]:
         candidates = list_conflict(self.repository, note_id)
@@ -225,4 +244,8 @@ class NoteService:
             raise StaleConflictChoice("conflict changed before resolution") from error
         finally:
             self._conflict_snapshots.pop(note_id, None)
+        if resolution is not None and not resolution.deleted:
+            self._edit_bases[note_id] = resolution.revision_id
+        else:
+            self._edit_bases.pop(note_id, None)
         return resolution

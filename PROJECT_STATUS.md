@@ -2,11 +2,19 @@
 
 ## Current milestone
 
-Milestone 1: KDE Connect synchronization feasibility is implemented and the
-physical POCO acceptance procedure is complete. P0–P6 passed for the required
-two-way workflow and safety cases, with two explicit limitations: HyperOS
-blocked the test-only instrumentation APK, and an intentionally interrupted
-large in-flight transfer was not attempted.
+Milestone 1 is complete. Milestone 2 Tasks 1 and 2 are implemented:
+
+- Durable one-revision import receipts distinguish transfer request, KDE
+  Connect completion, durable import, and application confirmation without
+  putting transport metadata into immutable note history.
+- The Python note application service provides create, edit, tombstone
+  deletion, coalesced unchanged saves, Unicode-aware search, conflict
+  inspection and explicit resolution, stale-choice rejection, and
+  history-derived restart recovery.
+
+The Milestone 2 receipt path has focused automated verification but has not
+been physically synchronized on the POCO. The GTK and Android note interfaces
+have not been started.
 
 ## Current branch and provenance
 
@@ -21,6 +29,10 @@ large in-flight transfer was not attempted.
   `7d9c597ee68720b7ac0f547f2f320123990a24ed`
 - Conflict-resolution outbox fix:
   `0482711e0a4db132c7608a98358fa0b630806e47`
+- Durable import receipts:
+  `8a26d6f74438acd781d50db10278b19d835c6c6b`
+- Initial Python note application service:
+  `c99987a000ddd48f727c27ecba9eea14df619342`
 
 ## Current owner
 
@@ -69,7 +81,7 @@ Full IDs, hashes, and evidence boundaries are in
 The original APK remains frozen and preserved with SHA-256
 `ef19db85b723b6e495759cb5cb48313157801f20fc3f4260b4f1703d612f1c90`.
 
-## Final verification
+## Milestone 1 final verification
 
 - Python: `PYTHONPATH=src python3 -m unittest discover -s tests -v` —
   61/61 passed.
@@ -78,26 +90,32 @@ The original APK remains frozen and preserved with SHA-256
 - Rebuilt app APK SHA-256 exactly matches the installed acceptance artifact:
   `310025791599f0c226cfaef5f59f6d143d2cdf23578b3436927165d60936d03e`.
 
-## Recommendation
+## Milestone 2 verification
 
-Use KDE Connect for the next milestone. The physical workflow is usable after
-one-time setup: one Linux sync invocation plus one Android **Sync now** tap,
-with no per-file chooser or file-manager import. Do not claim continuous
-background synchronization.
+- Task 1 retained exact-implementation evidence: focused Python
+  receipt/delivery/sync/conflict tests passed 39/39.
+- Task 1 retained Gradle XML: `ReceiptEnvelopeTest` passed 3/3,
+  `ReceiptStoreTest` passed 5/5, and `DeliveryLedgerTest` passed 6/6.
+- Task 2:
+  `PYTHONPATH=src python3 -m unittest tests.test_note_service tests.test_repository tests.test_conflicts tests.test_sync -v`
+  passed 36/36, including deterministic remote-edit and remote-deletion
+  interleavings.
+- These are automated results. No physical POCO receipt-runtime claim is made.
 
-Milestone 2 should first add a small ReasonNotes receipt envelope. KDE Connect
-does not tell the sending ReasonNotes instance that the receiver imported a
-revision, so transfer request, KDE completion, durable import, and application
-confirmation must remain distinct. The current bounded retry behavior is safe
-but not sufficient as a polished delivery indicator.
+## Current architecture
+
+KDE Connect remains the proven transport. Immutable revision history in
+`Repository` is the only durable note-content source; generated views and
+application summaries are rebuildable. Receipts remain separate transport
+evidence and never alter note ancestry or conflict selection.
 
 ## Next action
 
-Review and execute
-`docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md`, beginning
-with durable import receipts. Keep the proven Python/GTK and native Android
-path for this slice; do not migrate to Flutter while that would require a third
-sync implementation or new platform bridges.
+Proceed with Task 3 in
+`docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md`: the
+Fedora presenter and minimal GTK 4 shell. Preserve the tested NoteService and
+keep GTK callbacks thin. Do not claim receipt confirmation on the POCO until
+that path receives separate physical runtime verification.
 
 ## Important constraints
 

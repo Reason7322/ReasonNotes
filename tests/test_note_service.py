@@ -9,6 +9,7 @@ from reasonnotes_app.service import (
     NoteService,
     StaleConflictChoice,
 )
+from reasonnotes_sync.conflicts import resolve_conflict
 from reasonnotes_sync.envelope import Revision
 from reasonnotes_sync.repository import ConflictRequired, Repository
 
@@ -27,6 +28,22 @@ class AdvancingClock:
         result = self.current
         self.current += timedelta(seconds=1)
         return result
+
+
+class InterleavingClock(AdvancingClock):
+    def __init__(self, start: datetime = START):
+        super().__init__(start)
+        self.callback = None
+
+    def arm(self, callback) -> None:
+        self.callback = callback
+
+    def __call__(self) -> datetime:
+        if self.callback is not None:
+            callback = self.callback
+            self.callback = None
+            callback()
+        return super().__call__()
 
 
 class NoteServiceTest(unittest.TestCase):
@@ -83,6 +100,69 @@ class NoteServiceTest(unittest.TestCase):
         self.assertEqual(original.revision_id, first.revision_id)
         self.assertEqual(original.revision_id, second.revision_id)
         self.assertEqual(1, len(self.repository.revisions()))
+
+    def test_save_rejects_remote_edit_that_arrived_after_note_was_displayed(self) -> None:
+        note_id = self.service.create_note("Displayed body")
+        displayed = self.repository.graph().heads(note_id)[0]
+        self.assertEqual("Displayed body", self.service.open_note(note_id))
+        remote = Revision.create(
+            note_id=note_id,
+            parents=(displayed.revision_id,),
+            origin_device="android",
+            modified_utc=START + timedelta(seconds=30),
+            deleted=False,
+            body="Remote edit",
+        )
+        self.repository.import_bytes(remote.serialize(), "remote-edit.md")
+
+        with self.assertRaises(ConflictRequired):
+            self.service.save_note(note_id, "Stale local draft")
+
+        self.assertEqual((remote.revision_id,), self.repository.graph().status(note_id).head_ids)
+        self.assertEqual("Remote edit", self.service.open_note(note_id))
+        self.assertEqual(2, len(self.repository.revisions()))
+
+    def test_delete_rejects_remote_tombstone_arriving_during_write(self) -> None:
+        clock = InterleavingClock()
+        service = NoteService(
+            self.repository,
+            origin_device="linux",
+            clock=clock,
+            note_id_factory=lambda: NOTE_A,
+        )
+        note_id = service.create_note("Displayed body")
+        displayed = self.repository.graph().heads(note_id)[0]
+        remote_deletion = Revision.create(
+            note_id=note_id,
+            parents=(displayed.revision_id,),
+            origin_device="android",
+            modified_utc=START + timedelta(seconds=30),
+            deleted=True,
+            body="",
+        )
+        clock.arm(
+            lambda: self.repository.import_bytes(
+                remote_deletion.serialize(), "remote-delete.md"
+            )
+        )
+
+        with self.assertRaises(ConflictRequired):
+            service.delete_note(note_id)
+
+        self.assertEqual(
+            (remote_deletion.revision_id,),
+            self.repository.graph().status(note_id).head_ids,
+        )
+        self.assertEqual(2, len(self.repository.revisions()))
+
+    def test_empty_live_note_is_untitled_not_conflicted(self) -> None:
+        note_id = self.service.create_note("")
+
+        summary = self.service.list_notes()[0]
+
+        self.assertEqual(note_id, summary.note_id)
+        self.assertEqual("Untitled", summary.title)
+        self.assertFalse(summary.conflicted)
 
     def test_conflict_blocks_edit_and_can_be_explicitly_resolved(self) -> None:
         note_id = self.service.create_note("Base")
@@ -176,6 +256,38 @@ class NoteServiceTest(unittest.TestCase):
                 "keep-android",
                 revision_id=android.revision_id,
             )
+
+    def test_resolution_rejects_conflict_resolved_elsewhere_after_inspection(self) -> None:
+        note_id = self.service.create_note("Base")
+        base = self.repository.graph().heads(note_id)[0]
+        linux = self.service.save_note(note_id, "Linux edit")
+        android = Revision.create(
+            note_id=note_id,
+            parents=(base.revision_id,),
+            origin_device="android",
+            modified_utc=START + timedelta(seconds=30),
+            deleted=False,
+            body="Android edit",
+        )
+        self.repository.import_bytes(android.serialize(), "android-edit.md")
+        self.service.conflict(note_id)
+        resolve_conflict(
+            self.repository,
+            note_id,
+            "keep-linux",
+            "linux",
+            START + timedelta(seconds=31),
+            revision_id=linux.revision_id,
+        )
+        revision_count = len(self.repository.revisions())
+
+        with self.assertRaises(StaleConflictChoice):
+            self.service.resolve(
+                note_id,
+                "keep-android",
+                revision_id=android.revision_id,
+            )
+        self.assertEqual(revision_count, len(self.repository.revisions()))
 
     def test_restart_recovers_revision_written_only_to_history(self) -> None:
         note_id = self.service.create_note("Before interruption")

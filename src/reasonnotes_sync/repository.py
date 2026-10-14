@@ -364,9 +364,13 @@ class Repository:
         origin_device: str,
         modified_utc,
         deleted: bool = False,
+        *,
+        expected_head_ids: tuple[str, ...] | None = None,
     ) -> Revision:
         graph = self.graph()
         status = graph.status(note_id)
+        if expected_head_ids is not None and status.head_ids != expected_head_ids:
+            raise ConflictRequired("note changed since it was opened")
         if status.conflicted:
             raise ConflictRequired("explicit conflict resolution is required")
         if not status.head_ids and status.pending_ids:
