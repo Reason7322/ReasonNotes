@@ -42,11 +42,13 @@ sync controls.
 
 ## Consistent action icons
 
-Save, Sync, and Delete use 24-pixel Qt Quick vector shapes with matching
-stroke widths, aligned icon slots, and colors tied to enabled/hover state.
-The New Note plus sign is unchanged. These icons are local to QML and do
-not depend on a particular system font or icon theme; the button actions
-and synchronization paths are unchanged.
+Save, Sync, and Delete use official Lucide SVG artwork loaded as 24-pixel
+Qt Quick Images, rasterized at the display's physical pixel density. Their
+fixed-size slots align all three labels; normal, hover, and disabled states
+retain the Concept C palette. Original SVGs and upstream license are in
+`linux-app/qml/icons/lucide/` alongside theme-colored display variants.
+The New Note plus sign is unchanged. Button actions and synchronization
+behavior remain unchanged. LiquidGlass theme switching is deferred.
 
 The theme is centralized in `linux-app/qml/Theme.qml`. The initial palette is:
 

@@ -82,6 +82,14 @@ class QmlSmokeTests(unittest.TestCase):
                 self.assertEqual(kind, icon.property("kind"))
                 self.assertEqual(24, icon.property("width"))
                 self.assertEqual(24, icon.property("height"))
+                self.assertTrue(icon.property("assetReady"))
+                source = icon.property("assetSource")
+                source_text = source.toString() if hasattr(source, "toString") else str(source)
+                self.assertTrue(source_text.endswith(
+                    {"save": "/save.svg", "sync": "/refresh-cw.svg",
+                     "delete": "/trash.svg"}[kind]
+                ), source_text)
+                self.assertEqual("normal", icon.property("visualState"))
 
         # Save and Delete are enabled with a selected note, and all icons
         # still share the same source-independent vector geometry.

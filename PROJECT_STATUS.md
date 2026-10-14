@@ -27,7 +27,7 @@ Concept C heading directly editable and separates title/body editing while
 retaining the single Markdown document in immutable history. The sidebar
 now shows note titles only. The original Forge checkpoint remains untouched.
 
-The sidebar now also uses consistent local vector icons for Save, Sync,
+The sidebar now also uses Lucide SVG icons for Save, Sync,
 and Delete; the New Note action is unchanged.
 
 The Milestone 2 receipt path has focused automated verification but has not

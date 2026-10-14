@@ -81,8 +81,8 @@ Rectangle {
                     kind: "save"
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    iconColor: !saveButton.enabled ? root.theme.border
-                        : (saveButton.hovered ? root.theme.accent : root.theme.textSecondary)
+                    visualState: !saveButton.enabled ? "disabled"
+                        : (saveButton.hovered ? "hover" : "normal")
                 }
                 Label { text: qsTr("Save"); color: saveButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
                 Label { text: qsTr("Ctrl+S"); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize }
@@ -108,7 +108,7 @@ Rectangle {
                     kind: "sync"
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    iconColor: syncButton.hovered ? root.theme.accent : root.theme.textSecondary
+                    visualState: syncButton.hovered ? "hover" : "normal"
                 }
                 Label { text: qsTr("Sync"); color: root.theme.textPrimary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
@@ -131,8 +131,8 @@ Rectangle {
                     kind: "delete"
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    iconColor: !deleteNoteButton.enabled ? root.theme.border
-                        : (deleteNoteButton.hovered ? root.theme.error : root.theme.textSecondary)
+                    visualState: !deleteNoteButton.enabled ? "disabled"
+                        : (deleteNoteButton.hovered ? "hover" : "normal")
                 }
                 Label { text: qsTr("Delete"); color: deleteNoteButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
