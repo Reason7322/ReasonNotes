@@ -11,13 +11,6 @@ Rectangle {
 
     color: theme.sidebar
 
-    Rectangle {
-        anchors.right: parent.right
-        width: 1
-        height: parent.height
-        color: root.theme.border
-    }
-
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: root.theme.spacingLarge
