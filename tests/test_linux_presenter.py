@@ -99,6 +99,16 @@ class NotePresenterTests(unittest.TestCase):
         self.assertTrue(restarted.select_note(str(NOTE_A)))
         self.assertEqual("# First\nBody", restarted.draft)
 
+    def test_unbound_draft_cannot_close_and_new_note_preserves_it(self):
+        self.assertFalse(self.presenter.edit_draft("Recovered startup draft"))
+
+        self.assertEqual("Recovered startup draft", self.presenter.draft)
+        self.assertTrue(self.presenter.dirty)
+        self.assertFalse(self.presenter.close_requested())
+        self.assertTrue(self.presenter.create_note())
+        self.assertEqual("Recovered startup draft", self.service.open_note(NOTE_A))
+        self.assertFalse(self.presenter.dirty)
+
     def test_switch_flushes_active_draft_before_loading_another_note(self):
         first = self.service.create_note("# First")
         second = self.service.create_note("# Second")
@@ -187,6 +197,40 @@ class NotePresenterTests(unittest.TestCase):
         self.assertEqual("Completed", self.presenter.sync_state)
         self.assertIn("transfer requested 0", self.presenter.sync_message)
 
+    def test_autosave_detects_conflict_imported_after_local_write(self):
+        note_id = self.service.create_note("Base")
+        base = self.repository.graph().heads(note_id)[0]
+        self.presenter.refresh()
+        self.presenter.select_note(str(note_id))
+        self.presenter.edit_draft("Local edit")
+        remote = Revision.create(
+            note_id,
+            (base.revision_id,),
+            "android",
+            T0 + timedelta(seconds=30),
+            False,
+            "Remote edit",
+        )
+        original_save = self.service.save_note
+
+        def save_then_import(selected_note_id, body):
+            revision = original_save(selected_note_id, body)
+            self.repository.import_bytes(remote.serialize(), "remote.md")
+            return revision
+
+        self.service.save_note = save_then_import
+
+        self.assertTrue(self.presenter.autosave())
+
+        self.assertTrue(self.repository.graph().status(note_id).conflicted)
+        self.assertIsNotNone(self.presenter.conflict_view)
+        self.assertEqual(
+            {"Local edit", "Remote edit"},
+            {candidate.body for candidate in self.presenter.conflict_view.candidates},
+        )
+        self.assertTrue(self.presenter.select_note(str(note_id)))
+        self.assertIsNotNone(self.presenter.conflict_view)
+
     def test_dirty_draft_is_not_replaced_when_background_sync_completes(self):
         note_id = self.service.create_note("Saved")
         self.presenter.refresh()
@@ -200,6 +244,37 @@ class NotePresenterTests(unittest.TestCase):
         self.assertTrue(self.presenter.dirty)
         self.assertIsNone(self.presenter.conflict_view)
         self.assertIn("imported 1", self.presenter.sync_message)
+
+    def test_skip_preserves_dirty_conflict_draft_and_blocks_further_editing(self):
+        note_id = self.service.create_note("Base")
+        base = self.repository.graph().heads(note_id)[0]
+        self.presenter.refresh()
+        self.presenter.select_note(str(note_id))
+        self.presenter.edit_draft("Saved local edit")
+        self.assertTrue(self.presenter.save_active())
+        self.assertTrue(self.presenter.prepare_sync(None))
+        self.presenter.edit_draft("Unsaved during sync")
+        remote = Revision.create(
+            note_id,
+            (base.revision_id,),
+            "android",
+            T0 + timedelta(seconds=30),
+            False,
+            "Remote edit",
+        )
+        self.repository.import_bytes(remote.serialize(), "remote.md")
+        self.presenter.complete_sync(empty_report(imports=(remote.revision_id,)))
+        self.assertIsNotNone(self.presenter.conflict_view)
+
+        self.assertTrue(self.presenter.resolve_conflict("skip"))
+
+        self.assertIsNone(self.presenter.conflict_view)
+        self.assertEqual(str(note_id), self.presenter.active_note_id)
+        self.assertEqual("Unsaved during sync", self.presenter.draft)
+        self.assertTrue(self.presenter.dirty)
+        self.assertFalse(self.presenter.can_edit)
+        self.assertFalse(self.presenter.edit_draft("Must not replace draft"))
+        self.assertEqual("Unsaved during sync", self.presenter.draft)
 
     def test_clean_draft_is_preserved_until_user_reloads_remote_fast_forward(self):
         note_id = self.service.create_note("Displayed")
@@ -301,6 +376,8 @@ class NotePresenterTests(unittest.TestCase):
         self.assertTrue(self.presenter.resolve_conflict("skip"))
         self.assertEqual(revision_count, len(self.repository.revisions()))
         self.assertTrue(self.repository.graph().status(note_id).conflicted)
+        self.assertIsNone(self.presenter.conflict_view)
+        self.assertIsNone(self.presenter.active_note_id)
 
     def test_exact_resolution_and_stale_action_refresh_candidates(self):
         note_id, base, _, android = self._make_conflict()
@@ -340,6 +417,34 @@ class NotePresenterTests(unittest.TestCase):
         )
         self.assertFalse(self.repository.graph().status(note_id).conflicted)
         self.assertEqual(chosen.body, self.presenter.draft)
+
+    def test_keeping_deleted_conflict_head_clears_active_note(self):
+        note_id = self.service.create_note("Base")
+        base = self.repository.graph().heads(note_id)[0]
+        self.service.save_note(note_id, "Linux edit")
+        deleted = Revision.create(
+            note_id,
+            (base.revision_id,),
+            "android",
+            T0 + timedelta(seconds=30),
+            True,
+            "",
+        )
+        self.repository.import_bytes(deleted.serialize(), "android-delete.md")
+        self.presenter.refresh()
+        self.presenter.select_note(str(note_id))
+
+        self.assertTrue(
+            self.presenter.resolve_conflict("keep-android", deleted.revision_id)
+        )
+
+        self.assertIsNone(self.presenter.active_note_id)
+        self.assertIsNone(self.presenter.conflict_view)
+        self.assertEqual("", self.presenter.draft)
+        self.assertNotIn(str(note_id), [row.note_id for row in self.presenter.notes])
+        heads = self.repository.graph().heads(note_id)
+        self.assertEqual(1, len(heads))
+        self.assertTrue(heads[0].deleted)
 
 
 if __name__ == "__main__":

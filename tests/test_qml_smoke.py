@@ -99,6 +99,39 @@ class QmlSmokeTests(unittest.TestCase):
             root.findChild(object, "startSyncButton").property("enabled")
         )
 
+    def test_editor_is_read_only_until_a_note_exists(self):
+        engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("presenter", self.bridge)
+        engine.rootContext().setContextProperty("smokeTest", True)
+        engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
+        QCoreApplication.processEvents()
+        root = engine.rootObjects()[0]
+        editor = root.findChild(object, "markdownEditor")
+
+        self.assertTrue(editor.property("readOnly"))
+
+        self.assertTrue(self.bridge.createNote())
+        QCoreApplication.processEvents()
+        self.assertFalse(editor.property("readOnly"))
+
+    def test_long_editor_content_has_a_scrollable_viewport(self):
+        self.assertTrue(self.bridge.createNote())
+        self.bridge.editDraft("\n".join(f"line {index}" for index in range(200)))
+        self.assertTrue(self.bridge.saveNow())
+        engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("presenter", self.bridge)
+        engine.rootContext().setContextProperty("smokeTest", True)
+        engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
+        QCoreApplication.processEvents()
+        root = engine.rootObjects()[0]
+        scroll = root.findChild(object, "editorScrollView")
+
+        self.assertIsNotNone(scroll)
+        self.assertGreater(
+            scroll.property("contentHeight"),
+            scroll.property("height"),
+        )
+
     def test_bridge_updates_models_and_persists_only_after_save(self):
         self.assertTrue(self.bridge.createNote())
         self.assertEqual(1, self.bridge.notesModel.rowCount())
@@ -110,6 +143,39 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual("Saved", self.bridge.saveState)
         self.assertEqual("# QML note\nBody", self.bridge.currentBody)
         self.assertEqual("QML note", self.bridge.notesModel.row(0)["title"])
+
+    def test_sync_catalogue_is_independent_of_sidebar_search(self):
+        self.assertTrue(self.bridge.createNote())
+        self.bridge.editDraft("# Alpha")
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.createNote())
+        self.bridge.editDraft("# Beta")
+        self.assertTrue(self.bridge.saveNow())
+
+        self.bridge.search("Alpha")
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.bridge.openSyncDialog()
+        self.bridge.searchSyncNotes("Beta")
+
+        self.assertEqual(1, self.bridge.syncModel.rowCount())
+        self.assertEqual("Beta", self.bridge.syncModel.row(0)["title"])
+
+    def test_sync_catalogue_includes_deleted_note_tombstone(self):
+        self.assertTrue(self.bridge.createNote())
+        note_id = self.bridge.activeNoteId
+        self.bridge.editDraft("# Shared")
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.deleteCurrent())
+
+        self.bridge.openSyncDialog()
+
+        rows = [
+            self.bridge.syncModel.row(index)
+            for index in range(self.bridge.syncModel.rowCount())
+        ]
+        deleted = next(row for row in rows if row["noteId"] == note_id)
+        self.assertEqual("Deleted note", deleted["title"])
+        self.assertEqual("Pending deletion", deleted["preview"])
 
     def test_sync_runs_off_gui_thread_and_reports_completion(self):
         started = Event()

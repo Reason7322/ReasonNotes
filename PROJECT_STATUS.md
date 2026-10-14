@@ -113,12 +113,15 @@ The original APK remains frozen and preserved with SHA-256
   history-before-generated-view interleavings.
 - Task 3:
   `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_linux_presenter tests.test_qml_smoke tests.test_note_service tests.test_sync tests.test_delivery tests.test_receipt tests.test_conflicts tests.test_cli -v`
-  passed 83/83. All test repositories and KDE Connect adapters were
+  passed 91/91. All test repositories and KDE Connect adapters were
   disposable or mocked.
 - The real `Main.qml` component tree loaded offscreen without warnings using
   PySide6 6.11.2 and Qt 6.11.2. The smoke test also instantiated a populated
-  note delegate and selected-note sync controls. This is component-wiring
-  evidence, not visual or interactive acceptance.
+  note delegate, a long scrollable editor, and selected-note sync controls.
+  Review regressions cover unbound drafts, deletion-head resolution,
+  concurrent autosave/import conflicts, and a sync catalogue independent of
+  sidebar search, including tombstones. This is component-wiring evidence,
+  not visual or interactive acceptance.
 - These are automated results. No physical POCO receipt-runtime claim is made.
 
 ## Current architecture

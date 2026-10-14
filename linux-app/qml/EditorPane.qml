@@ -9,27 +9,38 @@ Rectangle {
 
     color: theme.editor
 
-    TextArea {
-        id: editor
-        objectName: "markdownEditor"
+    ScrollView {
+        id: editorScrollView
+        objectName: "editorScrollView"
         anchors.fill: parent
         anchors.margins: root.theme.spacingLarge
-        color: root.theme.textPrimary
-        selectionColor: root.theme.selection
-        selectedTextColor: root.theme.textPrimary
-        placeholderText: qsTr("Write Markdown…")
-        placeholderTextColor: root.theme.textSecondary
-        font.family: "monospace"
-        font.pixelSize: root.theme.bodySize
-        wrapMode: TextEdit.Wrap
-        selectByMouse: true
-        persistentSelection: true
-        background: null
+        clip: true
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-        onTextChanged: {
-            if (!root.applyingBody && activeFocus) {
-                root.presenter.editDraft(text)
-                autosaveTimer.restart()
+        TextArea {
+            id: editor
+            objectName: "markdownEditor"
+            width: editorScrollView.availableWidth
+            readOnly: !root.presenter.canEdit
+            color: root.theme.textPrimary
+            selectionColor: root.theme.selection
+            selectedTextColor: root.theme.textPrimary
+            placeholderText: root.presenter.activeNoteId === ""
+                ? qsTr("Create or select a note")
+                : qsTr("Write Markdown…")
+            placeholderTextColor: root.theme.textSecondary
+            font.family: "monospace"
+            font.pixelSize: root.theme.bodySize
+            wrapMode: TextEdit.Wrap
+            selectByMouse: true
+            persistentSelection: true
+            background: null
+
+            onTextChanged: {
+                if (!root.applyingBody && activeFocus && !readOnly) {
+                    root.presenter.editDraft(text)
+                    autosaveTimer.restart()
+                }
             }
         }
     }

@@ -36,7 +36,7 @@ Explicit forced retries retain their existing independent semantics.
 
 The automated QML smoke test loads the real component tree with an offscreen
 platform and disposable repository. It verifies imports, property/model
-wiring, dark-theme loading, selected-sync enablement, and background sync
-completion without touching live notes. It does not establish visual quality,
-real-display keyboard or pointer interaction, KDE Connect runtime behavior, or
-physical POCO receipt confirmation.
+wiring, dark-theme loading, long-document scrolling, selected-sync enablement,
+and background sync completion without touching live notes. It does not
+establish visual quality, real-display keyboard or pointer interaction, KDE
+Connect runtime behavior, or physical POCO receipt confirmation.

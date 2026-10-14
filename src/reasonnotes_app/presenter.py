@@ -106,21 +106,70 @@ class NotePresenter:
     def set_search(self, query: str) -> tuple[NoteRow, ...]:
         return self.refresh(query)
 
+    def sync_notes(self) -> tuple[NoteRow, ...]:
+        """Return an unfiltered sync catalogue, including live tombstones."""
+        delivery = self._delivery_statuses()
+        rows = {
+            str(summary.note_id): NoteRow(
+                note_id=str(summary.note_id),
+                title=summary.title,
+                preview=summary.preview,
+                conflicted=summary.conflicted,
+                modified_utc=summary.modified_utc,
+                delivery_status=delivery.get(summary.note_id, "Local"),
+            )
+            for summary in self.service.list_notes("")
+        }
+        graph = self.repository.graph()
+        note_ids = {revision.note_id for revision in self.repository.revisions()}
+        for note_id in note_ids:
+            if str(note_id) in rows:
+                continue
+            heads = graph.heads(note_id)
+            if len(heads) != 1 or not heads[0].deleted:
+                continue
+            rows[str(note_id)] = NoteRow(
+                note_id=str(note_id),
+                title="Deleted note",
+                preview="Pending deletion",
+                conflicted=False,
+                modified_utc=heads[0].modified_utc,
+                delivery_status=delivery.get(note_id, "Local"),
+            )
+        return tuple(
+            sorted(
+                rows.values(),
+                key=lambda row: (row.modified_utc, row.note_id),
+                reverse=True,
+            )
+        )
+
     def _set_save_error(self, error: BaseException | str) -> None:
         self.save_state = "Error"
         self.save_error = str(error)
 
+    @property
+    def can_edit(self) -> bool:
+        if self.active_note_id is None or self.conflict_view is not None:
+            return False
+        return not self.repository.graph().status(
+            UUID(self.active_note_id)
+        ).conflicted
+
     def create_note(self) -> bool:
-        if not self.save_active():
+        initial_body = ""
+        if self.active_note_id is None and self.dirty:
+            initial_body = self.draft
+        elif not self.save_active():
             return False
         try:
-            note_id = self.service.create_note("")
+            note_id = self.service.create_note(initial_body)
         except Exception as error:
             self._set_save_error(error)
             return False
         self.active_note_id = str(note_id)
         self._active_head_ids = self.repository.graph().status(note_id).head_ids
-        self.draft = ""
+        self.draft = initial_body
         self.dirty = False
         self.conflict_view = None
         self.save_state = "Saved"
@@ -133,6 +182,7 @@ class NotePresenter:
         status = self.repository.graph().status(selected)
         if (
             self.active_note_id == note_id
+            and not status.conflicted
             and (self.dirty or status.head_ids == self._active_head_ids)
         ):
             return True
@@ -163,7 +213,12 @@ class NotePresenter:
         return True
 
     def edit_draft(self, body: str) -> bool:
-        if self.conflict_view is not None:
+        if self.active_note_id is None:
+            self.draft = body
+            self.dirty = True
+            self._set_save_error("create or select a note before editing")
+            return False
+        if not self.can_edit:
             self._set_save_error("resolve the conflict before editing")
             return False
         self.draft = body
@@ -173,24 +228,33 @@ class NotePresenter:
         return True
 
     def save_active(self) -> bool:
-        if self.active_note_id is None or not self.dirty:
+        if self.active_note_id is None:
+            if self.dirty:
+                self._set_save_error("unbound draft must be attached to a new note")
+                return False
+            return True
+        if not self.dirty:
             return True
         if self.conflict_view is not None:
             self._set_save_error("resolve the conflict before saving")
             return False
         self.save_state = "Saving"
         try:
-            self.service.save_note(UUID(self.active_note_id), self.draft)
+            revision = self.service.save_note(
+                UUID(self.active_note_id),
+                self.draft,
+            )
         except Exception as error:
             self._set_save_error(error)
             return False
         self.dirty = False
-        self._active_head_ids = self.repository.graph().status(
-            UUID(self.active_note_id)
-        ).head_ids
+        self._active_head_ids = (revision.revision_id,)
         self.save_state = "Saved"
         self.save_error = ""
         self.refresh()
+        status = self.repository.graph().status(UUID(self.active_note_id))
+        if status.conflicted:
+            self.inspect_conflict(self.active_note_id)
         return True
 
     def autosave(self) -> bool:
@@ -261,10 +325,14 @@ class NotePresenter:
                 return
         note_id = UUID(self.active_note_id)
         status = self.repository.graph().status(note_id)
-        if status.head_ids == self._active_head_ids:
-            return
-        if status.conflicted and not self.dirty:
+        if status.conflicted:
             self.inspect_conflict(self.active_note_id)
+            if self.dirty:
+                self._set_save_error(
+                    "note changed during synchronization; draft preserved"
+                )
+            return
+        if status.head_ids == self._active_head_ids:
             return
         self._set_save_error(
             "note changed during synchronization; draft preserved"
@@ -333,11 +401,29 @@ class NotePresenter:
             self.inspect_conflict(str(note_id))
             return False
         if resolution is None:
-            self.save_state = "Saved"
-            self.save_error = ""
-            self.inspect_conflict(str(note_id))
+            self.conflict_view = None
+            if self.dirty:
+                self._set_save_error(
+                    "unresolved conflict; draft preserved read-only"
+                )
+            else:
+                self.active_note_id = None
+                self._active_head_ids = ()
+                self.draft = ""
+                self.save_state = "Idle"
+                self.save_error = ""
+            self.refresh()
             return True
         self.conflict_view = None
+        if resolution.deleted:
+            self.active_note_id = None
+            self._active_head_ids = ()
+            self.draft = ""
+            self.dirty = False
+            self.save_state = "Idle"
+            self.save_error = ""
+            self.refresh()
+            return True
         self.active_note_id = str(note_id)
         self._active_head_ids = self.repository.graph().status(note_id).head_ids
         self.draft = self.service.open_note(note_id)

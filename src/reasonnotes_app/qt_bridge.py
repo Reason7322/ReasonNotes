@@ -151,7 +151,7 @@ class QtNotePresenter(QObject):
         self._notes_model.replace(note_rows)
         sync_rows = []
         query = self._sync_query.casefold()
-        for row in self.presenter.notes:
+        for row in self.presenter.sync_notes():
             if query and query not in f"{row.title}\n{row.preview}".casefold():
                 continue
             sync_rows.append(
@@ -222,6 +222,10 @@ class QtNotePresenter(QObject):
     def hasConflict(self):
         return self.presenter.conflict_view is not None
 
+    @Property(bool, notify=stateChanged)
+    def canEdit(self):
+        return self.presenter.can_edit
+
     @Property(int, notify=selectionChanged)
     def syncSelectionCount(self):
         return len(self._selected_note_ids)
@@ -278,7 +282,7 @@ class QtNotePresenter(QObject):
     @Slot()
     def openSyncDialog(self):
         self._selected_note_ids.intersection_update(
-            row.note_id for row in self.presenter.notes
+            row.note_id for row in self.presenter.sync_notes()
         )
         self._sync_query = ""
         self._notify()
@@ -298,7 +302,9 @@ class QtNotePresenter(QObject):
 
     @Slot()
     def selectAllSyncNotes(self):
-        self._selected_note_ids.update(row.note_id for row in self.presenter.notes)
+        self._selected_note_ids.update(
+            row.note_id for row in self.presenter.sync_notes()
+        )
         self._notify()
 
     @Slot()
