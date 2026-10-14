@@ -122,6 +122,29 @@ class NoteServiceTest(unittest.TestCase):
         self.assertEqual("Remote edit", self.service.open_note(note_id))
         self.assertEqual(2, len(self.repository.revisions()))
 
+    def test_open_binds_body_and_edit_base_to_same_history_revision(self) -> None:
+        note_id = self.service.create_note("# Old title\nOld body")
+        old = self.repository.graph().heads(note_id)[0]
+        remote = Revision.create(
+            note_id=note_id,
+            parents=(old.revision_id,),
+            origin_device="android",
+            modified_utc=START + timedelta(seconds=30),
+            deleted=False,
+            body="# Remote title\nRemote body",
+        )
+        self.repository._write_history(remote)
+
+        self.assertEqual("# Remote title\nRemote body", self.service.open_note(note_id))
+        self.assertEqual("Remote title", self.service.list_notes()[0].title)
+        saved = self.service.save_note(
+            note_id,
+            "# Remote title\nRemote body edited locally",
+        )
+
+        self.assertEqual((remote.revision_id,), saved.parents)
+        self.assertEqual(3, len(self.repository.revisions()))
+
     def test_delete_rejects_remote_tombstone_arriving_during_write(self) -> None:
         clock = InterleavingClock()
         service = NoteService(

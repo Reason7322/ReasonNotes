@@ -116,7 +116,11 @@ class NoteService:
             if len(heads) == 1 and heads[0].deleted:
                 continue
 
-            working_body = self._working_body(note_id)
+            working_body = (
+                heads[0].body
+                if len(heads) == 1
+                else self._working_body(note_id)
+            )
             body = working_body if working_body is not None else ""
             searchable = "\n".join(
                 [body, *(head.body for head in heads if not head.deleted)]
@@ -142,19 +146,20 @@ class NoteService:
         return summaries
 
     def open_note(self, note_id: UUID) -> str:
-        status = self.repository.graph().status(note_id)
+        graph = self.repository.graph()
+        status = graph.status(note_id)
         if len(status.head_ids) == 1:
-            head = self.repository.revision(status.head_ids[0])
-            if head is None or head.deleted:
+            head = graph.heads(note_id)[0]
+            if head.deleted:
                 raise NoteNotFoundError(str(note_id))
+            self._edit_bases[note_id] = head.revision_id
+            return head.body
         elif not status.conflicted:
             raise NoteNotFoundError(str(note_id))
 
         body = self._working_body(note_id)
         if body is None:
             raise NoteNotFoundError(str(note_id))
-        if len(status.head_ids) == 1:
-            self._edit_bases[note_id] = status.head_ids[0]
         return body
 
     def create_note(self, body: str) -> UUID:

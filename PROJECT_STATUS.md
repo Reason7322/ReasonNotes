@@ -98,8 +98,8 @@ The original APK remains frozen and preserved with SHA-256
   `ReceiptStoreTest` passed 5/5, and `DeliveryLedgerTest` passed 6/6.
 - Task 2:
   `PYTHONPATH=src python3 -m unittest tests.test_note_service tests.test_repository tests.test_conflicts tests.test_sync -v`
-  passed 36/36, including deterministic remote-edit and remote-deletion
-  interleavings.
+  passed 37/37, including deterministic remote-edit, remote-deletion, and
+  history-before-generated-view interleavings.
 - These are automated results. No physical POCO receipt-runtime claim is made.
 
 ## Current architecture
