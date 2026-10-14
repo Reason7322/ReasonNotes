@@ -4,9 +4,9 @@
 
 **Goal:** Turn the proven synchronization core into a minimal usable Fedora and Android notes slice with CRUD, search, automatic local saving, explicit conflict choices, and trustworthy receipt status.
 
-**Architecture:** Keep the proven Python core on Fedora and native Java core on Android. Add a small idempotent receipt envelope so only a receiving ReasonNotes instance can confirm durable import, then place thin GTK 4 and Android views over the existing immutable histories. Preserve the Milestone 1 probe artifact; do not adopt Flutter in this slice because it would require a third synchronization implementation or platform bridges before the product behavior is settled.
+**Architecture:** Keep the proven Python core on Fedora and native Java core on Android. Add a small idempotent receipt envelope so only a receiving ReasonNotes instance can confirm durable import, then place a thin Qt 6 / Qt Quick desktop view and native Android view over the existing immutable histories. Preserve the Milestone 1 probe artifact; do not adopt Flutter in this slice because it would require a third synchronization implementation or platform bridges before the product behavior is settled.
 
-**Tech Stack:** Python 3.14 standard library, `unittest`, PyGObject/GTK 4.22, KDE Connect 26.08.1; native Android Java, AndroidX Core and DocumentFile, Gradle 8.9, JDK 17, SDK 35.
+**Tech Stack:** Python 3.14 standard library, `unittest`, PySide6 6.11.2, Qt 6.11.2, Qt Quick/QML and Qt Quick Controls, KDE Connect 26.08.1; native Android Java, AndroidX Core and DocumentFile, Gradle 8.9, JDK 17, SDK 35.
 
 **Spec:** `docs/superpowers/specs/2026-10-12-kde-connect-feasibility-design.md`
 
@@ -19,14 +19,15 @@
 - Every keep resolution acknowledges all heads observed by the resolver and retains superseded revisions.
 - Default sync remains one user action per device; duplicate and out-of-order packets are idempotent.
 - The frozen Milestone 1 APK and evidence directories are not modified.
+- Fedora Task 3 uses Qt 6 / Qt Quick / QML / PySide6; GTK and a Qt Widgets primary interface are out of scope.
 
 ## Review Focus
 
 - A malformed, unexpected-peer, or unknown-revision receipt must not confirm a revision; Task 1 tests rejection and target binding. Receipts are delivery evidence, not authentication, and never delete revision history.
-- Autosave racing with sync must create a complete revision or no revision, never a partial working file; Task 2 tests atomic save and restart recovery.
+- Autosave racing with sync must create a complete revision or no revision and must preserve the displayed draft on a stale base; Tasks 2 and 3 test persistence and presenter behavior.
 - Search must exclude deleted notes and include non-ASCII text without depending on network state; Tasks 2 and 4 test both platforms.
-- A new remote head arriving while a conflict dialog is open must make the attempted stale resolution fail safely; Tasks 3 and 4 test revalidation at selection time.
-- Process death between durable history and generated-view updates must rebuild the same list, editor, and conflict state; Tasks 2 and 4 test restart reconciliation.
+- A new remote head arriving while a conflict dialog is open must make the attempted stale resolution fail safely and refresh full candidate content; Tasks 3 and 4 test revalidation at selection time.
+- Selective Fedora sync must still import incoming revisions and send receipts while excluding every unselected outgoing note revision; Task 3 tests all three paths independently.
 
 ---
 
@@ -125,39 +126,89 @@ git add pyproject.toml src/reasonnotes_app tests/test_note_service.py
 git commit -m "feat: add minimal note application service"
 ```
 
-### Task 3: Fedora GTK Shell and Desktop Conflict Choice
+### Task 3: Fedora Qt Quick Shell, Selective Sync, and Desktop Conflict Choice
+
+**Spec:** `docs/superpowers/specs/2026-10-14-qt-quick-desktop-design.md`
 
 **Files:**
+- Create: `docs/superpowers/specs/2026-10-14-qt-quick-desktop-design.md`
+- Modify: `src/reasonnotes_sync/sync.py`
+- Modify: `src/reasonnotes_sync/cli.py`
 - Create: `linux-app/reasonnotes.py`
-- Create: `linux-app/ui.py`
+- Create: `linux-app/qml/Main.qml`
+- Create: `linux-app/qml/Theme.qml`
+- Create: `linux-app/qml/Sidebar.qml`
+- Create: `linux-app/qml/EditorPane.qml`
+- Create: `linux-app/qml/SyncDialog.qml`
+- Create: `linux-app/qml/ConflictView.qml`
 - Create: `tests/test_linux_presenter.py`
+- Create: `tests/test_selective_sync.py`
+- Create: `tests/test_qml_smoke.py`
 - Create: `src/reasonnotes_app/presenter.py`
+- Create: `src/reasonnotes_app/qt_bridge.py`
 
 **Interfaces:**
-- Consumes: `NoteService` and the existing Linux sync CLI functions.
-- Produces: note list, Markdown text editor, search field, delete action, Sync action, visible delivery state, and a side-by-side conflict view with Keep Linux, Keep Android, and Skip.
+- Consumes: `NoteService`, `DeliveryLedger`, `sync_linux`, and `KdeConnectLinux`.
+- Produces: `sync_linux(..., selected_note_ids: Collection[UUID] | None = None) -> SyncReport`; `None` selects every ordinary eligible note revision and an explicit collection filters only note revisions, never receipts or incoming scans.
+- Produces: `NotePresenter` with event-driven create/load/edit/save/delete/search, pre-sync flush, delivery status, full conflict inspection, exact conflict resolution, and stale refresh behavior.
+- Produces: PySide6 list models and bridge properties/signals/slots consumed by QML.
+- Produces: a 1200 × 800 dark two-pane Qt Quick shell, persistent draggable sidebar, 500 ms autosave, keyboard shortcuts, selective-sync dialog, and full-content conflict panel.
 
-- [ ] **Step 1: Write failing presenter tests**
+- [ ] **Step 1: Write failing selective-sync tests**
 
-Assert list/search mapping, debounced save dispatch, separate requested/completed/imported/confirmed labels, side-by-side device labels and full previews, Skip making no write, and stale-choice revalidation.
+Assert all-note behavior is unchanged; explicit selection excludes other notes; all eligible ancestry and tombstones for selected notes are requested; incoming envelopes are scanned; and eligible receipts are sent even for an empty note selection.
 
-- [ ] **Step 2: Run presenter tests and verify RED**
+- [ ] **Step 2: Run selective-sync tests and verify RED**
+
+Run: `PYTHONPATH=src python3 -m unittest tests.test_selective_sync -v`
+
+Expected: FAIL because `sync_linux` has no ordinary note selection.
+
+- [ ] **Step 3: Implement ordinary note selection in the synchronization layer**
+
+Add `selected_note_ids` without changing `force_ids`. Filter only eligible note revisions after the inbox scan. Keep receipt eligibility independent. Add repeatable `--note-id` to the CLI sync command.
+
+- [ ] **Step 4: Run selective-sync and existing sync tests**
+
+Run: `PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_sync tests.test_delivery tests.test_receipt -v`
+
+- [ ] **Step 5: Write failing presenter tests**
+
+Test create/load/save, unchanged autosave, failed-save draft preservation, switch and pre-sync flush, draft preservation during sync completion, Unicode search, deletion, evidence-accurate delivery status, full immutable conflict bodies, deletion and multiple-head candidates, exact Keep actions, Skip, and stale-head refresh.
+
+- [ ] **Step 6: Run presenter tests and verify RED**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_linux_presenter -v`
 
-- [ ] **Step 3: Implement the presenter and minimal GTK 4 shell**
+Expected: FAIL because `reasonnotes_app.presenter` does not exist.
 
-Keep GTK callbacks thin. Autosave after 500 ms of inactivity and on note switch/window close. Sync scans before sending and never hides unresolved conflicts.
+- [ ] **Step 7: Implement the UI-independent presenter**
 
-- [ ] **Step 4: Run presenter tests and a disposable GTK smoke test**
+Keep all note writes in `NoteService`. Flush before switch, close, and sync. Preserve draft text and Error state on failure. Build conflict candidates from immutable revisions, not truncated previews.
 
-Use an isolated repository and confirm create, edit, restart, search, delete, and all three conflict actions without touching the user's notes.
+- [ ] **Step 8: Run presenter and service tests**
 
-- [ ] **Step 5: Commit**
+Run: `PYTHONPATH=src python3 -m unittest tests.test_linux_presenter tests.test_note_service -v`
+
+- [ ] **Step 9: Write the Qt bridge, QML shell, and failing offscreen smoke test**
+
+Expose event-driven `QAbstractListModel` instances and properties through PySide6. Run sync work through `QThreadPool`. Centralize theme values in `Theme.qml`; use `SplitView`, persist sidebar width, and implement the approved controls, shortcuts, sync dialog, and conflict view.
+
+- [ ] **Step 10: Run the real QML component tree offscreen**
+
+Run: `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_qml_smoke -v`
+
+Expected: the real `Main.qml` tree loads without QML warnings or errors. This is not visual acceptance.
+
+- [ ] **Step 11: Run focused Task 3 verification and commit**
+
+Run: `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_selective_sync tests.test_linux_presenter tests.test_qml_smoke tests.test_note_service tests.test_sync tests.test_delivery tests.test_receipt tests.test_conflicts -v`
+
+Use only disposable repository roots and fake adapters.
 
 ```bash
-git add linux-app src/reasonnotes_app/presenter.py tests/test_linux_presenter.py
-git commit -m "feat: add minimal Fedora notes shell"
+git add docs/superpowers src/reasonnotes_sync src/reasonnotes_app linux-app tests PROJECT_STATUS.md pyproject.toml
+git commit -m "feat: add Qt Quick desktop notes shell"
 ```
 
 ### Task 4: Android Notes Shell and Vertical Conflict Choice
