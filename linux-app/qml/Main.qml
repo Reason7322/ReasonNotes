@@ -57,6 +57,7 @@ ApplicationWindow {
 
             Rectangle {
                 anchors.centerIn: parent
+                anchors.horizontalCenterOffset: -3
                 width: 1
                 height: parent.height
                 color: parent.SplitHandle.hovered || parent.SplitHandle.pressed
