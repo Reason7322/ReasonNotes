@@ -10,71 +10,148 @@ Rectangle {
     signal deleteRequested()
 
     color: theme.sidebar
-    border.color: theme.border
+
+    Rectangle {
+        anchors.right: parent.right
+        width: 1
+        height: parent.height
+        color: root.theme.border
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: root.theme.spacing
-        spacing: root.theme.spacing
+        anchors.leftMargin: root.theme.spacingLarge
+        anchors.rightMargin: root.theme.spacingLarge
+        anchors.topMargin: root.theme.spacingLarge
+        anchors.bottomMargin: root.theme.spacingLarge
+        spacing: root.theme.spacingSmall
 
-        Label {
-            text: qsTr("ReasonNotes")
-            color: root.theme.textPrimary
-            font.pixelSize: root.theme.headingSize
-            font.bold: true
+        Row {
             Layout.fillWidth: true
+            Layout.bottomMargin: root.theme.spacingLarge
+
+            Label {
+                text: qsTr("Reason")
+                color: root.theme.textPrimary
+                font.family: root.theme.fontFamily
+                font.pixelSize: root.theme.applicationTitleSize
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                text: qsTr("Notes")
+                color: root.theme.textSecondary
+                font.family: root.theme.fontFamily
+                font.pixelSize: root.theme.applicationTitleSize
+                font.weight: Font.Light
+            }
         }
 
-        GridLayout {
+        Button {
+            id: newNoteButton
+            objectName: "newNoteButton"
             Layout.fillWidth: true
-            columns: 2
-            rowSpacing: root.theme.spacingSmall
-            columnSpacing: root.theme.spacingSmall
+            implicitHeight: root.theme.primaryButtonHeight
+            hoverEnabled: true
+            onClicked: root.presenter.createNote()
 
-            Button {
-                text: qsTr("New Note")
-                Layout.fillWidth: true
-                onClicked: root.presenter.createNote()
+            contentItem: RowLayout {
+                spacing: root.theme.spacing
+                Label { text: "+"; color: root.theme.accentText; font.pixelSize: 24 }
+                Label { text: qsTr("New Note"); color: root.theme.accentText; font.pixelSize: root.theme.secondarySize; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                Label { text: qsTr("Ctrl+N"); color: Qt.rgba(0.09, 0.10, 0.12, 0.65); font.pixelSize: root.theme.smallSize }
             }
 
-            Button {
-                text: qsTr("Save")
-                Layout.fillWidth: true
-                enabled: root.presenter.activeNoteId !== ""
-                onClicked: root.presenter.saveNow()
+            background: Rectangle {
+                color: newNoteButton.down
+                    ? Qt.darker(root.theme.accent, 1.12)
+                    : (newNoteButton.hovered ? Qt.lighter(root.theme.accent, 1.08) : root.theme.accent)
+                border.color: newNoteButton.activeFocus ? root.theme.textPrimary : "transparent"
+                border.width: newNoteButton.activeFocus ? 2 : 0
+                radius: root.theme.radiusSmall
+            }
+        }
+
+        Button {
+            id: saveButton
+            objectName: "saveButton"
+            Layout.fillWidth: true
+            implicitHeight: root.theme.actionButtonHeight
+            enabled: root.presenter.activeNoteId !== ""
+            hoverEnabled: true
+            onClicked: root.presenter.saveNow()
+
+            contentItem: RowLayout {
+                spacing: root.theme.spacing
+                Label { text: "▣"; color: saveButton.enabled ? root.theme.textSecondary : root.theme.border; font.pixelSize: 20 }
+                Label { text: qsTr("Save"); color: saveButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
+                Label { text: qsTr("Ctrl+S"); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize }
+            }
+            background: Rectangle { color: saveButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: saveButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
+        }
+
+        Button {
+            id: syncButton
+            objectName: "syncButton"
+            Layout.fillWidth: true
+            implicitHeight: root.theme.actionButtonHeight
+            hoverEnabled: true
+            onClicked: {
+                root.presenter.openSyncDialog()
+                root.syncRequested()
             }
 
-            Button {
-                text: qsTr("Sync")
-                Layout.fillWidth: true
-                onClicked: {
-                    root.presenter.openSyncDialog()
-                    root.syncRequested()
-                }
+            contentItem: RowLayout {
+                spacing: root.theme.spacing
+                Label { text: "↻"; color: root.theme.textSecondary; font.pixelSize: 22 }
+                Label { text: qsTr("Sync"); color: root.theme.textPrimary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
+            background: Rectangle { color: syncButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: syncButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
+        }
 
-            Button {
-                objectName: "deleteNoteButton"
-                text: qsTr("Delete")
-                Layout.fillWidth: true
-                enabled: root.presenter.activeNoteId !== ""
-                onClicked: root.deleteRequested()
+        Button {
+            id: deleteNoteButton
+            objectName: "deleteNoteButton"
+            Layout.fillWidth: true
+            implicitHeight: root.theme.actionButtonHeight
+            enabled: root.presenter.activeNoteId !== ""
+            hoverEnabled: true
+            onClicked: root.deleteRequested()
+
+            contentItem: RowLayout {
+                spacing: root.theme.spacing
+                Label { text: "⌫"; color: deleteNoteButton.enabled ? root.theme.textSecondary : root.theme.border; font.pixelSize: 20 }
+                Label { text: qsTr("Delete"); color: deleteNoteButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
+            background: Rectangle { color: deleteNoteButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: deleteNoteButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
         }
 
         TextField {
             id: searchField
             objectName: "searchField"
             Layout.fillWidth: true
-            placeholderText: qsTr("Search notes")
+            Layout.topMargin: root.theme.spacing
+            implicitHeight: root.theme.fieldHeight
+            leftPadding: 42
+            rightPadding: root.theme.spacing
+            placeholderText: qsTr("Search notes…")
             color: root.theme.textPrimary
             placeholderTextColor: root.theme.textSecondary
+            font.pixelSize: root.theme.secondarySize
             selectByMouse: true
             onTextChanged: root.presenter.search(text)
             background: Rectangle {
-                color: root.theme.editor
-                border.color: root.theme.border
+                color: root.theme.surface
+                border.color: searchField.activeFocus ? root.theme.accent : root.theme.border
                 radius: root.theme.radius
+                Label {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "⌕"
+                    color: root.theme.textSecondary
+                    font.pixelSize: 20
+                }
             }
         }
 
@@ -83,11 +160,14 @@ Rectangle {
             objectName: "notesList"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.topMargin: root.theme.spacingSmall
             clip: true
-            spacing: root.theme.spacingSmall
+            spacing: root.theme.spacingTiny
             model: root.presenter.notesModel
 
             delegate: ItemDelegate {
+                id: noteDelegate
+                objectName: "noteDelegate"
                 required property string noteId
                 required property string title
                 required property string preview
@@ -95,83 +175,119 @@ Rectangle {
                 required property string deliveryStatus
 
                 width: notesList.width
-                padding: root.theme.spacing
+                height: 72
+                padding: 0
                 highlighted: noteId === root.presenter.activeNoteId
+                hoverEnabled: true
                 onClicked: root.presenter.selectNote(noteId)
 
                 background: Rectangle {
-                    color: parent.highlighted
-                        ? root.theme.selection
-                        : (parent.hovered ? root.theme.controlHover : root.theme.control)
-                    radius: root.theme.radius
-                    border.color: parent.conflicted
-                        ? root.theme.warning
-                        : root.theme.border
+                    color: noteDelegate.highlighted
+                        ? root.theme.selectedNote
+                        : (noteDelegate.hovered ? root.theme.surfaceHover : "transparent")
+                    radius: root.theme.radiusSmall
+                    border.color: noteDelegate.activeFocus ? root.theme.accent : "transparent"
+
+                    Rectangle {
+                        objectName: "noteSelectionIndicator"
+                        visible: noteDelegate.highlighted
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 3
+                        color: root.theme.accent
+                        radius: 2
+                    }
                 }
 
-                contentItem: Column {
-                    spacing: root.theme.spacingSmall
+                contentItem: RowLayout {
+                    anchors.leftMargin: root.theme.spacing
+                    anchors.rightMargin: root.theme.spacingSmall
+                    spacing: root.theme.spacing
 
                     Label {
-                        width: parent.width
-                        text: title
-                        color: root.theme.textPrimary
-                        font.bold: true
-                        elide: Text.ElideRight
+                        text: "▤"
+                        color: noteDelegate.conflicted
+                            ? root.theme.error
+                            : (noteDelegate.highlighted ? root.theme.accent : root.theme.textSecondary)
+                        font.pixelSize: 21
                     }
 
-                    Label {
-                        width: parent.width
-                        text: preview
-                        color: root.theme.textSecondary
-                        maximumLineCount: 2
-                        wrapMode: Text.Wrap
-                        elide: Text.ElideRight
-                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
 
-                    Label {
-                        width: parent.width
-                        text: conflicted
-                            ? qsTr("Conflict · %1").arg(deliveryStatus)
-                            : deliveryStatus
-                        color: conflicted
-                            ? root.theme.warning
-                            : root.theme.textSecondary
-                        font.pixelSize: root.theme.bodySize - 2
-                        elide: Text.ElideRight
+                        Label {
+                            Layout.fillWidth: true
+                            text: noteDelegate.title
+                            color: root.theme.textPrimary
+                            font.pixelSize: root.theme.sidebarTitleSize
+                            font.weight: noteDelegate.highlighted ? Font.DemiBold : Font.Medium
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: root.theme.spacingSmall
+                            Label {
+                                objectName: "notePreview"
+                                Layout.fillWidth: true
+                                text: noteDelegate.conflicted
+                                    ? qsTr("Conflict requires attention")
+                                    : noteDelegate.preview.replace(/\s+/g, " ").trim()
+                                color: noteDelegate.conflicted ? root.theme.error : root.theme.textSecondary
+                                font.pixelSize: root.theme.smallSize
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                text: noteDelegate.deliveryStatus
+                                color: noteDelegate.deliveryStatus === "Confirmed" ? root.theme.success : root.theme.textSecondary
+                                font.pixelSize: 11
+                            }
+                        }
                     }
                 }
             }
 
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         }
 
-        Rectangle {
+        Item {
+            id: sidebarStatus
+            objectName: "sidebarStatus"
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: root.theme.border
-        }
+            implicitHeight: 66
 
-        Label {
-            Layout.fillWidth: true
-            text: root.presenter.saveError !== ""
-                ? qsTr("%1: %2").arg(root.presenter.saveState).arg(root.presenter.saveError)
-                : root.presenter.saveState
-            color: root.presenter.saveState === "Error"
-                ? root.theme.error
-                : root.theme.textSecondary
-            wrapMode: Text.Wrap
-        }
+            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 1; color: root.theme.border }
 
-        Label {
-            Layout.fillWidth: true
-            text: root.presenter.syncMessage !== ""
-                ? qsTr("%1: %2").arg(root.presenter.syncState).arg(root.presenter.syncMessage)
-                : root.presenter.syncState
-            color: root.presenter.syncState === "Error"
-                ? root.theme.error
-                : root.theme.textSecondary
-            wrapMode: Text.Wrap
+            Column {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+
+                Label {
+                    width: parent.width
+                    text: root.presenter.saveError !== ""
+                        ? qsTr("Local · %1").arg(root.presenter.saveError)
+                        : qsTr("Local · %1").arg(root.presenter.saveState)
+                    color: root.presenter.saveState === "Error"
+                        ? root.theme.error
+                        : (root.presenter.saveState === "Saved" ? root.theme.success : root.theme.textPrimary)
+                    font.pixelSize: root.theme.smallSize
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    width: parent.width
+                    text: root.presenter.syncMessage !== ""
+                        ? qsTr("Phone · %1 — %2").arg(root.presenter.syncState).arg(root.presenter.syncMessage)
+                        : qsTr("Phone · %1").arg(root.presenter.syncState)
+                    color: root.presenter.syncState === "Error" ? root.theme.error : root.theme.textSecondary
+                    font.pixelSize: root.theme.smallSize
+                    elide: Text.ElideRight
+                }
+            }
         }
     }
 

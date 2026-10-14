@@ -218,6 +218,16 @@ class QtNotePresenter(QObject):
     def syncMessage(self):
         return self.presenter.sync_message
 
+    @Property(str, notify=stateChanged)
+    def activeDeliveryStatus(self):
+        active_note_id = self.presenter.active_note_id
+        if active_note_id is None:
+            return "No note selected"
+        for row in self.presenter.sync_notes():
+            if row.note_id == active_note_id:
+                return row.delivery_status
+        return "Local"
+
     @Property(bool, notify=conflictChanged)
     def hasConflict(self):
         return self.presenter.conflict_view is not None

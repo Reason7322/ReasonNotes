@@ -5,6 +5,34 @@ Milestone 2 Task 3 provides the Fedora desktop application in
 `NoteService` and `Repository` remain the only application and persistence
 layers.
 
+## Approved desktop visual direction
+
+The desktop shell follows **Concept C — Minimal Writing**. Its permanent,
+resizable sidebar defaults to 300 logical pixels and uses a restrained action
+hierarchy: product heading, gold New Note action, Save, Sync, Delete, search,
+notes, and local/phone status. Note rows use a narrow gold selection marker,
+single-line previews, and explicit conflict and delivery status without card
+borders around every row.
+
+The editor uses a centered 920-pixel maximum reading column rather than an
+edge-to-edge text field. It includes a derived presentation heading, a compact
+local-save/phone-delivery bar, an 18-pixel plain-Markdown source editor, and a
+functional empty state. The heading is derived from the first nonempty
+Markdown line; it is not a second persisted title field. The editor narrows
+responsively at smaller window sizes and retains normal scrolling.
+
+The theme is centralized in `linux-app/qml/Theme.qml`. The initial palette is:
+
+- main `#15171C`, sidebar `#1D2026`, and secondary surfaces `#262931`;
+- primary text `#ECEEF3`, secondary text `#A2A7B2`, borders `#353941`;
+- accent `#DCAF48` and selected note `#302C26`.
+
+Sync and conflict views share the same surfaces, type scale, spacing, button
+hierarchy, and evidence language. Their existing selection, exact-revision,
+stale-choice, and immutable-history behavior is unchanged. Rich Markdown
+rendering is intentionally not part of this checkpoint; editing remains
+plain source so no independent document model can diverge from saved content.
+
 ## Launch contract
 
 The launcher deliberately requires explicit repository and transport paths:
@@ -36,7 +64,11 @@ Explicit forced retries retain their existing independent semantics.
 
 The automated QML smoke test loads the real component tree with an offscreen
 platform and disposable repository. It verifies imports, property/model
-wiring, dark-theme loading, long-document scrolling, selected-sync enablement,
-and background sync completion without touching live notes. It does not
-establish visual quality, real-display keyboard or pointer interaction, KDE
+wiring, the Concept C palette and control hierarchy, default and responsive
+geometry, empty-state behavior, long-document scrolling, secondary-view
+styling, selected-sync enablement, and background sync completion without
+touching live notes. `linux-app/render_concept_c.py` renders deterministic
+screenshots from disposable sample notes, and was exercised at 2048×1152 and
+900×600 logical pixels. Offscreen images establish layout and clipping
+evidence, not real Wayland rendering, keyboard/pointer interaction, KDE
 Connect runtime behavior, or physical POCO receipt confirmation.

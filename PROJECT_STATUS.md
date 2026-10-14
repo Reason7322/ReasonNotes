@@ -16,6 +16,11 @@ Milestone 1 is complete. Milestone 2 Tasks 1 through 3 are implemented:
   editing and autosave, search, deletion, asynchronous synchronization,
   evidence-accurate delivery status, selective outgoing synchronization, and
   full immutable-history conflict comparison and resolution.
+- The desktop visual shell now follows the owner-approved Concept C — Minimal
+  Writing direction: a 300-pixel resizable sidebar, centered 920-pixel writing
+  column, centralized dark/gold theme, stronger typography and spacing,
+  accurate local/phone status, responsive empty/editor states, and matching
+  Sync and conflict surfaces.
 
 The Milestone 2 receipt path has focused automated verification but has not
 been physically synchronized on the POCO. The Qt interface has passed
@@ -44,6 +49,8 @@ started.
   `1c413fa09292d8f0eac944c0c6ce8c22c98ed906`
 - Task 3 Qt Quick design checkpoint:
   `de63f2f657585162767b413ab774408955b0cdfd`
+- Task 3 accepted functional checkpoint:
+  `caca06404d8b0994900714b2bf1a24923587a2dd`
 
 ## Current owner
 
@@ -122,6 +129,22 @@ The original APK remains frozen and preserved with SHA-256
   concurrent autosave/import conflicts, and a sync catalogue independent of
   sidebar search, including tombstones. This is component-wiring evidence,
   not visual or interactive acceptance.
+- The Concept C refinement has focused QML and presenter verification. The QML
+  suite covers exact theme values, hierarchy and click-target geometry,
+  persisted/default sidebar sizing, centered 920-pixel and responsive smaller
+  writing layouts, empty and scrolling editor states, secondary view styling,
+  and preserved sync-mode exclusivity. Deterministic offscreen renders were
+  inspected at 2048×1152 and 900×600 using disposable notes; no live note data
+  or visible desktop was used. Owner visual acceptance on a real Wayland
+  display remains pending.
+- Refinement command:
+  `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_qml_smoke tests.test_linux_presenter -v`
+  passed 28/28. The reproducible renderer completed without QML warnings at
+  both geometries; the inspected PNG SHA-256 values were
+  `e7df4515657eee472c87fa202353f162308b5c09974d036af603f6a637e85b83`
+  (2048×1152) and
+  `fa038791f7e6b7cac53f307441bf84c94c121ddc5f091828ef6c0cee7b9ef8da`
+  (900×600).
 - These are automated results. No physical POCO receipt-runtime claim is made.
 
 ## Current architecture
@@ -136,8 +159,8 @@ unconditional.
 
 ## Next action
 
-Task 3 stops at an operational, offscreen-tested checkpoint. The next product
-gate is owner-approved visible and interactive Qt desktop acceptance against a
+Task 3 stops after the Concept C refinement checkpoint. The next product gate
+is owner-approved visible and interactive Qt desktop acceptance against a
 disposable repository. Task 4 is not started and requires a new assignment.
 Do not claim receipt confirmation on the POCO until that path receives
 separate physical runtime verification.

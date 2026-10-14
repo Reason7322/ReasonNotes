@@ -7,30 +7,47 @@ Rectangle {
     required property var presenter
     required property var theme
 
-    color: theme.editor
+    color: theme.mainBackground
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: root.theme.spacingLarge
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(1180, Math.max(0, parent.width - root.theme.spacingXLarge * 2))
+        anchors.topMargin: root.theme.spacingLarge
+        anchors.bottomMargin: root.theme.spacingLarge
         spacing: root.theme.spacing
 
         Label {
+            id: conflictHeading
+            objectName: "conflictHeading"
             Layout.fillWidth: true
-            text: qsTr("This note has conflicting revisions")
+            text: qsTr("Choose the version to keep")
             color: root.theme.textPrimary
-            font.pixelSize: root.theme.headingSize
-            font.bold: true
+            font.family: root.theme.fontFamily
+            font.pixelSize: root.theme.noteHeadingSize
+            font.weight: Font.DemiBold
         }
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Choose an exact revision to keep. Superseded revisions remain recoverable from immutable history.")
+            text: qsTr("This note changed independently on more than one device. Review each exact revision before deciding.")
             color: root.theme.textSecondary
+            font.pixelSize: root.theme.secondarySize
             wrapMode: Text.Wrap
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            Layout.topMargin: root.theme.spacing
+            Layout.bottomMargin: root.theme.spacing
+            color: root.theme.border
         }
 
         ListView {
             id: conflictList
+            objectName: "conflictList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             orientation: ListView.Horizontal
@@ -44,28 +61,43 @@ Rectangle {
                 required property bool deleted
                 required property string body
 
-                width: Math.max(320, (conflictList.width - root.theme.spacing) / 2)
+                width: Math.max(340, Math.min(570, (conflictList.width - root.theme.spacing) / 2))
                 height: conflictList.height
-                color: root.theme.sidebar
+                color: root.theme.surface
                 border.color: root.theme.border
                 radius: root.theme.radius
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: root.theme.spacing
+                    anchors.margins: root.theme.spacingLarge
                     spacing: root.theme.spacing
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("%1 · %2").arg(originDevice).arg(revisionId.slice(0, 10))
+                        text: originDevice === "linux" ? qsTr("Linux version") : qsTr("Android version")
                         color: root.theme.textPrimary
-                        font.bold: true
+                        font.pixelSize: 20
+                        font.weight: Font.DemiBold
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Revision %1").arg(revisionId.slice(0, 12))
+                        color: root.theme.textSecondary
+                        font.pixelSize: root.theme.smallSize
                         elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 1
+                        color: root.theme.border
                     }
 
                     ScrollView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        clip: true
 
                         TextArea {
                             readOnly: true
@@ -75,11 +107,15 @@ Rectangle {
                             wrapMode: TextEdit.Wrap
                             selectByMouse: true
                             font.family: "monospace"
+                            font.pixelSize: 16
+                            leftPadding: 0
+                            rightPadding: root.theme.spacing
                         }
                     }
 
                     Button {
                         Layout.fillWidth: true
+                        implicitHeight: 46
                         text: originDevice === "linux"
                             ? qsTr("Keep Linux revision")
                             : qsTr("Keep Android revision")
@@ -88,6 +124,8 @@ Rectangle {
                             originDevice === "linux" ? "keep-linux" : "keep-android",
                             revisionId
                         )
+                        contentItem: Label { text: parent.text; color: root.theme.accentText; opacity: parent.enabled ? 1 : 0.5; font.pixelSize: root.theme.secondarySize; font.weight: Font.DemiBold; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        background: Rectangle { color: parent.enabled ? (parent.hovered ? Qt.lighter(root.theme.accent, 1.08) : root.theme.accent) : root.theme.border; border.color: parent.activeFocus ? root.theme.textPrimary : "transparent"; border.width: parent.activeFocus ? 2 : 0; radius: root.theme.radiusSmall }
                     }
                 }
             }
@@ -95,9 +133,23 @@ Rectangle {
             ScrollBar.horizontal: ScrollBar {}
         }
 
+        Label {
+            id: conflictHistoryNote
+            objectName: "conflictHistoryNote"
+            Layout.fillWidth: true
+            text: qsTr("Superseded revisions remain recoverable from immutable history.")
+            color: root.theme.textSecondary
+            font.pixelSize: root.theme.smallSize
+            wrapMode: Text.Wrap
+        }
+
         Button {
             text: qsTr("Skip for now")
+            implicitWidth: 124
+            implicitHeight: 42
             onClicked: root.presenter.skipConflict()
+            contentItem: Label { text: parent.text; color: root.theme.textPrimary; font.pixelSize: root.theme.secondarySize; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            background: Rectangle { color: parent.hovered ? root.theme.surfaceHover : "transparent"; border.color: parent.activeFocus ? root.theme.accent : root.theme.border; radius: root.theme.radiusSmall }
         }
     }
 }

@@ -8,22 +8,26 @@ ApplicationWindow {
     objectName: "reasonNotesWindow"
     property var bridge: presenter
     property bool smokeMode: smokeTest
+    property real restoredSidebarWidth: Math.max(
+        theme.sidebarMinimum,
+        Math.min(440, settings.sidebarWidth)
+    )
 
     visible: !smokeMode
     width: 1200
     height: 800
-    minimumWidth: 760
-    minimumHeight: 520
+    minimumWidth: 820
+    minimumHeight: 560
     title: qsTr("ReasonNotes")
-    color: theme.editor
+    color: theme.mainBackground
     palette.window: theme.sidebar
     palette.windowText: theme.textPrimary
     palette.base: theme.editor
-    palette.alternateBase: theme.control
+    palette.alternateBase: theme.surface
     palette.text: theme.textPrimary
-    palette.button: theme.control
+    palette.button: theme.surface
     palette.buttonText: theme.textPrimary
-    palette.highlight: theme.selection
+    palette.highlight: theme.accent
     palette.highlightedText: theme.textPrimary
     palette.placeholderText: theme.textSecondary
 
@@ -37,9 +41,29 @@ ApplicationWindow {
         property real sidebarWidth: theme.sidebarInitial
     }
 
+    Timer {
+        id: saveSidebarWidth
+        interval: 250
+        onTriggered: settings.sidebarWidth = sidebar.width
+    }
+
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal
+        handle: Rectangle {
+            objectName: "splitHandle"
+            implicitWidth: 9
+            color: "transparent"
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 1
+                height: parent.height
+                color: parent.SplitHandle.hovered || parent.SplitHandle.pressed
+                    ? theme.accent
+                    : theme.border
+            }
+        }
 
         Sidebar {
             id: sidebar
@@ -47,21 +71,16 @@ ApplicationWindow {
             presenter: root.bridge
             theme: theme
             SplitView.minimumWidth: theme.sidebarMinimum
-            SplitView.preferredWidth: Math.max(
-                theme.sidebarMinimum,
-                settings.sidebarWidth
-            )
-            onWidthChanged: {
-                if (width >= theme.sidebarMinimum)
-                    settings.sidebarWidth = width
-            }
+            SplitView.maximumWidth: 440
+            SplitView.preferredWidth: root.restoredSidebarWidth
+            onWidthChanged: saveSidebarWidth.restart()
             onSyncRequested: syncDialog.open()
             onDeleteRequested: deleteDialog.open()
         }
 
         Item {
             SplitView.fillWidth: true
-            SplitView.minimumWidth: 420
+            SplitView.minimumWidth: 520
 
             EditorPane {
                 id: editorPane
@@ -95,19 +114,22 @@ ApplicationWindow {
         objectName: "deleteDialog"
         anchors.centerIn: parent
         modal: true
-        title: qsTr("Delete note?")
+        title: qsTr("Delete this note?")
+        width: Math.min(480, root.width - theme.spacingXXLarge * 2)
         standardButtons: Dialog.Cancel | Dialog.Ok
         closePolicy: Popup.CloseOnEscape
         onAccepted: root.bridge.deleteCurrent()
 
         Label {
-            text: qsTr("This creates a deletion revision. Immutable history remains recoverable.")
+            width: parent ? parent.width : 420
+            text: qsTr("ReasonNotes will create a deletion revision. The note remains recoverable from immutable history.")
             color: theme.textPrimary
             wrapMode: Text.Wrap
+            font.pixelSize: theme.secondarySize
         }
 
         background: Rectangle {
-            color: theme.sidebar
+            color: theme.surface
             border.color: theme.border
             radius: theme.radius
         }

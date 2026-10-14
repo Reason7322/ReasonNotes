@@ -7,7 +7,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QSettings, QUrl
+from PySide6.QtCore import QCoreApplication, QMetaObject, QSettings, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -52,6 +52,168 @@ class QmlSmokeTests(unittest.TestCase):
         )
         presenter = NotePresenter(NoteService(repository, origin_device="linux"))
         self.bridge = QtNotePresenter(presenter)
+
+    def load_qml(self):
+        engine = QQmlApplicationEngine()
+        warnings = []
+        engine.warnings.connect(lambda values: warnings.extend(values))
+        engine.rootContext().setContextProperty("presenter", self.bridge)
+        engine.rootContext().setContextProperty("smokeTest", True)
+        engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
+        QCoreApplication.processEvents()
+        self.assertEqual(1, len(engine.rootObjects()))
+        return engine, engine.rootObjects()[0], warnings
+
+    def test_concept_c_theme_and_sidebar_hierarchy(self):
+        self.assertTrue(self.bridge.createNote())
+        self.bridge.editDraft("# Minimal Writing\nA calm writing space")
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        theme = root.findChild(object, "theme")
+        sidebar = root.findChild(object, "sidebar")
+        new_note = root.findChild(object, "newNoteButton")
+        save = root.findChild(object, "saveButton")
+        sync = root.findChild(object, "syncButton")
+        delete = root.findChild(object, "deleteNoteButton")
+        search = root.findChild(object, "searchField")
+        notes = root.findChild(object, "notesList")
+        status = root.findChild(object, "sidebarStatus")
+
+        self.assertEqual("#15171c", theme.property("mainBackground").name())
+        self.assertEqual("#1d2026", theme.property("sidebar").name())
+        self.assertEqual("#dcaf48", theme.property("accent").name())
+        self.assertEqual("#302c26", theme.property("selectedNote").name())
+        self.assertGreaterEqual(sidebar.property("width"), 290)
+        self.assertLessEqual(sidebar.property("width"), 310)
+        self.assertGreaterEqual(new_note.property("height"), 48)
+        self.assertGreaterEqual(save.property("height"), 40)
+        self.assertGreaterEqual(sync.property("height"), 40)
+        self.assertGreaterEqual(delete.property("height"), 40)
+        self.assertGreaterEqual(search.property("height"), 44)
+        self.assertGreater(new_note.property("width"), 240)
+        self.assertLess(new_note.property("y"), save.property("y"))
+        self.assertLess(save.property("y"), sync.property("y"))
+        self.assertLess(sync.property("y"), delete.property("y"))
+        self.assertLess(delete.property("y"), search.property("y"))
+        self.assertLess(search.property("y"), notes.property("y"))
+        self.assertLess(notes.property("y"), status.property("y"))
+        del engine
+
+    def test_concept_c_writing_column_is_centered_and_responsive(self):
+        self.assertTrue(self.bridge.createNote())
+        self.bridge.editDraft("# Responsive Note\nBody")
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        editor_pane = root.findChild(object, "editorPane")
+        reading_column = root.findChild(object, "readingColumn")
+        heading = root.findChild(object, "currentNoteHeading")
+        editor = root.findChild(object, "markdownEditor")
+        status = root.findChild(object, "editorStatusBar")
+
+        root.setProperty("visible", True)
+        root.setProperty("width", 2048)
+        root.setProperty("height", 1152)
+        QCoreApplication.processEvents()
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        self.assertGreaterEqual(reading_column.property("width"), 850)
+        self.assertLessEqual(reading_column.property("width"), 950)
+        self.assertAlmostEqual(
+            reading_column.property("x") * 2 + reading_column.property("width"),
+            editor_pane.property("width"),
+            delta=4,
+        )
+        self.assertGreaterEqual(heading.property("font").pixelSize(), 34)
+        self.assertLessEqual(heading.property("font").pixelSize(), 38)
+        self.assertGreaterEqual(editor.property("font").pixelSize(), 17)
+        self.assertTrue(status.property("visible"))
+
+        root.setProperty("width", 900)
+        root.setProperty("height", 600)
+        QCoreApplication.processEvents()
+        self.assertLess(reading_column.property("width"), 850)
+        self.assertGreaterEqual(reading_column.property("x"), 24)
+        self.assertLessEqual(
+            reading_column.property("width"),
+            editor_pane.property("width") - 48,
+        )
+        del engine
+
+    def test_sidebar_width_is_persisted_after_resize(self):
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+        sidebar = root.findChild(object, "sidebar")
+        sidebar.setProperty("width", 360)
+
+        deadline = time.monotonic() + 0.35
+        while time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            time.sleep(0.01)
+        root.close()
+        del engine
+        QCoreApplication.processEvents()
+
+        restored_engine, restored_root, restored_warnings = self.load_qml()
+        restored_root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+        restored_sidebar = restored_root.findChild(object, "sidebar")
+
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        self.assertEqual([], [warning.toString() for warning in restored_warnings])
+        self.assertAlmostEqual(360, restored_sidebar.property("width"), delta=1)
+        del restored_engine
+
+    def test_concept_c_empty_state_replaces_inactive_editor(self):
+        engine, root, warnings = self.load_qml()
+        empty_state = root.findChild(object, "emptyState")
+        editor_content = root.findChild(object, "editorContent")
+
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        self.assertTrue(empty_state.property("visible"))
+        self.assertFalse(editor_content.property("visible"))
+        self.assertIn("Create", empty_state.property("accessibleDescription"))
+        del engine
+
+    def test_secondary_views_follow_concept_c_visual_language(self):
+        engine, root, warnings = self.load_qml()
+        sync_surface = root.findChild(object, "syncDialogSurface")
+        sync_heading = root.findChild(object, "syncDialogHeading")
+        start_sync = root.findChild(object, "startSyncButton")
+        conflict_view = root.findChild(object, "conflictView")
+        conflict_heading = root.findChild(object, "conflictHeading")
+        conflict_history = root.findChild(object, "conflictHistoryNote")
+
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        self.assertEqual("#262931", sync_surface.property("color").name())
+        self.assertGreaterEqual(sync_heading.property("font").pixelSize(), 24)
+        self.assertGreaterEqual(start_sync.property("height"), 44)
+        self.assertEqual("#15171c", conflict_view.property("color").name())
+        self.assertGreaterEqual(conflict_heading.property("font").pixelSize(), 34)
+        self.assertIn("recoverable", conflict_history.property("text"))
+        del engine
+
+    def test_minimum_window_keeps_sync_catalogue_and_resize_handle_usable(self):
+        self.assertTrue(self.bridge.createNote())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 820)
+        root.setProperty("height", 560)
+        selected_mode = root.findChild(object, "selectedSyncMode")
+        selected_mode.setProperty("checked", True)
+        sync_dialog = root.findChild(object, "syncDialog")
+        self.assertTrue(QMetaObject.invokeMethod(sync_dialog, "open"))
+        QCoreApplication.processEvents()
+
+        sync_list = root.findChild(object, "syncList")
+        split_handle = root.findChild(object, "splitHandle")
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        self.assertGreaterEqual(sync_list.property("height"), 96)
+        self.assertGreaterEqual(split_handle.property("width"), 8)
+        del engine
 
     def test_real_component_tree_loads_offscreen_without_warnings(self):
         self.assertTrue(self.bridge.createNote())
@@ -124,6 +286,8 @@ class QmlSmokeTests(unittest.TestCase):
         engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
         QCoreApplication.processEvents()
         root = engine.rootObjects()[0]
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
         scroll = root.findChild(object, "editorScrollView")
 
         self.assertIsNotNone(scroll)
@@ -135,6 +299,7 @@ class QmlSmokeTests(unittest.TestCase):
     def test_bridge_updates_models_and_persists_only_after_save(self):
         self.assertTrue(self.bridge.createNote())
         self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertEqual("Pending", self.bridge.activeDeliveryStatus)
 
         self.bridge.editDraft("# QML note\nBody")
         self.assertEqual("Dirty", self.bridge.saveState)
