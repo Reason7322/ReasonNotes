@@ -64,6 +64,31 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual(1, len(engine.rootObjects()))
         return engine, engine.rootObjects()[0], warnings
 
+    def test_sidebar_action_icons_are_uniform_vector_shapes(self):
+        self.assertTrue(self.bridge.createNote())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+
+        icons = {
+            "saveActionIcon": "save",
+            "syncActionIcon": "sync",
+            "deleteActionIcon": "delete",
+        }
+        for object_name, kind in icons.items():
+            with self.subTest(icon=object_name):
+                icon = root.findChild(object, object_name)
+                self.assertIsNotNone(icon)
+                self.assertEqual(kind, icon.property("kind"))
+                self.assertEqual(24, icon.property("width"))
+                self.assertEqual(24, icon.property("height"))
+
+        # Save and Delete are enabled with a selected note, and all icons
+        # still share the same source-independent vector geometry.
+        self.assertTrue(root.findChild(object, "saveButton").property("enabled"))
+        self.assertTrue(root.findChild(object, "deleteNoteButton").property("enabled"))
+        self.assertEqual([], [warning.toString() for warning in warnings])
+
     def test_concept_c_theme_and_sidebar_hierarchy(self):
         self.assertTrue(self.bridge.createNote())
         self.bridge.editDraft("# Minimal Writing\nA calm writing space")

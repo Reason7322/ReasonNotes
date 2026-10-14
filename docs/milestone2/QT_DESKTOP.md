@@ -40,6 +40,14 @@ content previews and per-note delivery labels are not shown in its note
 rows. Detailed delivery information remains in the existing app status and
 sync controls.
 
+## Consistent action icons
+
+Save, Sync, and Delete use 24-pixel Qt Quick vector shapes with matching
+stroke widths, aligned icon slots, and colors tied to enabled/hover state.
+The New Note plus sign is unchanged. These icons are local to QML and do
+not depend on a particular system font or icon theme; the button actions
+and synchronization paths are unchanged.
+
 The theme is centralized in `linux-app/qml/Theme.qml`. The initial palette is:
 
 - main `#15171C`, sidebar `#1D2026`, and secondary surfaces `#262931`;

@@ -76,7 +76,14 @@ Rectangle {
 
             contentItem: RowLayout {
                 spacing: root.theme.spacing
-                Label { text: "▣"; color: saveButton.enabled ? root.theme.textSecondary : root.theme.border; font.pixelSize: 20 }
+                ActionIcon {
+                    objectName: "saveActionIcon"
+                    kind: "save"
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    iconColor: !saveButton.enabled ? root.theme.border
+                        : (saveButton.hovered ? root.theme.accent : root.theme.textSecondary)
+                }
                 Label { text: qsTr("Save"); color: saveButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
                 Label { text: qsTr("Ctrl+S"); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize }
             }
@@ -96,7 +103,13 @@ Rectangle {
 
             contentItem: RowLayout {
                 spacing: root.theme.spacing
-                Label { text: "↻"; color: root.theme.textSecondary; font.pixelSize: 22 }
+                ActionIcon {
+                    objectName: "syncActionIcon"
+                    kind: "sync"
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    iconColor: syncButton.hovered ? root.theme.accent : root.theme.textSecondary
+                }
                 Label { text: qsTr("Sync"); color: root.theme.textPrimary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
             background: Rectangle { color: syncButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: syncButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
@@ -113,7 +126,14 @@ Rectangle {
 
             contentItem: RowLayout {
                 spacing: root.theme.spacing
-                Label { text: "⌫"; color: deleteNoteButton.enabled ? root.theme.textSecondary : root.theme.border; font.pixelSize: 20 }
+                ActionIcon {
+                    objectName: "deleteActionIcon"
+                    kind: "delete"
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    iconColor: !deleteNoteButton.enabled ? root.theme.border
+                        : (deleteNoteButton.hovered ? root.theme.error : root.theme.textSecondary)
+                }
                 Label { text: qsTr("Delete"); color: deleteNoteButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
             }
             background: Rectangle { color: deleteNoteButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: deleteNoteButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
