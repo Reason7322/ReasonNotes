@@ -195,7 +195,25 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
-## Latest development checkpoint — logical peer and received-name collisions
+## Latest development checkpoint — Android ledger merge repair
+
+The owner authorized an isolated fix after installing the previous peer-identity
+APK revealed a **real mixed physical/logical delivery-record conflict** on the
+POCO. The safe migration refused to overwrite either row, and opening the
+Android Sync screen could not complete. The new Sol branch
+`sol/android-peer-ledger-merge` conservatively reconciles unconfirmed duplicate
+entries (maximum attempts, latest request timestamp, strongest safe state),
+preserves authentic confirmation receipts, and still fails atomically on
+contradictory confirmations.
+
+**102/102 Android tests and 152/152 Fedora tests passed**. A new signed
+candidate APK was built and preserved, **not installed**. The installed phone
+application and its existing delivery ledger were not modified during this
+repair. See `docs/milestone2/ANDROID_LEDGER_MERGE_REPAIR.md` for the exact
+physical rows, candidate APK path/hash, migration policy and next acceptance
+gate. Automatic end-to-end receipt confirmation remains unverified.
+
+## Previous development checkpoint — logical peer and received-name collisions
 
 The owner authorized targeted fixes after real physical receipt tests identified
 a protocol identity mismatch. The follow-up Sol branch
@@ -208,12 +226,14 @@ revision and receipt envelopes.
 **152/152 Fedora tests and 98/98 Android tests passed**; a replacement APK
 was built, its certificate matched the installed debug signer, and a copy of
 the exact collision-named received revision was imported in an isolated Fedora
-repository. **This candidate APK has not been installed or deployed**; actual
-automatic receipt transmission remains pending a separately approved physical
-retest. See `docs/milestone2/ANDROID_PEER_RECEIPT_FIX.md` for exact artifact
+repository. The owner subsequently authorized an in-place update of **that earlier
+candidate**, and its APK bytes were verified on the POCO. Opening its Sync
+screen exposed the mixed-ledger conflict documented above. The newer ledger
+merge repair APK remains **uninstalled**. Automatic receipt transmission is
+still pending a separately authorized physical retest. See `docs/milestone2/ANDROID_PEER_RECEIPT_FIX.md` for exact artifact
 hashes, data-migration safeguards, and acceptance boundaries.
 
-## Next action
+## Historical Linux receiver checkpoint
 
 A separate Sol-owned isolated Linux receiving fix adds opt-in scanning of a
 second KDE Connect receive folder (such as Downloads) and recognition of

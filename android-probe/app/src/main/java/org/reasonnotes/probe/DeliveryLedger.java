@@ -117,9 +117,10 @@ public final class DeliveryLedger {
     }
 
     /**
-     * Upgrade pre-Task-5 delivery records from a KDE Connect transport identifier
-     * to the logical revision peer. Preserve request/confirmation evidence and the
-     * original append-only event history. Conflict is fatal, never overwritten.
+     * Upgrade historical physical KDE Connect keys to the logical revision peer.
+     * Reconcile ordinary pending/requested/attention differences conservatively,
+     * without resetting retries or inventing a receipt. Contradictory confirmed
+     * receipt evidence remains fatal and leaves the entire ledger unchanged.
      */
     public boolean migrateTarget(String previousTarget, String logicalPeer) {
         return migrateTargets(List.of(previousTarget), logicalPeer);
@@ -141,26 +142,55 @@ public final class DeliveryLedger {
                 if (!legacy.targetDevice().equals(previousTarget)) continue;
                 String destination = key(legacy.revisionId(), logicalPeer);
                 Entry existing = converted.get(destination);
-                if (existing != null && !(existing.state().equals(legacy.state())
-                        && existing.attempts() == legacy.attempts()
-                        && Objects.equals(existing.lastRequested(), legacy.lastRequested())
-                        && Objects.equals(existing.receiptId(), legacy.receiptId())
-                        && Objects.equals(existing.confirmedUtc(), legacy.confirmedUtc()))) {
-                    throw new IllegalStateException(
-                            "conflicting physical and logical delivery history; no migration performed");
-                }
+                Entry normalized = new Entry(
+                        legacy.revisionId(), logicalPeer, legacy.state(),
+                        legacy.attempts(), legacy.lastRequested(),
+                        legacy.receiptId(), legacy.confirmedUtc());
+                Entry merged = existing == null ? normalized : mergeEvidence(existing, normalized);
                 converted.remove(key(legacy.revisionId(), previousTarget));
-                if (existing == null) {
-                    converted.put(destination, new Entry(
-                            legacy.revisionId(), logicalPeer, legacy.state(),
-                            legacy.attempts(), legacy.lastRequested(),
-                            legacy.receiptId(), legacy.confirmedUtc()));
-                }
+                converted.put(destination, merged);
                 changed = true;
             }
         }
         if (changed) writeEntries(converted);
         return changed;
+    }
+
+    private Entry mergeEvidence(Entry a, Entry b) {
+        if (!a.revisionId().equals(b.revisionId())
+                || !a.targetDevice().equals(b.targetDevice())) {
+            throw new IllegalArgumentException("cannot merge different delivery identities");
+        }
+        Entry confirmedA = a.state().equals("confirmed") ? a : null;
+        Entry confirmedB = b.state().equals("confirmed") ? b : null;
+        if (confirmedA != null && confirmedB != null
+                && (!Objects.equals(confirmedA.receiptId(), confirmedB.receiptId())
+                || !Objects.equals(confirmedA.confirmedUtc(), confirmedB.confirmedUtc()))) {
+            throw new IllegalStateException(
+                    "contradictory confirmation receipts; no migration performed");
+        }
+
+        // Transfer requests across two historical keys might describe the same
+        // attempt; adding counters would invent retries. Preserve the maximum.
+        int attempts = Math.max(a.attempts(), b.attempts());
+        Instant latest = a.lastRequested() == null ? b.lastRequested()
+                : b.lastRequested() == null ? a.lastRequested()
+                : a.lastRequested().isAfter(b.lastRequested())
+                        ? a.lastRequested() : b.lastRequested();
+        Entry confirmed = confirmedA != null ? confirmedA : confirmedB;
+        if (confirmed != null) {
+            return new Entry(a.revisionId(), a.targetDevice(), "confirmed",
+                    attempts, latest, confirmed.receiptId(), confirmed.confirmedUtc());
+        }
+
+        // Never downgrade needs-attention or unblock retries just because the
+        // two old keys reported different unconfirmed states.
+        String state = a.state().equals("needs-attention")
+                || b.state().equals("needs-attention") || attempts >= maxRequests
+                        ? "needs-attention"
+                        : attempts > 0 ? "transfer-requested" : "pending";
+        return new Entry(a.revisionId(), a.targetDevice(), state,
+                attempts, latest, null, null);
     }
 
     public void registerLocal(String revisionId, String targetDevice) {

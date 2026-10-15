@@ -152,22 +152,122 @@ public final class DeliveryLedgerTest {
     }
 
     @Test
-    public void migrationFailsClosedWithoutOverwritingDifferentLogicalEntry() throws Exception {
+    public void realPhoneMixedLedgerPreservesMostConservativeEvidenceAndRetryCount() throws Exception {
         String physical = "254997f28f11499d80928fe8a109749e";
-        File state = temporary.newFolder("migration-collision");
+        File state = temporary.newFolder("real-phone-conflict");
         DeliveryLedger ledger = new DeliveryLedger(state, 3);
-        ledger.registerLocal(REVISION, physical);
-        ledger.recordRequested(REVISION, physical, Instant.parse("2026-10-12T14:00:00Z"));
-        ledger.registerLocal(REVISION, "linux");
-        byte[] before = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
-        assertThrows(IllegalStateException.class, () -> ledger.migrateTarget(physical, "linux"));
-        assertArrayEquals(before, java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath()));
-        assertEquals(1, ledger.entry(REVISION, physical).attempts());
-        assertEquals(0, ledger.entry(REVISION, "linux").attempts());
+        String revision = "7c1792c1475a12cb755982e69fd448871ed3d348a5a7823b8a9ef1a352ce0a83";
+        Instant old = Instant.parse("2026-10-12T19:11:59Z");
+        Instant recent = Instant.parse("2026-10-15T12:00:27Z");
+
+        ledger.registerLocal(revision, "linux");
+        for (int i = 0; i < 3; i++) ledger.recordRequested(revision, "linux", old);
+        ledger.registerLocal(revision, physical);
+        ledger.recordRequested(revision, physical, recent.minusSeconds(1));
+        ledger.recordRequested(revision, physical, recent);
+        byte[] originalEvents = java.nio.file.Files.readAllBytes(new File(state, "events.tsv").toPath());
+
+        assertTrue(ledger.migrateTargets(List.of(physical), "linux"));
+        assertFalse(ledger.migrateTargets(List.of(physical), "linux"));
+        DeliveryLedger updated = new DeliveryLedger(state, 3);
+        DeliveryLedger.Entry merged = updated.entry(revision, "linux");
+        assertEquals("needs-attention", merged.state());
+        assertEquals(3, merged.attempts());
+        assertEquals(recent, merged.lastRequested());
+        assertEquals(null, merged.receiptId());
+        assertEquals(null, merged.confirmedUtc());
+        assertEquals(null, updated.entry(revision, physical));
+        assertEquals(List.of(), updated.eligible("linux", true, List.of()));
+        assertArrayEquals(originalEvents,
+                java.nio.file.Files.readAllBytes(new File(state, "events.tsv").toPath()));
     }
 
     @Test
-    public void multipleHistoricalPhysicalIdsAreMigratedAtomicallyOrNotAtAll() throws Exception {
+    public void mixedPendingAndRequestedRecordsMergeWithoutInventingDelivery() throws Exception {
+        String physical = "254997f28f11499d80928fe8a109749e";
+        File state = temporary.newFolder("pending-v-requested");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        Instant requested = Instant.parse("2026-10-12T14:00:00Z");
+        ledger.registerLocal(REVISION, physical);
+        ledger.recordRequested(REVISION, physical, requested);
+        ledger.registerLocal(REVISION, "linux");
+
+        assertTrue(ledger.migrateTarget(physical, "linux"));
+        DeliveryLedger.Entry merged = ledger.entry(REVISION, "linux");
+        assertEquals("transfer-requested", merged.state());
+        assertEquals(1, merged.attempts());
+        assertEquals(requested, merged.lastRequested());
+        assertEquals(null, merged.receiptId());
+    }
+
+    @Test
+    public void confirmedEvidenceWinsOverUnconfirmedButNeverInventsReceipt() throws Exception {
+        String physical = "254997f28f11499d80928fe8a109749e";
+        File state = temporary.newFolder("confirmed-mixed");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        Instant start = Instant.parse("2026-10-12T14:00:00Z");
+        ledger.registerLocal(REVISION, physical);
+        ledger.recordRequested(REVISION, physical, start.plusSeconds(3));
+        ledger.recordRequested(REVISION, physical, start.plusSeconds(4));
+        ledger.registerLocal(REVISION, "linux");
+        ledger.recordRequested(REVISION, "linux", start);
+        ledger.recordConfirmed(REVISION, "linux", RECEIPT, start.plusSeconds(1));
+
+        assertTrue(ledger.migrateTarget(physical, "linux"));
+        DeliveryLedger.Entry merged = ledger.entry(REVISION, "linux");
+        assertEquals("confirmed", merged.state());
+        assertEquals(2, merged.attempts());
+        assertEquals(start.plusSeconds(4), merged.lastRequested());
+        assertEquals(RECEIPT, merged.receiptId());
+        assertEquals(start.plusSeconds(1), merged.confirmedUtc());
+    }
+
+    @Test
+    public void incompatibleConfirmationsFailClosedAndLeaveEntireLedgerUnchanged() throws Exception {
+        File state = temporary.newFolder("confirmed-conflict");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        String physical = "254997f28f11499d80928fe8a109749e";
+        Instant at = Instant.parse("2026-10-12T14:00:00Z");
+        ledger.registerLocal(REVISION, physical);
+        ledger.recordRequested(REVISION, physical, at);
+        ledger.recordConfirmed(REVISION, physical, RECEIPT, at.plusSeconds(1));
+        ledger.registerLocal(REVISION, "linux");
+        ledger.recordRequested(REVISION, "linux", at);
+        ledger.recordConfirmed(REVISION, "linux", "a".repeat(64), at.plusSeconds(2));
+        byte[] before = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
+        byte[] events = java.nio.file.Files.readAllBytes(new File(state, "events.tsv").toPath());
+
+        assertThrows(IllegalStateException.class, () ->
+                ledger.migrateTargets(List.of(physical), "linux"));
+        assertArrayEquals(before, java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath()));
+        assertArrayEquals(events, java.nio.file.Files.readAllBytes(new File(state, "events.tsv").toPath()));
+    }
+
+    @Test
+    public void laterConfirmationConflictCannotPartiallyMigrateOtherRevisions() throws Exception {
+        File state = temporary.newFolder("staged-conflict");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        String physical = "254997f28f11499d80928fe8a109749e";
+        String conflict = "c".repeat(64);
+        Instant at = Instant.parse("2026-10-12T14:00:00Z");
+        ledger.registerLocal(REVISION, physical);
+        ledger.recordRequested(REVISION, physical, at);
+        ledger.registerLocal(conflict, physical);
+        ledger.recordRequested(conflict, physical, at);
+        ledger.recordConfirmed(conflict, physical, RECEIPT, at.plusSeconds(1));
+        ledger.registerLocal(conflict, "linux");
+        ledger.recordRequested(conflict, "linux", at);
+        ledger.recordConfirmed(conflict, "linux", "a".repeat(64), at.plusSeconds(2));
+        byte[] snapshot = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
+
+        assertThrows(IllegalStateException.class, () -> ledger.migrateTarget(physical, "linux"));
+        assertArrayEquals(snapshot, java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath()));
+        assertEquals(null, ledger.entry(REVISION, "linux"));
+        assertEquals("transfer-requested", ledger.entry(REVISION, physical).state());
+    }
+
+    @Test
+    public void multipleHistoricalPhysicalIdsAreMergedInOneAtomicWrite() throws Exception {
         File state = temporary.newFolder("migration-multi");
         DeliveryLedger ledger = new DeliveryLedger(state, 3);
         String oldA = "254997f28f11499d80928fe8a109749e";
@@ -176,19 +276,15 @@ public final class DeliveryLedgerTest {
         ledger.registerLocal(REVISION, oldA);
         ledger.recordRequested(REVISION, oldA, t);
         ledger.registerLocal(REVISION, oldB);
-        byte[] before = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
-
-        assertThrows(IllegalStateException.class, () ->
-                ledger.migrateTargets(List.of(oldA, oldB), "linux"));
-        assertArrayEquals(before, java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath()));
-        assertEquals(null, ledger.entry(REVISION, "linux"));
-
-        String other = "b".repeat(64);
-        ledger.registerLocal(other, oldB);
-        byte[] beforeAgain = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
-        assertThrows(IllegalStateException.class, () ->
-                ledger.migrateTargets(List.of(oldA, oldB), "linux"));
-        assertArrayEquals(beforeAgain, java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath()));
+        ledger.recordRequested(REVISION, oldB, t.plusSeconds(5));
+        ledger.registerLocal(REVISION, "linux");
+        assertTrue(ledger.migrateTargets(List.of(oldA, oldB), "linux"));
+        assertEquals(1, ledger.entry(REVISION, "linux").attempts());
+        assertEquals(t.plusSeconds(5), ledger.entry(REVISION, "linux").lastRequested());
+        assertEquals("transfer-requested", ledger.entry(REVISION, "linux").state());
+        assertEquals(null, ledger.entry(REVISION, oldA));
+        assertEquals(null, ledger.entry(REVISION, oldB));
+        assertFalse(ledger.migrateTargets(List.of(oldA, oldB), "linux"));
     }
 
     @Test
