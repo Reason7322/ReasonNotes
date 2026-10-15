@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QMetaObject, QSettings, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick import QQuickItem
 
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
@@ -173,6 +174,67 @@ class QmlSmokeTests(unittest.TestCase):
             reading_column.property("width"),
             editor_pane.property("width") - 48,
         )
+        del engine
+
+    def test_open_long_note_starts_at_bottom_short_note_at_top_and_saves_do_not_jump(self):
+        # Real ScrollView/Flickable geometry rather than a mocked scroll flag.
+        self.assertTrue(self.bridge.createNote())
+        long_id = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Long note"))
+        self.assertTrue(self.bridge.editContent(
+            "\n".join(f"entry {index}" for index in range(180))
+        ))
+        self.assertTrue(self.bridge.saveNow())
+
+        self.assertTrue(self.bridge.createNote())
+        short_id = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Short note"))
+        self.assertTrue(self.bridge.editContent("Brief text"))
+        self.assertTrue(self.bridge.saveNow())
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 900)
+        root.setProperty("height", 600)
+        for _ in range(12):
+            QCoreApplication.processEvents()
+
+        scroll = root.findChild(object, "editorScrollView")
+        flickable = scroll.property("contentItem")
+        self.assertIsNotNone(flickable)
+        self.assertTrue(self.bridge.selectNote(long_id))
+        for _ in range(18):
+            QCoreApplication.processEvents()
+
+        total = float(flickable.property("contentHeight"))
+        viewport = float(flickable.property("height"))
+        position = float(flickable.property("contentY"))
+        maximum = max(0, total - viewport)
+        self.assertGreater(maximum, 200)
+        self.assertAlmostEqual(maximum, position, delta=3)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+
+        # Scrolling up to read old entries must not get overridden by saving.
+        flickable.setProperty("contentY", 75.0)
+        self.assertTrue(self.bridge.saveNow())
+        for _ in range(10):
+            QCoreApplication.processEvents()
+        self.assertAlmostEqual(75.0, float(flickable.property("contentY")), delta=3)
+
+        self.assertTrue(self.bridge.selectNote(short_id))
+        for _ in range(12):
+            QCoreApplication.processEvents()
+        self.assertAlmostEqual(0.0, float(flickable.property("contentY")), delta=3)
+
+        self.assertTrue(self.bridge.selectNote(long_id))
+        for _ in range(12):
+            QCoreApplication.processEvents()
+        self.assertAlmostEqual(
+            float(flickable.property("contentHeight")) - float(flickable.property("height")),
+            float(flickable.property("contentY")),
+            delta=3,
+        )
+        self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
     def test_sidebar_width_is_persisted_after_resize(self):

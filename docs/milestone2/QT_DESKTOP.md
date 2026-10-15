@@ -35,6 +35,13 @@ uses an explicit `# Untitled` heading so body content cannot turn into the
 title unexpectedly. Both fields retain the same autosave, immutable-history,
 race protection, and conflict restrictions.
 
+Opening a different note automatically scrolls its Markdown body to the last
+visible entry when content exceeds the available editor height. Short notes
+remain at the top. The one-shot position change waits for Qt text layout and
+does not repeat when the user scrolls, edits, or saves the same note. The
+title and status bars stay fixed while the body scrolls. An offscreen real-QML
+regression covers long→short→long switching, save, and preserving manual scroll.
+
 The permanent sidebar displays **titles only** with a conflict indicator;
 content previews and per-note delivery labels are not shown in its note
 rows. Detailed delivery information remains in the existing app status and

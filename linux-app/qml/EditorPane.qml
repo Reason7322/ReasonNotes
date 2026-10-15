@@ -7,6 +7,9 @@ Rectangle {
     required property var presenter
     required property var theme
     property bool applyingBody: false
+    // Only reposition on a new note, never for edits or background saves.
+    property string loadedNoteId: ""
+    property bool scrollToEndPending: false
 
     color: theme.mainBackground
 
@@ -160,6 +163,13 @@ Rectangle {
                     clip: true
                     ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
+                    // A wrapped TextArea can finish calculating height after
+                    // the note-selection signal. Only honor pending loads.
+                    onContentHeightChanged: {
+                        if (root.scrollToEndPending)
+                            Qt.callLater(root.finishOpeningNoteAtEnd)
+                    }
+
                     TextArea {
                         id: editor
                         objectName: "markdownEditor"
@@ -200,14 +210,33 @@ Rectangle {
         onTriggered: root.presenter.autosave()
     }
 
+    function finishOpeningNoteAtEnd() {
+        if (!root.scrollToEndPending)
+            return
+        const flickable = editorScrollView.contentItem
+        if (!flickable || flickable.height <= 0)
+            return
+        const maximum = Math.max(0, flickable.contentHeight - flickable.height)
+        flickable.contentY = maximum
+        root.scrollToEndPending = false
+    }
+
     function loadDocumentFields() {
+        const newNoteId = root.presenter.activeNoteId
+        const switched = newNoteId !== root.loadedNoteId
         root.applyingBody = true
         if (currentNoteHeading.text !== root.presenter.currentTitle)
             currentNoteHeading.text = root.presenter.currentTitle
         if (editor.text !== root.presenter.currentContent)
             editor.text = root.presenter.currentContent
         root.applyingBody = false
-        if (root.presenter.activeNoteId !== ""
+        if (switched) {
+            root.loadedNoteId = newNoteId
+            root.scrollToEndPending = newNoteId !== ""
+            if (root.scrollToEndPending)
+                Qt.callLater(root.finishOpeningNoteAtEnd)
+        }
+        if (newNoteId !== ""
                 && root.presenter.canEdit
                 && root.presenter.currentTitle === "")
             currentNoteHeading.forceActiveFocus()
