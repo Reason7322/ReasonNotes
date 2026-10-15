@@ -31,7 +31,6 @@ import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     public static final String EXTRA_NOTE_ID = "note-id";
-    private static final String LOCAL_PREFERENCES = "reasonnotes-app";
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private ProbeRepository repository;
@@ -54,7 +53,7 @@ public final class MainActivity extends Activity {
                 () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
                 UUID::randomUUID);
         LocalPreferences preferences = new AndroidLocalPreferences(
-                getSharedPreferences(LOCAL_PREFERENCES, MODE_PRIVATE));
+                getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE));
         pins = new PinStore(preferences);
         setContentView(buildContent());
         renderNotes();
