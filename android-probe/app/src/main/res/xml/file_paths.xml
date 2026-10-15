@@ -2,5 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="probe_history" path="probe-repository/history/" />
     <files-path name="probe_receipts" path="probe-repository/receipts/outbox/" />
+    <files-path name="probe_outgoing_bundles" path="probe-repository/outgoing/" />
 </paths>
 

@@ -7,6 +7,12 @@ from pathlib import Path
 import re
 from uuid import UUID
 
+from .bundle import (
+    BundleError,
+    MAX_ARCHIVE_BYTES,
+    is_bundle_name,
+    read_bundle,
+)
 from .delivery import DeliveryLedger, DeliveryState
 from .receipt import ReceiptError, ReceiptStore
 from .repository import Repository
@@ -42,6 +48,9 @@ def _incoming_files(directory: Path, *, downloads: bool):
                 canonical_id = stem.removesuffix(".receipt")
                 if not (_hash_name(canonical_id) or stem.startswith("reasonnotes-")):
                     continue
+        elif path.suffix.lower() == ".zip":
+            if not is_bundle_name(name):
+                continue
         elif not (not path.suffix and _extensionless_kde_name(name)):
             continue
         yield path
@@ -115,12 +124,18 @@ def scan_inbox(
             continue
         candidates.extend(_incoming_files(directory, downloads=is_downloads))
 
+    incoming = []
     for path in candidates:
         try:
+            if path.suffix.lower() == ".zip" and path.stat().st_size > MAX_ARCHIVE_BYTES:
+                raise BundleError("bundle exceeds archive size limit")
             data = path.read_bytes()
-        except OSError as error:
+            members = read_bundle(data, path.name) if is_bundle_name(path.name) else ((path.name, data),)
+            incoming.extend((f"{path}!{name}", name, item) for name, item in members)
+        except (OSError, BundleError) as error:
             errors.append(f"{path}: {error}")
-            continue
+
+    for source, source_name, data in incoming:
         if data.startswith(_RECEIPT_FORMAT_MARKER):
             try:
                 outcome = receipt_store.accept(
@@ -128,10 +143,10 @@ def scan_inbox(
                     repository,
                     ledger,
                     local_device=local_device,
-                    source_name=path.name,
+                    source_name=source_name,
                 )
             except ReceiptError as error:
-                errors.append(f"{path}: {error}")
+                errors.append(f"{source}: {error}")
                 continue
             if outcome.kind == "confirmed":
                 confirmed.append(outcome.revision_id)
@@ -140,14 +155,14 @@ def scan_inbox(
             continue
         if not data.startswith(_FORMAT_MARKER):
             continue
-        outcome = repository.import_bytes(data, path.name)
+        outcome = repository.import_bytes(data, source_name)
         if outcome.kind == "imported" and outcome.revision_id:
             imported.append(outcome.revision_id)
         elif outcome.kind == "duplicate" and outcome.revision_id:
             duplicates.append(outcome.revision_id)
         else:
-            quarantined.append(path.name)
-            errors.append(f"{path}: {outcome.detail}")
+            quarantined.append(source_name)
+            errors.append(f"{source}: {outcome.detail}")
             continue
         if outcome.revision_id:
             revision = repository.revision(outcome.revision_id)

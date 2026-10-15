@@ -313,8 +313,15 @@ public final class SyncActivity extends Activity {
     private SyncCoordinator.RequestEvidence requestTransfer(
             List<SyncCoordinator.OutgoingFile> files, String targetDevice) {
         try {
-            List<Uri> uris = files.stream().map(file -> FileProvider.getUriForFile(
-                    this, getPackageName() + ".files", file.file())).toList();
+            // A multi-file ACTION_SEND_MULTIPLE launch did not reliably reach
+            // Fedora. Build a single validated ZIP before granting a URI, so
+            // KDE Connect needs to read just one file from our FileProvider.
+            File payload = files.size() == 1 ? files.get(0).file()
+                    : TransferBundle.create(
+                            new File(new File(getFilesDir(), "probe-repository"), "outgoing"),
+                            files);
+            List<Uri> uris = List.of(FileProvider.getUriForFile(
+                    this, getPackageName() + ".files", payload));
             CompletableFuture<KdeConnectSender.RequestOutcome> launched = new CompletableFuture<>();
             runOnUiThread(() -> launched.complete(KdeConnectSender.request(this, uris, targetDevice)));
             KdeConnectSender.RequestOutcome outcome = launched.get(30, java.util.concurrent.TimeUnit.SECONDS);

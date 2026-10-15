@@ -22,7 +22,10 @@ public final class KdeConnectSender {
         if (uris.isEmpty()) throw new IllegalArgumentException("at least one URI is required");
         Intent intent = new Intent(uris.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE);
         intent.setComponent(new ComponentName(PACKAGE, ACTIVITY));
-        intent.setType("text/markdown");
+        intent.setType(uris.size() == 1
+                && uris.get(0).getPath() != null
+                && uris.get(0).getPath().endsWith(".zip")
+                ? "application/zip" : "text/markdown");
         intent.putExtra("deviceId", deviceId);
         if (uris.size() == 1) {
             intent.putExtra(Intent.EXTRA_STREAM, uris.get(0));

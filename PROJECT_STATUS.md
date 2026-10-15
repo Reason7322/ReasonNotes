@@ -195,7 +195,25 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
-## Latest development checkpoint — Android ledger merge repair
+## Latest development checkpoint — single-carrier KDE Connect transfer
+
+The owner approved an isolated repair after the physical Android sync
+successfully scheduled 21 receipt transfers but Fedora observed only one file
+arriving. Instead of making 21 unconfirmed share-activity launches, Android
+now prepares one canonical, SHA-256-addressed ZIP carrying all selected note
+revisions and outstanding receipts. Fedora's opt-in received-directory scanner
+validates every member before import, preserving individual receipt validation
+and not treating a share request as delivery confirmation.
+
+**162/162 Fedora tests and 109/109 Android tests passed**. The actual
+compiled Android Java bundle generator created a canonical ZIP containing two
+test revisions that the Fedora CLI imported successfully, queuing their
+receipts; an idempotent rescan recognized both as duplicates.
+A new signed APK has been built and preserved but **not installed**.
+The physical multi-receipt transfer remains an **unverified acceptance gate**.
+See `docs/milestone2/BUNDLED_KDE_CONNECT_TRANSPORT.md` for details.
+
+## Previous development checkpoint — Android ledger merge repair
 
 The owner authorized an isolated fix after installing the previous peer-identity
 APK revealed a **real mixed physical/logical delivery-record conflict** on the
@@ -206,12 +224,18 @@ entries (maximum attempts, latest request timestamp, strongest safe state),
 preserves authentic confirmation receipts, and still fails atomically on
 contradictory confirmations.
 
-**102/102 Android tests and 152/152 Fedora tests passed**. A new signed
-candidate APK was built and preserved, **not installed**. The installed phone
-application and its existing delivery ledger were not modified during this
-repair. See `docs/milestone2/ANDROID_LEDGER_MERGE_REPAIR.md` for the exact
-physical rows, candidate APK path/hash, migration policy and next acceptance
-gate. Automatic end-to-end receipt confirmation remains unverified.
+**102/102 Android tests and 152/152 Fedora tests passed**. The owner
+subsequently approved an in-place installation of that ledger-merge APK and
+read-only backup of its old ledger/event/receipt records, all verified by
+matching SHA-256 checksums. Opening Sync successfully reduced 19 physical
+and logical rows to 18 logical peer entries, preserving all revision IDs,
+attempts, warning states and original event history. A later selected-note
+sync recorded one transfer request for each of 21 queued receipts but only
+one receipt file was observed arriving on Fedora. See
+`docs/milestone2/ANDROID_LEDGER_MERGE_REPAIR.md` for the preceding
+code-only checkpoint and `docs/milestone2/BUNDLED_KDE_CONNECT_TRANSPORT.md`
+for the new transport repair. End-to-end physical receipt confirmation
+remains unverified.
 
 ## Previous development checkpoint — logical peer and received-name collisions
 
@@ -228,10 +252,11 @@ was built, its certificate matched the installed debug signer, and a copy of
 the exact collision-named received revision was imported in an isolated Fedora
 repository. The owner subsequently authorized an in-place update of **that earlier
 candidate**, and its APK bytes were verified on the POCO. Opening its Sync
-screen exposed the mixed-ledger conflict documented above. The newer ledger
-merge repair APK remains **uninstalled**. Automatic receipt transmission is
-still pending a separately authorized physical retest. See `docs/milestone2/ANDROID_PEER_RECEIPT_FIX.md` for exact artifact
-hashes, data-migration safeguards, and acceptance boundaries.
+screen exposed a mixed-ledger conflict. The subsequent ledger-merge APK
+was later installed with separate authorization and its ledger migration
+verified; remaining incomplete multi-file delivery motivated the new bundle
+transport repair. See `docs/milestone2/ANDROID_PEER_RECEIPT_FIX.md` for the
+previous artifact and data-migration safeguards.
 
 ## Historical Linux receiver checkpoint
 
