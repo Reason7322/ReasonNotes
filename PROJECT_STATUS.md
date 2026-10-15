@@ -195,7 +195,27 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
-## Latest development checkpoint — native Fedora desktop launch
+## Latest development checkpoint — Android receive-only note import
+
+After the Fedora desktop Sync action requested transmission of four `PC Note`
+revisions, KDE Connect showed an outgoing progress bar but the note was not
+visible in Android ReasonNotes. The Android home screen previously refreshed
+its existing note list on resume without calling the already-implemented
+`ExchangeDirectory.scan`, which ran only during outgoing synchronization.
+
+`MainActivity.onResume` now schedules an asynchronous, receive-only scan of
+the configured Android SAF exchange tree, reuses the existing strict revision,
+receipt and delivery-ledger handling, and refreshes the note list afterward.
+It performs **no automatic KDE Connect send**, outgoing synchronization or
+retry-attempt increment. The user can still open notes normally when no tree
+is configured.
+
+**112/112 Android unit tests and 172/172 Fedora tests passed**, and a
+same-signer replacement Android debug APK was built but **not installed**.
+Physical receipt/import acceptance is pending USB availability and owner
+approval. See `docs/milestone2/ANDROID_RECEIVE_ON_RESUME.md`.
+
+## Previous development checkpoint — native Fedora desktop launch
 
 The owner requested desktop usability and ordinary launch instead of more
 synchronization research. The Qt Quick/PySide6 desktop app now opens without

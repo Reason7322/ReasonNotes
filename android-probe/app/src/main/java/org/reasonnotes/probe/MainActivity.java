@@ -42,6 +42,7 @@ public final class MainActivity extends Activity {
     private GridLayout otherGrid;
     private TextView emptyState;
     private TextView localStatus;
+    private String incomingStatus;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -61,7 +62,38 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        if (service != null) renderNotes();
+        if (service != null) checkIncomingOnResume();
+    }
+
+    /**
+     * Android's counterpart to Fedora's receive-on-open behavior.
+     * Use the existing SAF exchange grant; never start outgoing sync here.
+     */
+    private void checkIncomingOnResume() {
+        if (ExchangeDirectory.savedTree(this) == null) {
+            // No configured incoming directory. Ordinary offline editing
+            // must still open without an error or transport request.
+            incomingStatus = null;
+            renderNotes();
+            return;
+        }
+        io.execute(() -> {
+            try {
+                ExchangeDirectory.ScanReport report = IncomingReceive.scanPhone(
+                        this, repository);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    incomingStatus = IncomingReceive.status(report);
+                    renderNotes();
+                });
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    incomingStatus = "Incoming check failed: " + error.getMessage();
+                    renderNotes();
+                });
+            }
+        });
     }
 
     @Override protected void onDestroy() {
@@ -172,7 +204,10 @@ public final class MainActivity extends Activity {
         sections.others().forEach(note -> addCard(otherGrid, note));
         emptyState.setVisibility(
                 sections.pinned().isEmpty() && sections.others().isEmpty() ? View.VISIBLE : View.GONE);
-        localStatus.setText((sections.pinned().size() + sections.others().size()) + " notes · local history ready");
+        localStatus.setText(incomingStatus != null
+                ? incomingStatus
+                : (sections.pinned().size() + sections.others().size())
+                        + " notes · local history ready");
     }
 
     private void addCard(GridLayout grid, NoteService.NoteSummary note) {
