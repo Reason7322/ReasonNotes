@@ -41,7 +41,11 @@ selective outgoing synchronization, and receipt-aware Sync UI. Sol completed
 the final host suite (93/93) and assembled a candidate APK from Forge's
 `6171312` code checkpoint. See `docs/milestone2/ANDROID_TASK4.md` for the
 verified hash, signing fingerprint, packaging checks, and physical acceptance
-restrictions. No new Android APK was installed or tested on the POCO.
+restrictions. Subsequently, the owner explicitly authorized an in-place
+installation on 2026-10-15, and ADB returned Success; the installed APK's
+SHA-256 matched the candidate exactly. The owner confirmed the Android Home,
+Editor, and Sync UI screens launch and show existing test notes. Cosmetic
+alignment issues remain and actual receipt/convergence acceptance is pending.
 
 ## Current branch and provenance
 
@@ -193,16 +197,26 @@ DraftStore and PinStore are device-local metadata, not synchronized history.
 
 ## Next action
 
-Android Task 4 has a completed source/build checkpoint, but **not** an
-installed or visually accepted product. The next gate is owner review of the
-candidate APK and a separate authorization for Task 5 physical POCO
-installation/preflight and two-device acceptance. Before installation, check
-the installed signing certificate, compatibility of package/version and user
-data migration/retention. Do not uninstall, clear data, or equate the signer of
-the preserved reference APK with the actual installed package without checking.
-The White/Dark/LiquidGlass theme milestone and cross-device pin synchronization
-remain deferred pending owner direction. Do not claim new receipt confirmation
-on the POCO until that path receives separate physical runtime verification.
+A separate Sol-owned isolated Linux receiving fix adds opt-in scanning of a
+second KDE Connect receive folder (such as Downloads) and recognition of
+extensionless timestamp-named Android envelopes. **150/150** Python tests passed,
+and copies of three real Android transfers imported into a disposable
+repository with three receipts queued. The other eight transfers reported as
+requested by Android were not observed arriving; the sender-side outcome
+remains unconfirmed. See `docs/milestone2/KDECONNECT_RECEIVE_TRIAGE.md`.
+This fix has not been launched against live data or deployed to a running
+Fedora application; the next acceptance step remains separate and owner-gated.
+
+Android Task 4 is built and installed on the POCO with owner authorization;
+the installed APK hash matches the Task 4 candidate. The owner reviewed the
+Home, Editor, and Sync screens and confirmed basic functionality, with minor
+UI alignment issues. The remaining product gate is owner-approved controlled
+two-device synchronization/receipt convergence testing with disposable notes.
+Do not treat the successful installation or Android share-activity requests as
+proof of durable Fedora import or Android-side receipt confirmation. Neither
+live note data nor the existing phone application should be reset, cleared,
+or uninstalled to work around an issue. White/Dark/LiquidGlass and cross-device
+pin synchronization remain separate future tasks.
 
 ## Important constraints
 

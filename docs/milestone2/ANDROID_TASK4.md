@@ -63,13 +63,34 @@ The preserved, physically-tested Milestone 1 APK (`ReasonNotes-Probe-multinote-7
 
 Before any future installation, Task 5 must compare the actual installed package/signing identity with the candidate; inspect version/data-migration implications, especially the unchanged versionCode; preserve the existing internal repository, delivery ledger, receipt state, SAF permission and preference keys; and stop if compatibility cannot be demonstrated. Do **not** uninstall/clear application data as a workaround. HyperOS previously restricted ADB installation; owner approval is required for installation.
 
+## Post-build phone installation (authorized separately, 2026-10-15)
+
+After this original build checkpoint was finalized, the owner explicitly
+authorized an in-place installation on the connected POCO X6. ADB verified
+the installed old APK bytes matched the preserved Milestone 1 reference APK,
+then `adb install -r` returned `Success`. The newly installed APK was read
+back through the package manager and its SHA-256 exactly matched the Task 4
+candidate hash above. The application's original installation date persisted
+and the existing `files/probe-repository`, `files/delivery-state` and
+`shared_prefs` directories were observed present afterward. No uninstall or
+clear-data operation occurred.
+
+The owner opened the Android Home, Editor, and Sync screens and reported basic
+functionality. Visible UI alignment/wording issues remain. One Android Sync
+all action displayed 11 revision transfer requests, 20 queued receipts, and
+zero confirmed revisions. This is **not** proof those transfers were imported.
+See `docs/milestone2/KDECONNECT_RECEIVE_TRIAGE.md` for the isolated Linux
+receiver investigation.
+
 ## Unverified and explicitly deferred
 
-- No candidate APK installed, no POCO files/settings touched, no physical Android runtime or visual acceptance.
+- New two-device receipt confirmation and full convergence have not yet passed physical acceptance.
 - The new Milestone 2 receipt path has **not** yet been physically confirmed between this Android application and Fedora.
 - No two-device convergence, save/restart, selective-sync or conflict acceptance on the physical phone.
 - Android theme colors are temporary; **White, Dark and LiquidGlass are a separate milestone**.
 - Cross-device pin synchronization remains deferred; pins currently remain local per device.
-- Device-side app installation, migration and Milestone 2 Task 5 require new, separate owner approval.
+- Any future update/migration or active two-device synchronization acceptance needs its own owner approval.
 
-Next gate: owner reviews this completed Task 4 build and separately authorizes any physical installation/acceptance. Do not start themes or Task 5 from this checkpoint automatically.
+Next gate: controlled disposable-note synchronization on Fedora and Android,
+with explicit owner permission for operations involving live repositories.
+Do not start themes or further physical testing automatically.

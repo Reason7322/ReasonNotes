@@ -73,10 +73,12 @@ def _parser() -> argparse.ArgumentParser:
 
     scan = commands.add_parser("scan")
     scan.add_argument("--inbox", required=True, type=Path)
+    scan.add_argument("--received-dir", type=Path)
     scan.add_argument("--local-device", default="linux")
 
     sync = commands.add_parser("sync")
     sync.add_argument("--inbox", required=True, type=Path)
+    sync.add_argument("--received-dir", type=Path)
     sync.add_argument("--local-device", default="linux")
     sync.add_argument("--target-device", default="android")
     sync.add_argument("--device-id", required=True)
@@ -256,6 +258,7 @@ def _sync(repository: Repository, arguments, stdout, adapter_factory) -> int:
         repository,
         arguments.inbox,
         adapter,
+        received_dir=arguments.received_dir,
         retry_unconfirmed=arguments.retry_unconfirmed,
         force_ids=tuple(arguments.force_revision_id),
         force_receipt_ids=tuple(arguments.force_receipt_id),
@@ -377,7 +380,10 @@ def main(
         if arguments.command == "force-retry":
             return _eligible(repository, arguments, "force-retry", stdout)
         if arguments.command == "scan":
-            report = scan_inbox(repository, arguments.inbox, arguments.local_device)
+            report = scan_inbox(
+                repository, arguments.inbox, arguments.local_device,
+                received_dir=arguments.received_dir,
+            )
             _print_scan(report, stdout)
             return 0 if not report.errors else 1
         if arguments.command == "sync":

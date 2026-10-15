@@ -15,6 +15,32 @@ _FORMAT_MARKER = b"---\nreasonnotes-format: 1\n"
 _RECEIPT_FORMAT_MARKER = b"---\nreasonnotes-receipt-format: 1\n"
 
 
+def _hash_name(value: str) -> bool:
+    return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _extensionless_kde_name(name: str) -> bool:
+    # KDE Connect can receive multi-share FileProvider URIs with a numeric
+    # transfer name rather than the original .md filename.
+    return _hash_name(name) or (name.isascii() and name.isdigit() and 12 <= len(name) <= 16)
+
+
+def _incoming_files(directory: Path, *, downloads: bool):
+    """Yield likely received envelopes; do not touch unrelated downloaded files."""
+    for path in sorted(directory.iterdir()):
+        if not path.is_file() or path.is_symlink():
+            continue
+        name = path.name
+        if path.suffix.lower() == ".md":
+            if downloads and not (
+                _hash_name(path.stem) or name.startswith("reasonnotes-")
+            ):
+                continue
+        elif not (not path.suffix and _extensionless_kde_name(name)):
+            continue
+        yield path
+
+
 @dataclass(frozen=True, slots=True)
 class ScanReport:
     imported: tuple[str, ...]
@@ -39,7 +65,12 @@ class SyncReport:
     errors: tuple[str, ...]
 
 
-def scan_inbox(repository: Repository, inbox: Path, local_device: str) -> ScanReport:
+def scan_inbox(
+    repository: Repository,
+    inbox: Path,
+    local_device: str,
+    received_dir: Path | None = None,
+) -> ScanReport:
     imported = []
     duplicates = []
     confirmed = []
@@ -68,9 +99,17 @@ def scan_inbox(repository: Repository, inbox: Path, local_device: str) -> ScanRe
             (),
             tuple((*errors, f"inbox is not a directory: {inbox}")),
         )
-    for path in sorted(inbox.iterdir()):
-        if not path.is_file() or path.suffix.lower() != ".md":
+    directories = [(inbox, False)]
+    if received_dir is not None and Path(received_dir).resolve() != inbox.resolve():
+        directories.append((Path(received_dir), True))
+    candidates = []
+    for directory, is_downloads in directories:
+        if not directory.is_dir():
+            errors.append(f"received directory is not a directory: {directory}")
             continue
+        candidates.extend(_incoming_files(directory, downloads=is_downloads))
+
+    for path in candidates:
         try:
             data = path.read_bytes()
         except OSError as error:
@@ -146,12 +185,13 @@ def sync_linux(
     force_ids=(),
     force_receipt_ids=(),
     selected_note_ids: Collection[UUID] | None = None,
+    received_dir: Path | None = None,
 ) -> SyncReport:
     local_device = repository.local_device or "linux"
     target_device = repository.target_device
     if target_device is None:
         raise ValueError("repository must configure a target device for sync")
-    scan = scan_inbox(repository, inbox, local_device)
+    scan = scan_inbox(repository, inbox, local_device, received_dir=received_dir)
     ledger = DeliveryLedger(repository.root)
     forced_revision_ids = tuple(force_ids)
     all_eligible = ledger.eligible(

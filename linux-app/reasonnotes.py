@@ -27,6 +27,10 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="reasonnotes")
     result.add_argument("--root", required=True, type=Path)
     result.add_argument("--inbox", required=True, type=Path)
+    result.add_argument(
+        "--received-dir", type=Path,
+        help="additional KDE Connect receive folder (for example ~/Downloads)",
+    )
     result.add_argument("--device-id", required=True)
     result.add_argument("--target-device", default="android")
     return result
@@ -51,6 +55,7 @@ def main(arguments=None) -> int:
             options.inbox,
             adapter,
             selected_note_ids=selected,
+            received_dir=options.received_dir,
         ),
     )
     bridge = QtNotePresenter(presenter)
