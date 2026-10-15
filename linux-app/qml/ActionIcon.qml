@@ -7,6 +7,7 @@ Item {
     id: root
     property string kind: "save"
     property string visualState: "normal" // normal, hover, disabled
+    property bool lightMode: false
 
     implicitWidth: 24
     implicitHeight: 24
@@ -19,9 +20,13 @@ Item {
         anchors.fill: parent
         source: {
             const icon = root.kind === "sync" ? "refresh-cw"
-                : root.kind === "delete" ? "trash" : "save"
-            const variant = root.visualState === "hover"
-                ? (root.kind === "delete" ? "-danger" : "-gold") : ""
+                : root.kind === "delete" ? "trash"
+                : root.kind === "settings" ? "settings" : "save"
+            const variant = root.lightMode
+                ? (root.visualState === "hover" && root.kind === "delete"
+                    ? "-danger-light" : "-light")
+                : (root.visualState === "hover"
+                    ? (root.kind === "delete" ? "-danger" : "-gold") : "")
             return "icons/lucide/themed/" + icon + variant + ".svg"
         }
         sourceSize.width: Math.ceil(24 * Math.max(1, Screen.devicePixelRatio))

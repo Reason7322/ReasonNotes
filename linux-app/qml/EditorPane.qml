@@ -6,6 +6,7 @@ Rectangle {
     id: root
     required property var presenter
     required property var theme
+    required property var i18n
     property bool applyingBody: false
     // Only reposition on a new note, never for edits or background saves.
     property string loadedNoteId: ""
@@ -17,7 +18,7 @@ Rectangle {
     Item {
         id: emptyState
         objectName: "emptyState"
-        property string accessibleDescription: qsTr("Create a new note or select one from the sidebar")
+        property string accessibleDescription: root.i18n.t("Create a new note or select one from the sidebar")
         anchors.fill: parent
         visible: root.presenter.activeNoteId === ""
 
@@ -29,7 +30,7 @@ Rectangle {
             Label {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
-                text: qsTr("A quiet place for your thoughts")
+                text: root.i18n.t("A quiet place for your thoughts")
                 color: root.theme.textPrimary
                 font.family: root.theme.fontFamily
                 font.pixelSize: 30
@@ -40,7 +41,7 @@ Rectangle {
             Label {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
-                text: qsTr("Create a new note or choose one from the sidebar to begin writing in Markdown.")
+                text: root.i18n.t("Create a new note or choose one from the sidebar to begin writing in Markdown.")
                 color: root.theme.textSecondary
                 font.family: root.theme.fontFamily
                 font.pixelSize: root.theme.editorBodySize
@@ -53,7 +54,7 @@ Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 implicitWidth: 156
                 implicitHeight: root.theme.primaryButtonHeight
-                text: qsTr("Create a note")
+                text: root.i18n.t("Create a note")
                 onClicked: root.presenter.createNote()
                 contentItem: Label {
                     text: parent.text
@@ -110,13 +111,13 @@ Rectangle {
                             : (root.presenter.saveState === "Saved" ? root.theme.success : root.theme.accent)
                     }
                     Label {
-                        text: qsTr("Local: %1").arg(root.presenter.saveState)
+                        text: root.i18n.t("Local: %1").arg(root.i18n.status(root.presenter.saveState))
                         color: root.presenter.saveState === "Error" ? root.theme.error : root.theme.textSecondary
                         font.pixelSize: root.theme.smallSize
                     }
                     Rectangle { Layout.leftMargin: root.theme.spacingSmall; width: 1; height: 16; color: root.theme.border }
                     Label {
-                        text: qsTr("Phone: %1").arg(root.presenter.activeDeliveryStatus)
+                        text: root.i18n.t("Phone: %1").arg(root.i18n.status(root.presenter.activeDeliveryStatus))
                         color: root.presenter.activeDeliveryStatus === "Confirmed" ? root.theme.success : root.theme.textSecondary
                         font.pixelSize: root.theme.smallSize
                     }
@@ -129,7 +130,7 @@ Rectangle {
                     Layout.topMargin: root.theme.spacingLarge
                     Layout.bottomMargin: root.theme.spacing
                     text: ""
-                    placeholderText: qsTr("Untitled")
+                    placeholderText: root.i18n.t("Untitled")
                     placeholderTextColor: root.theme.textSecondary
                     color: root.theme.textPrimary
                     font.family: root.theme.fontFamily

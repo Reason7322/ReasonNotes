@@ -6,6 +6,7 @@ Rectangle {
     id: root
     required property var presenter
     required property var theme
+    required property var i18n
 
     color: theme.mainBackground
 
@@ -22,7 +23,7 @@ Rectangle {
             id: conflictHeading
             objectName: "conflictHeading"
             Layout.fillWidth: true
-            text: qsTr("Choose the version to keep")
+            text: root.i18n.t("Choose the version to keep")
             color: root.theme.textPrimary
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.noteHeadingSize
@@ -31,7 +32,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("This note changed independently on more than one device. Review each exact revision before deciding.")
+            text: root.i18n.t("This note changed independently on more than one device. Review each exact revision before deciding.")
             color: root.theme.textSecondary
             font.pixelSize: root.theme.secondarySize
             wrapMode: Text.Wrap
@@ -74,7 +75,7 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        text: originDevice === "linux" ? qsTr("Linux version") : qsTr("Android version")
+                        text: originDevice === "linux" ? root.i18n.t("Linux version") : root.i18n.t("Android version")
                         color: root.theme.textPrimary
                         font.pixelSize: 20
                         font.weight: Font.DemiBold
@@ -82,7 +83,7 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Revision %1").arg(revisionId.slice(0, 12))
+                        text: root.i18n.t("Revision %1").arg(revisionId.slice(0, 12))
                         color: root.theme.textSecondary
                         font.pixelSize: root.theme.smallSize
                         elide: Text.ElideRight
@@ -101,7 +102,7 @@ Rectangle {
 
                         TextArea {
                             readOnly: true
-                            text: deleted ? qsTr("[Deleted note]") : body
+                            text: deleted ? root.i18n.t("[Deleted note]") : body
                             color: deleted ? root.theme.warning : root.theme.textPrimary
                             background: null
                             wrapMode: TextEdit.Wrap
@@ -117,8 +118,8 @@ Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 46
                         text: originDevice === "linux"
-                            ? qsTr("Keep Linux revision")
-                            : qsTr("Keep Android revision")
+                            ? root.i18n.t("Keep Linux revision")
+                            : root.i18n.t("Keep Android revision")
                         enabled: originDevice === "linux" || originDevice === "android"
                         onClicked: root.presenter.resolveConflict(
                             originDevice === "linux" ? "keep-linux" : "keep-android",
@@ -137,14 +138,14 @@ Rectangle {
             id: conflictHistoryNote
             objectName: "conflictHistoryNote"
             Layout.fillWidth: true
-            text: qsTr("Superseded revisions remain recoverable from immutable history.")
+            text: root.i18n.t("Superseded revisions remain recoverable from immutable history.")
             color: root.theme.textSecondary
             font.pixelSize: root.theme.smallSize
             wrapMode: Text.Wrap
         }
 
         Button {
-            text: qsTr("Skip for now")
+            text: root.i18n.t("Skip for now")
             implicitWidth: 124
             implicitHeight: 42
             onClicked: root.presenter.skipConflict()

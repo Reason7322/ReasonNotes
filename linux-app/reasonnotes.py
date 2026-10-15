@@ -22,6 +22,7 @@ from PySide6.QtCore import QCoreApplication, QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
+from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
 from reasonnotes_app.service import NoteService
@@ -141,7 +142,9 @@ def main(arguments=None) -> int:
         NoteService(repository, origin_device="linux"), run_sync,
     )
     bridge = QtNotePresenter(presenter)
+    preferences = AppPreferences()
     engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("appPreferences", preferences)
     engine.rootContext().setContextProperty("presenter", bridge)
     engine.rootContext().setContextProperty("smokeTest", False)
     qml_path = Path(__file__).with_name("qml") / "Main.qml"

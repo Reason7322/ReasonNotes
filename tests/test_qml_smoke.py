@@ -12,6 +12,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem
 
+from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
 from reasonnotes_app.service import NoteService
@@ -53,17 +54,99 @@ class QmlSmokeTests(unittest.TestCase):
         )
         presenter = NotePresenter(NoteService(repository, origin_device="linux"))
         self.bridge = QtNotePresenter(presenter)
+        self.preferences = AppPreferences()
 
     def load_qml(self):
         engine = QQmlApplicationEngine()
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
+        engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
         engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
         QCoreApplication.processEvents()
         self.assertEqual(1, len(engine.rootObjects()))
         return engine, engine.rootObjects()[0], warnings
+
+    def test_settings_page_changes_theme_language_and_keeps_note_content(self):
+        from PySide6.QtCore import QObject
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import QPoint, Qt
+
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("User text remains untouched"))
+        self.assertTrue(self.bridge.editContent("Markdown *still works*"))
+        self.assertTrue(self.bridge.saveNow())
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 1200)
+        root.setProperty("height", 800)
+        QCoreApplication.processEvents()
+
+        theme = root.findChild(QObject, "theme")
+        i18n = root.findChild(QObject, "i18n")
+        pane = root.findChild(QObject, "settingsPane")
+        settings = root.findChild(QObject, "settingsButton")
+        self.assertIsNotNone(theme)
+        self.assertIsNotNone(i18n)
+        self.assertIsNotNone(pane)
+        self.assertIsNotNone(settings)
+        self.assertEqual("#15171c", theme.property("mainBackground").name())
+        self.assertEqual("en", i18n.property("language"))
+        self.assertFalse(pane.property("visible"))
+
+        # Opening Settings is a real sidebar action and hides only the editor.
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(
+            int(settings.mapToItem(None, settings.width() / 2, settings.height() / 2).x()),
+            int(settings.mapToItem(None, settings.width() / 2, settings.height() / 2).y()),
+        ))
+        for _ in range(5):
+            QCoreApplication.processEvents()
+        self.assertTrue(pane.property("visible"))
+        self.assertFalse(root.findChild(QObject, "editorPane").property("visible"))
+
+        light = root.findChild(QObject, "lightThemeButton")
+        self.assertIsNotNone(light)
+        light_pos = light.mapToItem(None, light.width() / 2, light.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(light_pos.x()), int(light_pos.y())))
+        QCoreApplication.processEvents()
+        self.assertEqual("light", self.preferences.themeMode)
+        self.assertEqual("#fafafc", theme.property("mainBackground").name())
+        self.assertEqual("#1d2430", theme.property("textPrimary").name())
+        self.assertTrue(root.findChild(QObject, "lightThemeButton").property("checked"))
+
+        polish = root.findChild(QObject, "polishLanguageButton")
+        self.assertIsNotNone(polish)
+        polish_pos = polish.mapToItem(None, polish.width() / 2, polish.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(polish_pos.x()), int(polish_pos.y())))
+        QCoreApplication.processEvents()
+        self.assertEqual("pl", self.preferences.language)
+        self.assertEqual("pl", i18n.property("language"))
+        self.assertEqual("Polski", root.findChild(QObject, "polishLanguageButton").property("text"))
+        self.assertTrue(root.findChild(QObject, "polishLanguageButton").property("checked"))
+        labels = [obj.property("text") for obj in root.findChildren(QObject)
+                  if isinstance(obj.property("text"), str)]
+        self.assertIn("Nowa notatka", labels)
+        self.assertIn("Ustawienia", labels)
+        self.assertIn("Wygląd", labels)
+
+        dark = root.findChild(QObject, "darkThemeButton")
+        dark_pos = dark.mapToItem(None, dark.width() / 2, dark.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(dark_pos.x()), int(dark_pos.y())))
+        english = root.findChild(QObject, "englishLanguageButton")
+        english_pos = english.mapToItem(None, english.width() / 2, english.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(english_pos.x()), int(english_pos.y())))
+        QCoreApplication.processEvents()
+        self.assertEqual("dark", self.preferences.themeMode)
+        self.assertEqual("en", self.preferences.language)
+        self.assertEqual("#15171c", theme.property("mainBackground").name())
+        self.assertIn("Settings", [obj.property("text") for obj in root.findChildren(QObject)
+                                   if isinstance(obj.property("text"), str)])
+        self.assertEqual("Markdown *still works*", self.bridge.currentContent)
+        self.assertEqual("User text remains untouched", self.bridge.currentTitle)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
 
     def test_editor_omits_markdown_format_label_and_empty_body_placeholder(self):
         # Keep note editing and delivery status functional; only hide the two labels.
@@ -431,6 +514,7 @@ class QmlSmokeTests(unittest.TestCase):
         engine = QQmlApplicationEngine()
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
+        engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
 
@@ -472,6 +556,7 @@ class QmlSmokeTests(unittest.TestCase):
 
     def test_editor_is_read_only_until_a_note_exists(self):
         engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
         engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
@@ -490,6 +575,7 @@ class QmlSmokeTests(unittest.TestCase):
         self.bridge.editDraft("\n".join(f"line {index}" for index in range(200)))
         self.assertTrue(self.bridge.saveNow())
         engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
         engine.load(QUrl.fromLocalFile(str(QML_MAIN)))

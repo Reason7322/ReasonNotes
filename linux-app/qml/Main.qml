@@ -8,6 +8,9 @@ ApplicationWindow {
     objectName: "reasonNotesWindow"
     property var bridge: presenter
     property bool smokeMode: smokeTest
+    property bool settingsVisible: false
+    readonly property string appearanceMode: appPreferences.themeMode
+    readonly property string languageCode: appPreferences.language
     property real restoredSidebarWidth: Math.max(
         theme.sidebarMinimum,
         Math.min(440, settings.sidebarWidth)
@@ -18,7 +21,7 @@ ApplicationWindow {
     height: 800
     minimumWidth: 820
     minimumHeight: 560
-    title: qsTr("ReasonNotes")
+    title: i18n.t("ReasonNotes")
     color: theme.mainBackground
     palette.window: theme.sidebar
     palette.windowText: theme.textPrimary
@@ -33,6 +36,12 @@ ApplicationWindow {
 
     Theme {
         id: theme
+        mode: appPreferences.themeMode
+    }
+
+    I18n {
+        id: i18n
+        language: appPreferences.language
     }
 
     Settings {
@@ -71,6 +80,10 @@ ApplicationWindow {
             objectName: "sidebar"
             presenter: root.bridge
             theme: theme
+            i18n: i18n
+            settingsOpen: root.settingsVisible
+            onSettingsRequested: root.settingsVisible = !root.settingsVisible
+            onNotesRequested: root.settingsVisible = false
             SplitView.minimumWidth: theme.sidebarMinimum
             SplitView.maximumWidth: 440
             SplitView.preferredWidth: root.restoredSidebarWidth
@@ -89,7 +102,8 @@ ApplicationWindow {
                 anchors.fill: parent
                 presenter: root.bridge
                 theme: theme
-                visible: !root.bridge.hasConflict
+                i18n: i18n
+                visible: !root.settingsVisible && !root.bridge.hasConflict
             }
 
             ConflictView {
@@ -98,7 +112,19 @@ ApplicationWindow {
                 anchors.fill: parent
                 presenter: root.bridge
                 theme: theme
-                visible: root.bridge.hasConflict
+                i18n: i18n
+                visible: !root.settingsVisible && root.bridge.hasConflict
+            }
+
+            SettingsPane {
+                id: settingsPane
+                objectName: "settingsPane"
+                anchors.fill: parent
+                theme: theme
+                i18n: i18n
+                preferences: appPreferences
+                visible: root.settingsVisible
+                onBackRequested: root.settingsVisible = false
             }
         }
     }
@@ -108,6 +134,7 @@ ApplicationWindow {
         objectName: "syncDialog"
         presenter: root.bridge
         theme: theme
+        i18n: i18n
     }
 
     Dialog {
@@ -115,7 +142,7 @@ ApplicationWindow {
         objectName: "deleteDialog"
         anchors.centerIn: parent
         modal: true
-        title: qsTr("Delete this note?")
+        title: i18n.t("Delete this note?")
         width: Math.min(480, root.width - theme.spacingXXLarge * 2)
         standardButtons: Dialog.Cancel | Dialog.Ok
         closePolicy: Popup.CloseOnEscape
@@ -123,7 +150,7 @@ ApplicationWindow {
 
         Label {
             width: parent ? parent.width : 420
-            text: qsTr("ReasonNotes will create a deletion revision. The note remains recoverable from immutable history.")
+            text: i18n.t("ReasonNotes will create a deletion revision. The note remains recoverable from immutable history.")
             color: theme.textPrimary
             wrapMode: Text.Wrap
             font.pixelSize: theme.secondarySize

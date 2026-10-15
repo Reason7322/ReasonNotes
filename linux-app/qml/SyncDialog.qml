@@ -6,6 +6,7 @@ Dialog {
     id: root
     required property var presenter
     required property var theme
+    required property var i18n
 
     modal: true
     width: Math.min(680, parent.width - root.theme.spacingXXLarge * 2)
@@ -35,7 +36,7 @@ Dialog {
             Label {
                 id: syncDialogHeading
                 objectName: "syncDialogHeading"
-                text: qsTr("Synchronize notes")
+                text: root.i18n.t("Synchronize notes")
                 color: root.theme.textPrimary
                 font.family: root.theme.fontFamily
                 font.pixelSize: 26
@@ -43,7 +44,7 @@ Dialog {
             }
 
             Label {
-                text: qsTr("Choose what this device requests for transfer.")
+                text: root.i18n.t("Choose what this device requests for transfer.")
                 color: root.theme.textSecondary
                 font.pixelSize: root.theme.smallSize
             }
@@ -76,7 +77,7 @@ Dialog {
                 anchors.fill: parent
                 anchors.margins: root.theme.spacing
                 checked: true
-                text: qsTr("Sync all notes")
+                text: root.i18n.t("Sync all notes")
                 font.pixelSize: root.theme.secondarySize
                 palette.windowText: root.theme.textPrimary
             }
@@ -97,7 +98,7 @@ Dialog {
                 objectName: "selectedSyncMode"
                 anchors.fill: parent
                 anchors.margins: root.theme.spacing
-                text: qsTr("Choose notes to sync")
+                text: root.i18n.t("Choose notes to sync")
                 font.pixelSize: root.theme.secondarySize
                 palette.windowText: root.theme.textPrimary
             }
@@ -107,7 +108,7 @@ Dialog {
             Layout.fillWidth: true
             implicitHeight: root.theme.fieldHeight
             visible: selectedMode.checked
-            placeholderText: qsTr("Search the synchronization catalogue")
+            placeholderText: root.i18n.t("Search the synchronization catalogue")
             color: root.theme.textPrimary
             placeholderTextColor: root.theme.textSecondary
             font.pixelSize: root.theme.secondarySize
@@ -126,14 +127,14 @@ Dialog {
             spacing: root.theme.spacingSmall
 
             Button {
-                text: qsTr("Select All")
+                text: root.i18n.t("Select All")
                 implicitHeight: 38
                 onClicked: root.presenter.selectAllSyncNotes()
                 contentItem: Label { text: parent.text; color: root.theme.textPrimary; font.pixelSize: root.theme.smallSize; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 background: Rectangle { color: parent.hovered ? root.theme.surfaceHover : root.theme.mainBackground; border.color: parent.activeFocus ? root.theme.accent : root.theme.border; radius: root.theme.radiusSmall }
             }
             Button {
-                text: qsTr("Clear Selection")
+                text: root.i18n.t("Clear Selection")
                 implicitHeight: 38
                 onClicked: root.presenter.clearSyncSelection()
                 contentItem: Label { text: parent.text; color: root.theme.textPrimary; font.pixelSize: root.theme.smallSize; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
@@ -141,7 +142,7 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             Label {
-                text: qsTr("%1 selected").arg(root.presenter.syncSelectionCount)
+                text: root.i18n.t("%1 selected").arg(root.presenter.syncSelectionCount)
                 color: root.theme.textSecondary
                 font.pixelSize: root.theme.smallSize
             }
@@ -173,7 +174,7 @@ Dialog {
                     leftPadding: root.theme.spacingSmall
                     spacing: root.theme.spacingTiny
                     Label { width: parent.width; text: title; color: root.theme.textPrimary; font.pixelSize: root.theme.sidebarTitleSize; font.weight: Font.Medium; elide: Text.ElideRight }
-                    Label { width: parent.width; text: qsTr("%1 · %2").arg(preview.replace(/\s+/g, " ").trim()).arg(deliveryStatus); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize; elide: Text.ElideRight }
+                    Label { width: parent.width; text: root.i18n.t("%1 · %2").arg(preview.replace(/\s+/g, " ").trim()).arg(root.i18n.status(deliveryStatus)); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize; elide: Text.ElideRight }
                 }
                 background: Rectangle { color: parent.hovered ? root.theme.surfaceHover : root.theme.mainBackground; border.color: root.theme.border; radius: root.theme.radiusSmall }
             }
@@ -188,7 +189,7 @@ Dialog {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("A transfer request is shown as confirmed only after a ReasonNotes receipt is imported.")
+            text: root.i18n.t("A transfer request is shown as confirmed only after a ReasonNotes receipt is imported.")
             color: root.theme.textSecondary
             font.pixelSize: root.theme.smallSize
             wrapMode: Text.Wrap
@@ -205,7 +206,7 @@ Dialog {
             spacing: root.theme.spacing
 
             Button {
-                text: qsTr("Cancel")
+                text: root.i18n.t("Cancel")
                 implicitWidth: 104
                 implicitHeight: 46
                 onClicked: root.close()
@@ -218,7 +219,7 @@ Dialog {
             Button {
                 id: startSyncButton
                 objectName: "startSyncButton"
-                text: qsTr("Start Sync")
+                text: root.i18n.t("Start Sync")
                 implicitWidth: 132
                 implicitHeight: 46
                 enabled: allMode.checked || root.presenter.syncSelectionCount > 0
