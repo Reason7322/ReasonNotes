@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 public final class DeliveryLedger {
@@ -113,6 +114,53 @@ public final class DeliveryLedger {
         } catch (IOException error) {
             throw new IllegalStateException("cannot persist delivery ledger", error);
         }
+    }
+
+    /**
+     * Upgrade pre-Task-5 delivery records from a KDE Connect transport identifier
+     * to the logical revision peer. Preserve request/confirmation evidence and the
+     * original append-only event history. Conflict is fatal, never overwritten.
+     */
+    public boolean migrateTarget(String previousTarget, String logicalPeer) {
+        return migrateTargets(List.of(previousTarget), logicalPeer);
+    }
+
+    public boolean migrateTargets(List<String> previousTargets, String logicalPeer) {
+        if (logicalPeer == null || logicalPeer.isBlank() || previousTargets == null
+                || previousTargets.stream().anyMatch(id -> id == null || id.isBlank())) {
+            throw new IllegalArgumentException("target identity must not be empty");
+        }
+        // Stage *all* transformations in memory before the single atomic write,
+        // so conflicting historic physical IDs cannot cause partial migration.
+        Map<String, Entry> entries = readEntries();
+        LinkedHashMap<String, Entry> converted = new LinkedHashMap<>(entries);
+        boolean changed = false;
+        for (String previousTarget : previousTargets.stream().distinct().toList()) {
+            if (previousTarget.equals(logicalPeer)) continue;
+            for (Entry legacy : entries.values()) {
+                if (!legacy.targetDevice().equals(previousTarget)) continue;
+                String destination = key(legacy.revisionId(), logicalPeer);
+                Entry existing = converted.get(destination);
+                if (existing != null && !(existing.state().equals(legacy.state())
+                        && existing.attempts() == legacy.attempts()
+                        && Objects.equals(existing.lastRequested(), legacy.lastRequested())
+                        && Objects.equals(existing.receiptId(), legacy.receiptId())
+                        && Objects.equals(existing.confirmedUtc(), legacy.confirmedUtc()))) {
+                    throw new IllegalStateException(
+                            "conflicting physical and logical delivery history; no migration performed");
+                }
+                converted.remove(key(legacy.revisionId(), previousTarget));
+                if (existing == null) {
+                    converted.put(destination, new Entry(
+                            legacy.revisionId(), logicalPeer, legacy.state(),
+                            legacy.attempts(), legacy.lastRequested(),
+                            legacy.receiptId(), legacy.confirmedUtc()));
+                }
+                changed = true;
+            }
+        }
+        if (changed) writeEntries(converted);
+        return changed;
     }
 
     public void registerLocal(String revisionId, String targetDevice) {

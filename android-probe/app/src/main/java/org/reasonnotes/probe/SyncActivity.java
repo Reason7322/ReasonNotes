@@ -37,6 +37,8 @@ public final class SyncActivity extends Activity {
     public static final String EXTRA_MODE = "sync-mode";
     public static final String MODE_ALL = "all";
     public static final String MODE_CHOOSE = "choose";
+    // Logical revision/receipt identity, not the physical KDE Connect device ID.
+    private static final String LINUX_PEER = "linux";
     private static final String STATE_QUERY = "query";
     private static final String STATE_SELECTED = "selected";
 
@@ -99,9 +101,9 @@ public final class SyncActivity extends Activity {
         return switch (state) {
             case "pending" -> "Pending";
             case "unconfirmed" -> "Transfer requested — awaiting receipt";
-            case "confirmed" -> "Confirmed by phone";
+            case "confirmed" -> "Confirmed by Linux";
             case "needs-attention" -> "Needs attention";
-            case "incoming-only" -> "Received from phone";
+            case "incoming-only" -> "Received from Linux";
             default -> "Unknown";
         };
     }
@@ -145,6 +147,14 @@ public final class SyncActivity extends Activity {
         super.onDestroy();
     }
 
+    static String preparePeerLedger(DeliveryLedger ledger, String physicalTarget) {
+        // In-place, idempotent, fail-closed migration: do not reset pre-upgrade
+        // retries, delivery confirmations or the existing event history.
+        ledger.migrateTargets(
+                List.of(physicalTarget, AppPreferences.DEFAULT_TARGET_DEVICE_ID), LINUX_PEER);
+        return LINUX_PEER;
+    }
+
     private void initializeSync() {
         File root = new File(getFilesDir(), "probe-repository");
         ProbeRepository repository = ProbeRepository.open(root);
@@ -153,13 +163,14 @@ public final class SyncActivity extends Activity {
         AppPreferences preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         String target = preferences.targetDeviceId();
-        planner = new SyncPlanner(repository, ledger, receipts, "android", target);
+        String peer = preparePeerLedger(ledger, target);
+        planner = new SyncPlanner(repository, ledger, receipts, "android", peer);
         coordinator = new SyncCoordinator(
                 repository,
                 ledger,
                 receipts,
                 planner,
-                target,
+                peer,
                 ActiveDraftRegistry::flush,
                 () -> {
                     ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(

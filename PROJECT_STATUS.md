@@ -195,6 +195,24 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
+## Latest development checkpoint — logical peer and received-name collisions
+
+The owner authorized targeted fixes after real physical receipt tests identified
+a protocol identity mismatch. The follow-up Sol branch
+`sol/android-peer-and-receive-collisions` separates Android's physical KDE
+Connect device ID from the logical `linux` revision/receipt peer; it safely
+migrates older delivery ledger keys in one checked atomic update. The Linux
+Downloads receiver also understands KDE Connect ` (1).md` collisions for
+revision and receipt envelopes.
+
+**152/152 Fedora tests and 98/98 Android tests passed**; a replacement APK
+was built, its certificate matched the installed debug signer, and a copy of
+the exact collision-named received revision was imported in an isolated Fedora
+repository. **This candidate APK has not been installed or deployed**; actual
+automatic receipt transmission remains pending a separately approved physical
+retest. See `docs/milestone2/ANDROID_PEER_RECEIPT_FIX.md` for exact artifact
+hashes, data-migration safeguards, and acceptance boundaries.
+
 ## Next action
 
 A separate Sol-owned isolated Linux receiving fix adds opt-in scanning of a

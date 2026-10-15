@@ -56,7 +56,7 @@ public final class SyncActivityContractTest {
     public void deliveryAndProgressLabelsNeverOverclaimConfirmation() {
         assertEquals("Pending", SyncActivity.deliveryLabel("pending"));
         assertEquals("Transfer requested — awaiting receipt", SyncActivity.deliveryLabel("unconfirmed"));
-        assertEquals("Confirmed by phone", SyncActivity.deliveryLabel("confirmed"));
+        assertEquals("Confirmed by Linux", SyncActivity.deliveryLabel("confirmed"));
         assertEquals("Needs attention", SyncActivity.deliveryLabel("needs-attention"));
         SyncStatus requested = new SyncStatus(
                 SyncStatus.Phase.TRANSFER_REQUESTED, 2, 1, 3, 4, 5, List.of(), "chooser launched");
@@ -70,6 +70,20 @@ public final class SyncActivityContractTest {
     public void insetPaddingUsesLargestKeyboardOrNavigationInset() {
         assertEquals(28, SyncActivity.bottomContentPadding(8, 20, 4));
         assertEquals(108, SyncActivity.bottomContentPadding(8, 20, 100));
+    }
+
+    @Test
+    public void productionPeerIsLogicalLinuxNotThePhysicalKdeConnectId() throws Exception {
+        File dir = java.nio.file.Files.createTempDirectory("peer-routing").toFile();
+        DeliveryLedger ledger = new DeliveryLedger(dir, 3);
+        String revision = "d".repeat(64);
+        String transportId = "254997f28f11499d80928fe8a109749e";
+        ledger.registerLocal(revision, transportId);
+        ledger.recordRequested(revision, transportId, Instant.parse("2026-10-15T12:00:00Z"));
+
+        assertEquals("linux", SyncActivity.preparePeerLedger(ledger, transportId));
+        assertEquals(1, ledger.entry(revision, "linux").attempts());
+        assertEquals(null, ledger.entry(revision, transportId));
     }
 
     @Test

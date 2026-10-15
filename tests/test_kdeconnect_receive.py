@@ -112,6 +112,31 @@ class ReceiveDirectoryTests(unittest.TestCase):
         for name, data in unrelated.items():
             self.assertEqual((self.downloads / name).read_bytes(), data)
 
+    def test_kde_connect_collision_suffix_revisions_import_without_renaming(self):
+        revision = Revision.create(NOTE, (), "android", T0, False, "# Collision")
+        received = self.downloads / f"{revision.revision_id} (1).md"
+        received.write_bytes(revision.serialize())
+        report = scan_inbox(
+            self.repository, self.inbox, "linux", received_dir=self.downloads
+        )
+        self.assertEqual(report.imported, (revision.revision_id,))
+        self.assertEqual(received.read_bytes(), revision.serialize())
+
+    def test_collisions_ignore_unrelated_and_invalid_names(self):
+        revision = Revision.create(NOTE, (), "android", T0, False, "# Collision")
+        for name in (
+            "notes (1).md",
+            "notes.md (1)",
+            f"{revision.revision_id} (0).md",
+            f"{revision.revision_id} (oops).md",
+        ):
+            (self.downloads / name).write_bytes(revision.serialize())
+        report = scan_inbox(
+            self.repository, self.inbox, "linux", received_dir=self.downloads
+        )
+        self.assertEqual(report.imported, ())
+        self.assertEqual(self.repository.revisions(), ())
+
     def test_extensionless_arbitrary_name_remains_ignored(self):
         revision = Revision.create(NOTE, (), "android", T0, False, "hello")
         (self.downloads / "user-private-document").write_bytes(revision.serialize())
@@ -145,7 +170,7 @@ class ReceiveDirectoryTests(unittest.TestCase):
         receipt = ReceiptEnvelope.create(
             NOTE, local.revision_id, "android", "linux", T0
         )
-        received = self.downloads / f"{receipt.receipt_id}.md"
+        received = self.downloads / f"{receipt.receipt_id}.receipt (1).md"
         received.write_bytes(receipt.serialize())
 
         result = scan_inbox(

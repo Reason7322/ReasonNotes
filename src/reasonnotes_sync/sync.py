@@ -4,6 +4,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from uuid import UUID
 
 from .delivery import DeliveryLedger, DeliveryState
@@ -32,10 +33,15 @@ def _incoming_files(directory: Path, *, downloads: bool):
             continue
         name = path.name
         if path.suffix.lower() == ".md":
-            if downloads and not (
-                _hash_name(path.stem) or name.startswith("reasonnotes-")
-            ):
-                continue
+            stem = path.stem
+            if downloads:
+                # KDE Connect appends " (1)" when an existing filename collides.
+                match = re.fullmatch(r"(.+) \(([1-9][0-9]*)\)", stem)
+                if match:
+                    stem = match.group(1)
+                canonical_id = stem.removesuffix(".receipt")
+                if not (_hash_name(canonical_id) or stem.startswith("reasonnotes-")):
+                    continue
         elif not (not path.suffix and _extensionless_kde_name(name)):
             continue
         yield path

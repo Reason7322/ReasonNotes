@@ -158,6 +158,49 @@ public final class SyncCoordinatorTest {
     }
 
     @Test
+    public void physicalKdeConnectIdMigratesAndLogicalLinuxPeerDrivesReceiptRoundTrip() throws Exception {
+        Fixture fixture = fixture();
+        String physical = AppPreferences.DEFAULT_TARGET_DEVICE_ID;
+        RevisionEnvelope outgoing = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Existing Android note", "android", NOW.minusSeconds(3), false);
+        fixture.ledger().registerLocal(outgoing.revisionId(), physical);
+        fixture.ledger().recordRequested(outgoing.revisionId(), physical, NOW.minusSeconds(2));
+        assertEquals("linux", SyncActivity.preparePeerLedger(fixture.ledger(), physical));
+        assertEquals(1, fixture.ledger().entry(outgoing.revisionId(), "linux").attempts());
+
+        RevisionEnvelope imported = RevisionEnvelope.create(
+                NOTE_B, List.of(), "linux", NOW.minusSeconds(3), false, "# Fedora test");
+        fixture.repository().importEnvelope(imported.serialize(), "incoming.md");
+        ReceiptEnvelope queued = fixture.receipts().queue(imported, "android", NOW.minusSeconds(1));
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = coordinator(
+                fixture, SyncCoordinator.FlushEvidence::success,
+                () -> scan(0, 0, 0),
+                files -> {
+                    sent.addAll(files);
+                    return new SyncCoordinator.RequestEvidence(true, "share activity launched");
+                });
+        SyncStatus status = coordinator.synchronize(OutgoingSelection.selected(Set.of()), false);
+        assertEquals(0, status.revisionsRequested());
+        assertEquals(1, status.receiptsRequested());
+        assertEquals(List.of(queued.receiptId()),
+                sent.stream().map(SyncCoordinator.OutgoingFile::identity).toList());
+        assertEquals("transfer-requested",
+                fixture.receipts().entry(queued.receiptId(), "linux").state());
+
+        ReceiptEnvelope remoteReceipt = ReceiptEnvelope.create(
+                outgoing.noteId(), outgoing.revisionId(), "linux", "android", NOW);
+        ReceiptStore.ImportOutcome confirmation = fixture.receipts().accept(
+                remoteReceipt.serialize(), fixture.repository(), fixture.ledger(),
+                "android", "linux-receipt.md", NOW.plusSeconds(1));
+        assertEquals("confirmed", confirmation.kind());
+        assertEquals("confirmed",
+                fixture.ledger().entry(outgoing.revisionId(), "linux").state());
+        assertEquals(remoteReceipt.receiptId(),
+                fixture.ledger().entry(outgoing.revisionId(), "linux").receiptId());
+    }
+
+    @Test
     public void statusKeepsRequestedImportedAndConfirmedEvidenceSeparate() throws Exception {
         Fixture fixture = fixture();
         fixture.repository().createRevision(
