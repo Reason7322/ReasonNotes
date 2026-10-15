@@ -443,7 +443,7 @@ git commit -m "feat(android): integrate selective receipt-aware sync"
 - Modify: `PROJECT_STATUS.md`
 - Modify tests/source only if verification demonstrates a Task 4 defect.
 
-- [ ] **Step 1: Run the complete Android unit suite once**
+- [x] **Step 1: Run the complete Android unit suite once** — 93/93 passing on the final implementation SHA.
 
 ```bash
 cd android-probe
@@ -452,7 +452,7 @@ cd android-probe
 
 Record exact passed/failed/skipped counts from the XML reports. If a test fails, use systematic debugging and re-run only the failing/focused class until fixed, then re-run the complete suite once because the candidate changed.
 
-- [ ] **Step 2: Build the debug APK**
+- [x] **Step 2: Build the debug APK** — signed/hashed artifact retained outside the build tree.
 
 ```bash
 cd android-probe
@@ -462,11 +462,11 @@ sha256sum app/build/outputs/apk/debug/app-debug.apk
 
 Record the exact APK path, byte size, SHA-256, application ID, version, and debug signing-certificate fingerprint. Do not install it.
 
-- [ ] **Step 3: Perform static/runtime-safe packaging checks**
+- [x] **Step 3: Perform static/runtime-safe packaging checks** — source paths, manifest, reference-APK signer inspected; installed-package signer remains a Task 5 gate.
 
 Verify the manifest contains all intended activities and preserves Android 16 inset behavior. Verify the package remains `org.reasonnotes.probe` and all established repository, delivery, receipt, exchange-preference, SAF-key, and target-device defaults remain compatible. Document that Task 5 must compare the installed and candidate signing identities and stop on mismatch; uninstall/clear-data is not a recovery step.
 
-- [ ] **Step 4: Update implementation/status documents with evidence boundaries**
+- [x] **Step 4: Update implementation/status documents with evidence boundaries**
 
 Update the Milestone 2 plan and `ANDROID_TASK4.md` with the implemented screen/data flows and test commands. Update `PROJECT_STATUS.md` with exact test count, APK/hash, branch/checkpoint placeholder, and these explicit limitations:
 
@@ -476,7 +476,7 @@ Update the Milestone 2 plan and `ANDROID_TASK4.md` with the implemented screen/d
 - shared pin synchronization deferred;
 - White/Dark/LiquidGlass work not started.
 
-- [ ] **Step 5: Review the final diff for scope and placeholders**
+- [x] **Step 5: Review the final diff for scope and placeholders**
 
 ```bash
 git diff --check
@@ -486,14 +486,15 @@ rg -n 'TODO|FIXME|placeholder|not implemented' android-probe docs/milestone2 PRO
 
 Resolve accidental placeholders; retain only intentional deferred items documented as such.
 
-- [ ] **Step 6: Commit and push Checkpoint B**
+- [x] **Step 6: Commit and push Checkpoint B** — a Sol-owned documentation-only descendant of Forge's implementation checkpoint; original Forge branch remains unchanged.
 
 ```bash
-git add android-probe docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md \
+git add docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md \
+  docs/superpowers/plans/2026-10-15-android-task4-implementation.md \
   docs/milestone2/ANDROID_TASK4.md PROJECT_STATUS.md
-git commit -m "feat(android): complete Task 4 notes application"
-git push handoff HEAD:forge/android-notes-shell
-git ls-remote handoff refs/heads/forge/android-notes-shell
+git commit -m "docs(android): finalize Task 4 verification and APK evidence"
+git push /home/reason/Temporary/AgentHandoff/ReasonNotes.git HEAD:refs/heads/sol/android-task4-finalize
+git ls-remote /home/reason/Temporary/AgentHandoff/ReasonNotes.git refs/heads/sol/android-task4-finalize
 ```
 
-Confirm the full remote SHA equals local `HEAD` and report final `git status --short --branch`. Stop after Task 4. Do not create or begin the theme branch until this checkpoint has been reviewed as complete.
+Confirm the full remote SHA equals local `HEAD` and report final `git status --short --branch`. The finalizer has a **separate Sol-owned worktree**, preserving Forge's original implementation branch exactly. The APK was compiled from Forge's `6171312` implementation commit; finalizer changes are documentation only. Stop after Task 4. Do not create or begin the theme branch until this checkpoint has been reviewed as complete.

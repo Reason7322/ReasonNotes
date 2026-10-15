@@ -211,41 +211,30 @@ git add docs/superpowers src/reasonnotes_sync src/reasonnotes_app linux-app test
 git commit -m "feat: add Qt Quick desktop notes shell"
 ```
 
-### Task 4: Android Notes Shell and Vertical Conflict Choice
+### Task 4: Android Notes Shell and Vertical Conflict Choice — IMPLEMENTED / BUILD VERIFIED
 
-**Files:**
-- Create: `android-probe/app/src/main/java/org/reasonnotes/probe/NoteService.java`
-- Create: `android-probe/app/src/main/java/org/reasonnotes/probe/NotesActivity.java`
-- Create: `android-probe/app/src/main/java/org/reasonnotes/probe/ConflictActivity.java`
-- Modify: `android-probe/app/src/main/AndroidManifest.xml`
-- Modify: `android-probe/app/src/main/res/values/strings.xml`
-- Create: `android-probe/app/src/test/java/org/reasonnotes/probe/NoteServiceTest.java`
-- Create: `android-probe/app/src/test/java/org/reasonnotes/probe/ConflictActivityLayoutTest.java`
+The original minimal shell plan was superseded by the owner-approved
+card-grid design and the focused implementation documents:
 
-**Interfaces:**
-- Consumes: `ProbeRepository`, `RevisionGraph`, `DeliveryLedger`, `ExchangeDirectory`, and `KdeConnectSender`.
-- Produces: note list, editor, search, deletion, automatic local save, Sync now, visible delivery state, and a vertically stacked conflict view with both device labels, both content previews, Keep Linux, Keep Android, and Skip.
+- Specification: `docs/superpowers/specs/2026-10-15-android-task4-notes-shell-design.md`.
+- Detailed plan: `docs/superpowers/plans/2026-10-15-android-task4-implementation.md`.
+- Implementation evidence and APK: `docs/milestone2/ANDROID_TASK4.md`.
 
-- [ ] **Step 1: Write failing Android service and conflict-layout tests**
+**Task 4 source/build checkpoints:**
 
-Test CRUD/search parity with Python, deleted-note exclusion, process-restart reconciliation, exact conflict labels/bodies, Skip, both keep choices, and rejection after a third head arrives.
+- [x] Implement `NoteDocument`, guarded `ProbeRepository`, `NoteService`, and regression tests for edit/delete conflicts, stale heads and missing generated views.
+- [x] Implement generation-safe draft persistence, debounced autosave, local-only `PinStore`, and preferences.
+- [x] Implement the native Home, Editor, Settings and vertically stacked Conflict screens with bottom search, card grid and safe insets.
+- [x] Implement all/selected outgoing synchronization planner, scan-first coordinator, receipt-independent selection, and mobile Sync UI.
+- [x] Complete the host JVM suite on implementation commit `6171312f54386e0f09203ab84199861591d95071`: **93/93 passed** on 2026-10-15.
+- [x] Assemble, sign-verify, hash and preserve the Android debug APK; document compatibility checks and remaining installation gate.
+- [x] Record source/build evidence and a final documentation-only checkpoint in the neutral Git repository.
 
-- [ ] **Step 2: Run the focused Android tests and verify RED**
-
-Run from `android-probe`: `./gradlew testDebugUnitTest --tests '*NoteServiceTest' --tests '*ConflictActivityLayoutTest'`
-
-- [ ] **Step 3: Implement the minimal native views**
-
-Use standard Android widgets and the existing SAF/KDE Connect integration. Do not add a background service, rich Markdown rendering, formatting toolbar, or framework migration.
-
-- [ ] **Step 4: Run Android unit tests, build a distinguishable APK, and commit**
-
-Run from `android-probe`: `./gradlew testDebugUnitTest assembleDebug`
-
-```bash
-git add android-probe/app/src
-git commit -m "feat: add minimal Android notes shell"
-```
+This completes Task 4 **implementation and host verification only**. It does
+not authorize or imply installation on the POCO, on-device visual/functional
+acceptance, or a confirmed Milestone 2 receipt exchange. Those belong to
+Task 5, which remains pending owner authorization. Cross-device pin
+synchronization and White/Dark/LiquidGlass themes are separate future work.
 
 ### Task 5: Two-Device Acceptance and Milestone Decision
 

@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 1 is complete. Milestone 2 Tasks 1 through 3 are implemented:
+Milestone 1 is complete. Milestone 2 Tasks 1 through 4 are implemented at source/test/build level. Task 4 still awaits physical and visual acceptance:
 
 - Durable one-revision import receipts distinguish transfer request, KDE
   Connect completion, durable import, and application confirmation without
@@ -31,14 +31,25 @@ The sidebar now also uses Lucide SVG icons for Save, Sync,
 and Delete; the New Note action is unchanged.
 
 The Milestone 2 receipt path has focused automated verification but has not
-been physically synchronized on the POCO. The Qt interface has passed
-offscreen component loading but has not received visible graphical or
-interactive owner acceptance. The Android Task 4 note interface has not been
-started.
+been physically synchronized on the POCO. The desktop Concept C interface
+received owner visual feedback on the real Wayland desktop, but full
+interactive Sync/conflict acceptance remains pending.
+
+Android Task 4 now implements native notes Home, Editor, Settings, conflict
+resolution, local-only pinning, guarded immutable writes, draft recovery,
+selective outgoing synchronization, and receipt-aware Sync UI. Sol completed
+the final host suite (93/93) and assembled a candidate APK from Forge's
+`6171312` code checkpoint. See `docs/milestone2/ANDROID_TASK4.md` for the
+verified hash, signing fingerprint, packaging checks, and physical acceptance
+restrictions. No new Android APK was installed or tested on the POCO.
 
 ## Current branch and provenance
 
-- Active branch: `forge/kdeconnect-feasibility`
+- Latest Android implementation: `forge/android-notes-shell` at
+  `6171312f54386e0f09203ab84199861591d95071`.
+- Task 4 finalization: `sol/android-task4-finalize` (documentation-only
+  successor to the implementation SHA; see final neutral Git ref).
+- Historic Forge desktop branch: `forge/kdeconnect-feasibility`.
 - Received Qwen acceptance checkpoint:
   `73710b088fb0d8f167a054916fef57ffc78a233c`
 - Android routing fix:
@@ -62,7 +73,11 @@ started.
 
 ## Current owner
 
-Forge. Qwen's worktree and branch were not modified.
+Sol/ChatGPT completed the explicitly authorized Task 4 verification,
+APK packaging evidence, and checkpoint documentation from a separate
+worktree. Forge's and Qwen's worktrees and branches were not modified.
+Next ownership is unassigned until the owner authorizes physical acceptance
+or the separate theme milestone.
 
 ## Physical acceptance result
 
@@ -143,8 +158,9 @@ The original APK remains frozen and preserved with SHA-256
   writing layouts, empty and scrolling editor states, secondary view styling,
   and preserved sync-mode exclusivity. Deterministic offscreen renders were
   inspected at 2048×1152 and 900×600 using disposable notes; no live note data
-  or visible desktop was used. Owner visual acceptance on a real Wayland
-  display remains pending.
+  or visible desktop was used for that earlier checkpoint. The owner has since
+  inspected the refined desktop interface on real Wayland; full interactive
+  Save/Sync/conflict acceptance is still pending.
 - Refinement command:
   `QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m unittest tests.test_qml_smoke tests.test_linux_presenter -v`
   passed 28/28. The reproducible renderer completed without QML warnings at
@@ -153,25 +169,40 @@ The original APK remains frozen and preserved with SHA-256
   (2048×1152) and
   `fa038791f7e6b7cac53f307441bf84c94c121ddc5f091828ef6c0cee7b9ef8da`
   (900×600).
+- Task 4 finalization on `6171312f54386e0f09203ab84199861591d95071`:
+  `./gradlew --offline --no-daemon testDebugUnitTest` — 93/93 tests passed
+  (23 suite reports, 0 failed/errored/skipped); `assembleDebug` — success.
+  Package `org.reasonnotes.probe`, version 1 (0.1), min SDK 26, target SDK 35;
+  APK SHA-256 `07fe3beea73d5af4c4a497a6998cca5d02bd5d4774c7dcab5807a1a7a0eec752`.
+  Preserved at `/home/reason/Temporary/ReasonNotes-Task4-Finalize-artifacts/ReasonNotes-Android-Task4-6171312-07fe3bee.apk`.
+  The candidate and preserved Milestone 1 reference APK share signing certificate
+  SHA-256 `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+  The installed phone package's certificate has **not** been checked.
 - These are automated results. No physical POCO receipt-runtime claim is made.
 
 ## Current architecture
 
 KDE Connect remains the proven transport. Immutable revision history in
-`Repository` is the only durable note-content source; generated views and
-application summaries are rebuildable. Receipts remain separate transport
-evidence and never alter note ancestry or conflict selection. The Qt presenter
-and bridge contain no second note store. Selective sync filters ordinary
-Fedora outgoing note revisions only; incoming scanning and receipts remain
-unconditional.
+each device's repository remains the durable note-content source; generated
+views and application summaries are rebuildable. Receipts remain separate
+transport evidence and never alter note ancestry or conflict selection. The
+Qt presenter and Android native service contain no second synchronized note
+store. Both platforms implement selected outgoing note revision filtering,
+while incoming scans and required receipts remain unconditional. Android
+DraftStore and PinStore are device-local metadata, not synchronized history.
 
 ## Next action
 
-Task 3 stops after the Concept C refinement checkpoint. The next product gate
-is owner-approved visible and interactive Qt desktop acceptance against a
-disposable repository. Task 4 is not started and requires a new assignment.
-Do not claim receipt confirmation on the POCO until that path receives
-separate physical runtime verification.
+Android Task 4 has a completed source/build checkpoint, but **not** an
+installed or visually accepted product. The next gate is owner review of the
+candidate APK and a separate authorization for Task 5 physical POCO
+installation/preflight and two-device acceptance. Before installation, check
+the installed signing certificate, compatibility of package/version and user
+data migration/retention. Do not uninstall, clear data, or equate the signer of
+the preserved reference APK with the actual installed package without checking.
+The White/Dark/LiquidGlass theme milestone and cross-device pin synchronization
+remain deferred pending owner direction. Do not claim new receipt confirmation
+on the POCO until that path receives separate physical runtime verification.
 
 ## Important constraints
 
