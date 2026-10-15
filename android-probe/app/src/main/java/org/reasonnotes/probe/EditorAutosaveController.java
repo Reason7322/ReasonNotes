@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /** Serializes debounced editor saves without sacrificing a newer local draft. */
 public final class EditorAutosaveController {
@@ -28,6 +29,7 @@ public final class EditorAutosaveController {
     private final Executor executor;
     private final SaveOperation saveOperation;
     private final Supplier<String> currentHead;
+    private final Consumer<Status> statusListener;
     private final ArrayList<CompletableFuture<Status>> flushWaiters = new ArrayList<>();
 
     private String activeBaseRevisionId;
@@ -44,6 +46,18 @@ public final class EditorAutosaveController {
             Executor executor,
             SaveOperation saveOperation,
             Supplier<String> currentHead) {
+        this(drafts, noteId, baseRevisionId, scheduler, executor, saveOperation, currentHead, ignored -> {});
+    }
+
+    public EditorAutosaveController(
+            DraftStore drafts,
+            UUID noteId,
+            String baseRevisionId,
+            Scheduler scheduler,
+            Executor executor,
+            SaveOperation saveOperation,
+            Supplier<String> currentHead,
+            Consumer<Status> statusListener) {
         this.drafts = Objects.requireNonNull(drafts, "drafts");
         this.noteId = Objects.requireNonNull(noteId, "noteId");
         this.activeBaseRevisionId = Objects.requireNonNull(baseRevisionId, "baseRevisionId");
@@ -51,6 +65,7 @@ public final class EditorAutosaveController {
         this.executor = Objects.requireNonNull(executor, "executor");
         this.saveOperation = Objects.requireNonNull(saveOperation, "saveOperation");
         this.currentHead = Objects.requireNonNull(currentHead, "currentHead");
+        this.statusListener = Objects.requireNonNull(statusListener, "statusListener");
         DraftStore.Draft restored = drafts.current(noteId);
         if (restored != null) status = restored.baseRevisionId().equals(baseRevisionId) ? Status.DIRTY : Status.STALE;
     }
@@ -59,7 +74,7 @@ public final class EditorAutosaveController {
         DraftStore.Draft existing = drafts.current(noteId);
         String base = existing == null ? activeBaseRevisionId : existing.baseRevisionId();
         DraftStore.Draft draft = drafts.write(noteId, base, title, content);
-        status = Status.DIRTY;
+        setStatusLocked(Status.DIRTY);
         lastError = null;
         cancelScheduledLocked();
         scheduled = scheduler.schedule(this::debounceElapsed, DEBOUNCE_MILLIS);
@@ -100,7 +115,7 @@ public final class EditorAutosaveController {
             return;
         }
         saveInFlight = true;
-        status = Status.SAVING;
+        setStatusLocked(Status.SAVING);
         executor.execute(() -> runSave(draft));
     }
 
@@ -131,13 +146,18 @@ public final class EditorAutosaveController {
         } catch (Throwable error) {
             synchronized (this) {
                 saveInFlight = false;
-                finishLocked(Status.ERROR, error);
+                if (error instanceof ProbeRepository.StaleHeadsException
+                        || error instanceof NoteService.ConflictRequiredException) {
+                    finishLocked(Status.STALE, error);
+                } else {
+                    finishLocked(Status.ERROR, error);
+                }
             }
         }
     }
 
     private void finishLocked(Status finished, Throwable error) {
-        status = finished;
+        setStatusLocked(finished);
         lastError = error;
         List<CompletableFuture<Status>> waiting = List.copyOf(flushWaiters);
         flushWaiters.clear();
@@ -147,5 +167,10 @@ public final class EditorAutosaveController {
     private void cancelScheduledLocked() {
         if (scheduled != null) scheduled.cancel();
         scheduled = null;
+    }
+
+    private void setStatusLocked(Status value) {
+        status = value;
+        statusListener.accept(value);
     }
 }

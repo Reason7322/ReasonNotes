@@ -18,6 +18,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Set;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -186,5 +189,43 @@ public final class EditorAutosaveControllerTest {
         assertFalse(stale.recovery().safeToApply());
         assertEquals("preserve me", stale.recovery().draft().content());
         assertEquals(0, calls.get());
+    }
+
+    @Test
+    public void incomingImportDuringRepositorySaveProducesStaleNotSaved() throws Exception {
+        ProbeRepository repository = ProbeRepository.open(temporary.newFolder("repo"));
+        ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(NOTE));
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-10-15T04:30:00Z"));
+        NoteService service = new NoteService(repository, "android", now::get, ids::removeFirst);
+        NoteService.OpenNote opened = service.createNote("Initial", "body");
+        DraftStore drafts = new DraftStore(temporary.newFolder("race-drafts"));
+        ManualScheduler scheduler = new ManualScheduler();
+        EditorAutosaveController controller = new EditorAutosaveController(
+                drafts,
+                NOTE,
+                opened.revisionId(),
+                scheduler,
+                Runnable::run,
+                draft -> {
+                    RevisionEnvelope remote = RevisionEnvelope.create(
+                            NOTE,
+                            List.of(opened.revisionId()),
+                            "linux",
+                            Instant.parse("2026-10-15T04:30:01Z"),
+                            false,
+                            "# Remote\n\nnew");
+                    repository.importEnvelope(remote.serialize(), "remote.md");
+                    return service.saveNote(
+                            NOTE,
+                            Set.of(draft.baseRevisionId()),
+                            draft.title(),
+                            draft.content()).revisionId();
+                },
+                () -> EditorActivity.singleHeadOrConflictMarker(repository.headIds(NOTE)));
+        controller.edit("Local", "must remain");
+
+        assertEquals(EditorAutosaveController.Status.STALE, controller.flush().get(5, TimeUnit.SECONDS));
+        assertEquals("must remain", drafts.current(NOTE).content());
+        assertEquals(2, repository.revisions().size());
     }
 }

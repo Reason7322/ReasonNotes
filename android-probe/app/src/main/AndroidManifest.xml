@@ -6,7 +6,11 @@
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/ReasonNotesTheme">
+        <activity
+            android:name=".EditorActivity"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

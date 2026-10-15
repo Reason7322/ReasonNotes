@@ -1,179 +1,314 @@
 package org.reasonnotes.probe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final int TREE_REQUEST = 41;
-    private static final UUID PROBE_NOTE = UUID.fromString("52548cf9-710c-43ca-b2fa-73ed4671aea9");
-    private static final String KDE_DEVICE_ID = "254997f28f11499d80928fe8a109749e";
+    public static final String EXTRA_NOTE_ID = "note-id";
+    private static final String LOCAL_PREFERENCES = "reasonnotes-app";
+
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
     private ProbeRepository repository;
-    private DeliveryLedger ledger;
-    private ReceiptStore receiptStore;
-    private TextView status;
+    private NoteService service;
+    private PinStore pins;
+    private EditText search;
+    private TextView pinnedHeading;
+    private GridLayout pinnedGrid;
+    private GridLayout otherGrid;
+    private TextView emptyState;
+    private TextView localStatus;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         repository = ProbeRepository.open(new File(getFilesDir(), "probe-repository"));
-        ledger = new DeliveryLedger(new File(getFilesDir(), "delivery-state"), 3);
-        receiptStore = new ReceiptStore(repository.root(), 3);
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        int basePadding = 24;
-        int actionBarHeight = actionBarHeight();
-        content.setPadding(basePadding, contentTopPadding(basePadding, 0, actionBarHeight),
-                basePadding, basePadding);
-        ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
-            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            view.setPadding(basePadding,
-                    contentTopPadding(basePadding, systemBars.top, actionBarHeight),
-                    basePadding, basePadding + systemBars.bottom);
-            return windowInsets;
-        });
-        addButton(content, "Choose ReasonNotes Exchange", view -> chooseTree());
-        addButton(content, "Create deterministic probe note", view -> createProbe());
-        addButton(content, "Sync now", view -> sync(false));
-        addButton(content, "Retry unconfirmed", view -> sync(true));
-        status = new TextView(this);
-        status.setTextIsSelectable(true);
-        content.addView(status);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(content);
-        setContentView(scroll);
-        ViewCompat.requestApplyInsets(content);
-        render("Ready. Transfer requests are not completion acknowledgements.");
-    }
-
-    static int contentTopPadding(int basePadding, int systemBarTop, int actionBarHeight) {
-        return basePadding + systemBarTop + actionBarHeight;
-    }
-
-    private int actionBarHeight() {
-        TypedValue value = new TypedValue();
-        if (!getTheme().resolveAttribute(android.R.attr.actionBarSize, value, true)) return 0;
-        return TypedValue.complexToDimensionPixelSize(
-                value.data, getResources().getDisplayMetrics());
+        service = new NoteService(
+                repository,
+                "android",
+                () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
+                UUID::randomUUID);
+        LocalPreferences preferences = new AndroidLocalPreferences(
+                getSharedPreferences(LOCAL_PREFERENCES, MODE_PRIVATE));
+        pins = new PinStore(preferences);
+        setContentView(buildContent());
+        renderNotes();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (repository != null && ExchangeDirectory.savedTree(this) != null) {
-            ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
-                    this, repository, ledger, receiptStore, "android");
-            render("Resume scan: imported=" + report.imported()
-                    + " confirmed=" + report.confirmed()
-                    + " receipt-queued=" + report.receiptsQueued()
-                    + " rejected=" + report.rejected());
+        if (service != null) renderNotes();
+    }
+
+    @Override protected void onDestroy() {
+        io.shutdownNow();
+        super.onDestroy();
+    }
+
+    private View buildContent() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(UiTokens.BACKGROUND);
+        int base = UiTokens.dp(this, UiTokens.SPACE_M);
+        int actionBar = actionBarHeight();
+        root.setPadding(base, HomeLayout.topContentPadding(base, 0, actionBar), base, base);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            view.setPadding(
+                    base,
+                    HomeLayout.topContentPadding(base, bars.top, actionBar),
+                    base,
+                    HomeLayout.bottomContentPadding(base, bars.bottom, ime.bottom));
+            return insets;
+        });
+
+        root.addView(buildHeader(), matchWrap());
+        Button newNote = button("＋  New Note", true);
+        newNote.setOnClickListener(view -> createNote());
+        LinearLayout.LayoutParams newParams = matchWrap();
+        newParams.topMargin = UiTokens.dp(this, UiTokens.SPACE_M);
+        root.addView(newNote, newParams);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout lists = new LinearLayout(this);
+        lists.setOrientation(LinearLayout.VERTICAL);
+        lists.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, UiTokens.dp(this, UiTokens.SPACE_M));
+        pinnedHeading = sectionHeading("Pinned");
+        lists.addView(pinnedHeading, matchWrap());
+        pinnedGrid = grid();
+        lists.addView(pinnedGrid, matchWrap());
+        lists.addView(sectionHeading("Others"), matchWrap());
+        otherGrid = grid();
+        lists.addView(otherGrid, matchWrap());
+        emptyState = text("No notes yet. Create one to start writing.", 15, UiTokens.TEXT_SECONDARY);
+        emptyState.setGravity(Gravity.CENTER);
+        emptyState.setPadding(0, UiTokens.dp(this, 72), 0, 0);
+        lists.addView(emptyState, matchWrap());
+        scroll.addView(lists);
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        localStatus = text("Saved locally", 12, UiTokens.TEXT_SECONDARY);
+        LinearLayout.LayoutParams statusParams = matchWrap();
+        statusParams.bottomMargin = UiTokens.dp(this, UiTokens.SPACE_XS);
+        root.addView(localStatus, statusParams);
+
+        search = new EditText(this);
+        search.setHint("Search notes");
+        search.setSingleLine(true);
+        search.setTextColor(UiTokens.TEXT);
+        search.setHintTextColor(UiTokens.TEXT_SECONDARY);
+        search.setTextSize(15);
+        search.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
+        int fieldPadding = UiTokens.dp(this, UiTokens.SPACE_M);
+        search.setPadding(fieldPadding, 0, fieldPadding, 0);
+        search.setMinHeight(UiTokens.dp(this, HomeLayout.minimumTouchTargetDp()));
+        search.addTextChangedListener(new SimpleTextWatcher() {
+            @Override public void afterTextChanged(Editable value) { renderNotes(); }
+        });
+        root.addView(search, matchWrap());
+        ViewCompat.requestApplyInsets(root);
+        return root;
+    }
+
+    private LinearLayout buildHeader() {
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brand = text("ReasonNotes", 26, UiTokens.TEXT);
+        brand.setTypeface(UiTokens.medium());
+        header.addView(brand, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button settings = button("⚙", false);
+        settings.setContentDescription("Settings");
+        settings.setOnClickListener(view -> openNamedActivity("SettingsActivity", null));
+        header.addView(settings, new LinearLayout.LayoutParams(
+                UiTokens.dp(this, 52), UiTokens.dp(this, 48)));
+        return header;
+    }
+
+    private void renderNotes() {
+        if (service == null || pinnedGrid == null) return;
+        String query = search == null ? "" : search.getText().toString();
+        io.execute(() -> {
+            List<NoteService.NoteSummary> notes = service.listNotes(query);
+            Set<UUID> visible = notes.stream().map(NoteService.NoteSummary::noteId)
+                    .collect(java.util.stream.Collectors.toSet());
+            HomeLayout.Sections sections = HomeLayout.partition(notes, pins.visiblePinned(visible));
+            runOnUiThread(() -> applySections(sections));
+        });
+    }
+
+    private void applySections(HomeLayout.Sections sections) {
+        pinnedGrid.removeAllViews();
+        otherGrid.removeAllViews();
+        pinnedHeading.setVisibility(sections.pinned().isEmpty() ? View.GONE : View.VISIBLE);
+        pinnedGrid.setVisibility(sections.pinned().isEmpty() ? View.GONE : View.VISIBLE);
+        sections.pinned().forEach(note -> addCard(pinnedGrid, note));
+        sections.others().forEach(note -> addCard(otherGrid, note));
+        emptyState.setVisibility(
+                sections.pinned().isEmpty() && sections.others().isEmpty() ? View.VISIBLE : View.GONE);
+        localStatus.setText((sections.pinned().size() + sections.others().size()) + " notes · local history ready");
+    }
+
+    private void addCard(GridLayout grid, NoteService.NoteSummary note) {
+        NoteCardView card = new NoteCardView(this, note);
+        card.setOnClickListener(view -> openNote(note));
+        card.setOnLongClickListener(view -> {
+            showNoteMenu(card, note);
+            return true;
+        });
+        GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+        params.width = 0;
+        params.height = GridLayout.LayoutParams.WRAP_CONTENT;
+        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        int gap = UiTokens.dp(this, UiTokens.SPACE_XS);
+        params.setMargins(gap, gap, gap, gap);
+        grid.addView(card, params);
+    }
+
+    private void openNote(NoteService.NoteSummary note) {
+        if (note.conflicted()) openNamedActivity("ConflictActivity", note.noteId());
+        else {
+            Intent intent = new Intent(this, EditorActivity.class);
+            intent.putExtra(EXTRA_NOTE_ID, note.noteId().toString());
+            startActivity(intent);
         }
     }
 
-    private void addButton(LinearLayout layout, String label, View.OnClickListener listener) {
+    private void createNote() {
+        localStatus.setText("Creating note…");
+        io.execute(() -> {
+            try {
+                NoteService.OpenNote note = service.createNote("Untitled", "");
+                runOnUiThread(() -> {
+                    Intent intent = new Intent(this, EditorActivity.class);
+                    intent.putExtra(EXTRA_NOTE_ID, note.noteId().toString());
+                    startActivity(intent);
+                });
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> localStatus.setText("Could not create note: " + error.getMessage()));
+            }
+        });
+    }
+
+    private void showNoteMenu(View anchor, NoteService.NoteSummary note) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        boolean pinned = pins.isPinned(note.noteId());
+        menu.getMenu().add(pinned ? "Unpin" : "Pin");
+        menu.getMenu().add("Delete");
+        menu.setOnMenuItemClickListener(item -> {
+            if (item.getTitle().toString().equals("Delete")) confirmDelete(note);
+            else {
+                pins.setPinned(note.noteId(), !pinned);
+                renderNotes();
+            }
+            return true;
+        });
+        menu.show();
+    }
+
+    private void confirmDelete(NoteService.NoteSummary note) {
+        if (note.conflicted()) {
+            openNamedActivity("ConflictActivity", note.noteId());
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Delete note?")
+                .setMessage("The deletion is saved as recoverable immutable history.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete", (dialog, which) -> io.execute(() -> {
+                    try {
+                        service.deleteNote(note.noteId(), repository.headIds(note.noteId()));
+                        runOnUiThread(this::renderNotes);
+                    } catch (RuntimeException error) {
+                        runOnUiThread(() -> localStatus.setText("Delete failed: " + error.getMessage()));
+                    }
+                }))
+                .show();
+    }
+
+    private void openNamedActivity(String simpleName, UUID noteId) {
+        Intent intent = new Intent().setClassName(this, getPackageName() + "." + simpleName);
+        if (noteId != null) intent.putExtra(EXTRA_NOTE_ID, noteId.toString());
+        startActivity(intent);
+    }
+
+    private GridLayout grid() {
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(2);
+        grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
+        grid.setUseDefaultMargins(false);
+        return grid;
+    }
+
+    private TextView sectionHeading(String value) {
+        TextView view = text(value, 14, UiTokens.TEXT_SECONDARY);
+        view.setTypeface(UiTokens.medium());
+        view.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, UiTokens.dp(this, UiTokens.SPACE_XS));
+        return view;
+    }
+
+    private TextView text(String value, float size, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        return view;
+    }
+
+    private Button button(String value, boolean accent) {
         Button button = new Button(this);
-        button.setText(label);
-        button.setOnClickListener(listener);
-        layout.addView(button);
+        button.setText(value);
+        button.setTextSize(15);
+        button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
+        button.setTypeface(UiTokens.medium());
+        button.setMinHeight(UiTokens.dp(this, HomeLayout.minimumTouchTargetDp()));
+        button.setBackground(accent
+                ? UiTokens.accent(this)
+                : UiTokens.surface(this, UiTokens.SURFACE));
+        return button;
     }
 
-    private void chooseTree() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(intent, TREE_REQUEST);
+    private LinearLayout.LayoutParams matchWrap() {
+        return new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == TREE_REQUEST && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            ExchangeDirectory.persistGrant(this, data.getData());
-            render("Exchange directory grant persisted.");
-        }
+    private int actionBarHeight() {
+        if (getActionBar() == null) return 0;
+        TypedValue value = new TypedValue();
+        if (!getTheme().resolveAttribute(android.R.attr.actionBarSize, value, true)) return 0;
+        return TypedValue.complexToDimensionPixelSize(value.data, getResources().getDisplayMetrics());
     }
 
-    private void createProbe() {
-        if (!repository.heads(PROBE_NOTE).isEmpty()) {
-            render("Probe note already exists; no duplicate local edit created.");
-            return;
-        }
-        RevisionEnvelope revision = repository.createProbeRevision(
-                PROBE_NOTE, "# Android probe\n\nCreated for isolated KDE Connect testing.\n",
-                "android", Instant.parse("2026-10-12T18:00:00Z"), false);
-        ledger.registerLocal(revision.revisionId(), "linux");
-        render("Created local revision " + revision.revisionId() + " pending for Linux.");
-    }
-
-    private void sync(boolean retry) {
-        ExchangeDirectory.ScanReport scan = ExchangeDirectory.scan(
-                this, repository, ledger, receiptStore, "android");
-        List<String> eligible = ledger.eligible("linux", retry, List.of());
-        List<String> eligibleReceipts = receiptStore.eligible("linux", retry, List.of());
-        ArrayList<Uri> uris = new ArrayList<>();
-        ArrayList<String> ids = new ArrayList<>();
-        ArrayList<String> receiptIds = new ArrayList<>();
-        for (String id : eligible) {
-            RevisionEnvelope revision = repository.revision(id);
-            if (revision == null) continue;
-            File file = new File(repository.root(), "history/" + revision.noteId() + "/" + id + ".md");
-            uris.add(FileProvider.getUriForFile(this, getPackageName() + ".files", file));
-            ids.add(id);
-        }
-        for (String id : eligibleReceipts) {
-            File file = receiptStore.outboxFile(id);
-            uris.add(FileProvider.getUriForFile(this, getPackageName() + ".files", file));
-            receiptIds.add(id);
-        }
-        if (uris.isEmpty()) {
-            render("Scan imported=" + scan.imported()
-                    + " confirmed=" + scan.confirmed()
-                    + "; no eligible revisions or receipts.");
-            return;
-        }
-        KdeConnectSender.RequestOutcome outcome = KdeConnectSender.request(this, uris, KDE_DEVICE_ID);
-        if (outcome.requested()) {
-            Instant observed = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
-            for (String id : ids) ledger.recordRequested(id, "linux", observed);
-            for (String id : receiptIds) receiptStore.recordRequested(id, "linux", observed);
-        }
-        render("Scan imported=" + scan.imported() + "; transfer-requested=" + ids
-                + "; receipt-transfer-requested=" + receiptIds
-                + "; route=" + outcome.detail());
-    }
-
-    private void render(String message) {
-        if (status == null) return;
-        StringBuilder value = new StringBuilder(message).append("\n\n");
-        value.append("Heads and previews:\n");
-        for (RevisionEnvelope head : repository.heads()) {
-            value.append("note ").append(head.noteId()).append("\n")
-                    .append(head.originDevice()).append(" ").append(head.revisionId()).append("\n")
-                    .append(head.deleted() ? "[deleted note]" : head.body()).append("\n");
-        }
-        value.append("\nEvents (distinct evidence):\n");
-        for (DeliveryLedger.Event event : ledger.events()) {
-            value.append(event.kind()).append(" ").append(event.revisionId()).append("\n");
-        }
-        value.append("\nReceipt outbox:\n");
-        for (ReceiptStore.DeliveryEntry entry : receiptStore.entries("linux")) {
-            value.append(entry.state()).append(" ").append(entry.receiptId())
-                    .append(" revision ").append(entry.revisionId()).append("\n");
-        }
-        status.setText(value.toString());
+    private abstract static class SimpleTextWatcher implements TextWatcher {
+        @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+        @Override public void onTextChanged(CharSequence value, int start, int before, int count) {}
     }
 }
-
