@@ -126,6 +126,43 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
+    def test_note_row_uses_action_button_insets_and_shortcuts_stay_active(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        sidebar_source = (QML_MAIN.parent / "Sidebar.qml").read_text(
+            encoding="utf-8"
+        )
+        main_source = QML_MAIN.read_text(encoding="utf-8")
+        self.assertIn("leftPadding: saveButton.leftPadding", sidebar_source)
+        self.assertIn("rightPadding: saveButton.rightPadding", sidebar_source)
+        self.assertIn("Layout.preferredWidth: 24", sidebar_source)
+        self.assertIn("Layout.alignment: Qt.AlignVCenter", sidebar_source)
+        self.assertNotIn('qsTr("Ctrl+N")', sidebar_source)
+        self.assertNotIn('qsTr("Ctrl+S")', sidebar_source)
+        self.assertIn("sequences: [StandardKey.New]", main_source)
+        self.assertIn("sequences: [StandardKey.Save]", main_source)
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        save = root.findChild(object, "saveButton")
+        self.assertIsNotNone(save)
+        self.assertEqual(4, save.property("leftPadding"))
+
+        # Confirm the hidden labels did not disable the actual keyboard actions.
+        self.assertEqual(0, self.bridge.notesModel.rowCount())
+        QTest.keyClick(root, Qt.Key_N, Qt.ControlModifier)
+        QCoreApplication.processEvents()
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertTrue(self.bridge.editContent("Shortcut still works"))
+        QTest.keyClick(root, Qt.Key_S, Qt.ControlModifier)
+        QCoreApplication.processEvents()
+        self.assertEqual("Saved", self.bridge.saveState)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_selected_sidebar_note_has_no_gold_selection_bar(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()

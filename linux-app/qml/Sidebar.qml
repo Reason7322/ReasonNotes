@@ -52,7 +52,6 @@ Rectangle {
                 spacing: root.theme.spacing
                 Label { text: "+"; color: root.theme.accentText; font.pixelSize: 24 }
                 Label { text: qsTr("New Note"); color: root.theme.accentText; font.pixelSize: root.theme.secondarySize; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                Label { text: qsTr("Ctrl+N"); color: Qt.rgba(0.09, 0.10, 0.12, 0.65); font.pixelSize: root.theme.smallSize }
             }
 
             background: Rectangle {
@@ -85,7 +84,6 @@ Rectangle {
                         : (saveButton.hovered ? "hover" : "normal")
                 }
                 Label { text: qsTr("Save"); color: saveButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
-                Label { text: qsTr("Ctrl+S"); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize }
             }
             background: Rectangle { color: saveButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: saveButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
         }
@@ -188,9 +186,11 @@ Rectangle {
 
                 width: notesList.width
                 height: 56
+                // Match the action buttons' content inset exactly:
+                // note icon/title must share the Save/Sync/Delete left edge.
                 padding: 0
-                leftPadding: root.theme.spacing
-                rightPadding: root.theme.spacingSmall
+                leftPadding: saveButton.leftPadding
+                rightPadding: saveButton.rightPadding
                 highlighted: noteId === root.presenter.activeNoteId
                 hoverEnabled: true
                 onClicked: root.presenter.selectNote(noteId)
