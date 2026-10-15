@@ -100,7 +100,6 @@ Rectangle {
                     implicitHeight: 40
                     spacing: root.theme.spacing
 
-                    Label { text: qsTr("Markdown"); color: root.theme.textSecondary; font.pixelSize: root.theme.smallSize }
                     Item { Layout.fillWidth: true }
                     Rectangle {
                         width: 8
@@ -182,8 +181,6 @@ Rectangle {
                         color: root.theme.textPrimary
                         selectionColor: root.theme.accent
                         selectedTextColor: root.theme.accentText
-                        placeholderText: qsTr("Write Markdown…")
-                        placeholderTextColor: root.theme.textSecondary
                         font.family: root.theme.fontFamily
                         font.pixelSize: root.theme.editorBodySize
                         wrapMode: TextEdit.Wrap

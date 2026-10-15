@@ -65,6 +65,40 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual(1, len(engine.rootObjects()))
         return engine, engine.rootObjects()[0], warnings
 
+    def test_editor_omits_markdown_format_label_and_empty_body_placeholder(self):
+        # Keep note editing and delivery status functional; only hide the two labels.
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("Desktop test"))
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+
+        editor = root.findChild(object, "markdownEditor")
+        status_bar = root.findChild(object, "editorStatusBar")
+        title = root.findChild(object, "currentNoteHeading")
+        self.assertIsNotNone(editor)
+        self.assertIsNotNone(status_bar)
+        self.assertIsNotNone(title)
+        self.assertEqual("", editor.property("placeholderText"))
+        self.assertEqual("Desktop test", title.property("text"))
+        self.assertFalse(any(
+            obj.property("text") == "Markdown"
+            for obj in status_bar.findChildren(object)
+        ))
+        self.assertTrue(any(
+            str(obj.property("text")).startswith("Local:")
+            for obj in status_bar.findChildren(object)
+        ))
+        self.assertTrue(any(
+            str(obj.property("text")).startswith("Phone:")
+            for obj in status_bar.findChildren(object)
+        ))
+        self.assertTrue(self.bridge.editContent("Regular note editing still works"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertEqual("Saved", self.bridge.saveState)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_sidebar_action_icons_are_uniform_vector_shapes(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()
