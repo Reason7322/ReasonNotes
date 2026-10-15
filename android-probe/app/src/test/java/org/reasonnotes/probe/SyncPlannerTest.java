@@ -1,0 +1,182 @@
+package org.reasonnotes.probe;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+public final class SyncPlannerTest {
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
+    private static final UUID NOTE_A = UUID.fromString("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
+    private static final UUID NOTE_B = UUID.fromString("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb");
+
+    private record Fixture(
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            ReceiptStore receipts,
+            SyncPlanner planner) {}
+
+    private Fixture fixture() throws Exception {
+        File root = temporary.newFolder("repo");
+        ProbeRepository repository = ProbeRepository.open(root);
+        DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
+        ReceiptStore receipts = new ReceiptStore(root, 3);
+        return new Fixture(
+                repository,
+                ledger,
+                receipts,
+                new SyncPlanner(repository, ledger, receipts, "android", "linux"));
+    }
+
+    private static Instant at(int second) {
+        return Instant.parse(String.format("2026-10-15T07:00:%02dZ", second));
+    }
+
+    @Test
+    public void allAndSelectedModesFilterOrdinaryOutgoingNotesWithoutForce() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope a1 = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# A1", "android", at(0), false);
+        RevisionEnvelope a2 = fixture.repository().createRevision(
+                NOTE_A, Set.of(a1.revisionId()), "# A2", "android", at(1), false);
+        RevisionEnvelope b1 = fixture.repository().createRevision(
+                NOTE_B, Set.of(), "# B1", "android", at(2), false);
+
+        SyncPlanner.Plan all = fixture.planner().plan(OutgoingSelection.all(), false);
+        SyncPlanner.Plan selected = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+        SyncPlanner.Plan empty = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of()), false);
+
+        assertEquals(Set.of(a1.revisionId(), a2.revisionId(), b1.revisionId()), Set.copyOf(all.revisionIds()));
+        assertEquals(Set.of(a1.revisionId(), a2.revisionId()), Set.copyOf(selected.revisionIds()));
+        assertEquals(List.of(), empty.revisionIds());
+        assertEquals(List.of(b1.revisionId()), selected.skippedRevisionIds());
+    }
+
+    @Test
+    public void selectedTombstoneIncludesEligibleAncestryButNeverOtherNotes() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope ancestor = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Shared", "android", at(0), false);
+        RevisionEnvelope tombstone = fixture.repository().createRevision(
+                NOTE_A, Set.of(ancestor.revisionId()), "", "android", at(1), true);
+        RevisionEnvelope other = fixture.repository().createRevision(
+                NOTE_B, Set.of(), "# Other", "android", at(2), false);
+
+        SyncPlanner.Plan plan = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+
+        assertEquals(Set.of(ancestor.revisionId(), tombstone.revisionId()), Set.copyOf(plan.revisionIds()));
+        assertFalse(plan.revisionIds().contains(other.revisionId()));
+    }
+
+    @Test
+    public void childWaitsForUnconfirmedParentUnlessBoundedRetryIsRequested() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope parent = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Parent", "android", at(0), false);
+        fixture.planner().plan(OutgoingSelection.all(), false);
+        fixture.ledger().recordRequested(parent.revisionId(), "linux", at(1));
+        RevisionEnvelope child = fixture.repository().createRevision(
+                NOTE_A, Set.of(parent.revisionId()), "# Child", "android", at(2), false);
+
+        SyncPlanner.Plan ordinary = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+        SyncPlanner.Plan retry = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), true);
+
+        assertEquals(List.of(), ordinary.revisionIds());
+        assertTrue(ordinary.blockedByAncestry().contains(child.revisionId()));
+        assertEquals(Set.of(parent.revisionId(), child.revisionId()), Set.copyOf(retry.revisionIds()));
+    }
+
+    @Test
+    public void confirmedAncestorIsNotResentWithPendingTombstone() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope ancestor = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Shared", "android", at(0), false);
+        fixture.planner().plan(OutgoingSelection.all(), false);
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", at(1));
+        fixture.ledger().recordConfirmed(ancestor.revisionId(), "linux", "f".repeat(64), at(2));
+        RevisionEnvelope tombstone = fixture.repository().createRevision(
+                NOTE_A, Set.of(ancestor.revisionId()), "", "android", at(3), true);
+
+        SyncPlanner.Plan plan = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+
+        assertEquals(List.of(tombstone.revisionId()), plan.revisionIds());
+        assertTrue(plan.confirmedRevisionIds().contains(ancestor.revisionId()));
+    }
+
+    @Test
+    public void receiptsRemainEligibleForEmptySelection() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope remote = RevisionEnvelope.create(
+                NOTE_B, List.of(), "linux", at(0), false, "# Incoming");
+        fixture.repository().importEnvelope(remote.serialize(), "incoming.md");
+        ReceiptEnvelope receipt = fixture.receipts().queue(remote, "android", at(1));
+
+        SyncPlanner.Plan plan = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of()), false);
+
+        assertEquals(List.of(), plan.revisionIds());
+        assertEquals(List.of(receipt.receiptId()), plan.receiptIds());
+    }
+
+    @Test
+    public void forceRetryIsSeparateFromOrdinarySelectionAndStillBoundedExplicitly() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope a = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# A", "android", at(0), false);
+        RevisionEnvelope b = fixture.repository().createRevision(
+                NOTE_B, Set.of(), "# B", "android", at(1), false);
+        fixture.planner().plan(OutgoingSelection.all(), false);
+        fixture.ledger().recordRequested(b.revisionId(), "linux", at(2));
+        fixture.ledger().recordRequested(b.revisionId(), "linux", at(3));
+        fixture.ledger().recordRequested(b.revisionId(), "linux", at(4));
+
+        SyncPlanner.Plan selected = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+        SyncPlanner.Plan forced = fixture.planner().planForced(
+                List.of(b.revisionId()), List.of());
+
+        assertEquals(List.of(a.revisionId()), selected.revisionIds());
+        assertEquals(List.of(b.revisionId()), forced.revisionIds());
+    }
+
+    @Test
+    public void catalogueIncludesConflictAndEligibleDeletedTombstoneWithoutResurrection() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope a = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Original title\n\nbody", "android", at(0), false);
+        RevisionEnvelope deleted = fixture.repository().createRevision(
+                NOTE_A, Set.of(a.revisionId()), "", "android", at(1), true);
+        RevisionEnvelope baseB = fixture.repository().createRevision(
+                NOTE_B, Set.of(), "# B\n\nbase", "android", at(2), false);
+        RevisionEnvelope linux = RevisionEnvelope.create(
+                NOTE_B, List.of(baseB.revisionId()), "linux", at(3), false, "# Linux\n\nedit");
+        RevisionEnvelope android = RevisionEnvelope.create(
+                NOTE_B, List.of(baseB.revisionId()), "android", at(4), false, "# Android\n\nedit");
+        fixture.repository().importEnvelope(linux.serialize(), "linux.md");
+        fixture.repository().importEnvelope(android.serialize(), "android.md");
+
+        List<SyncPlanner.CatalogueItem> items = fixture.planner().catalogue();
+
+        SyncPlanner.CatalogueItem deletedItem = items.stream()
+                .filter(item -> item.noteId().equals(NOTE_A)).findFirst().orElseThrow();
+        assertTrue(deletedItem.deleted());
+        assertEquals("Original title", deletedItem.title());
+        assertEquals("pending", deletedItem.deliveryState());
+        assertTrue(items.stream().filter(item -> item.noteId().equals(NOTE_B)).findFirst().orElseThrow().conflicted());
+        assertTrue(fixture.ledger().entry(deleted.revisionId(), "linux") != null);
+    }
+}

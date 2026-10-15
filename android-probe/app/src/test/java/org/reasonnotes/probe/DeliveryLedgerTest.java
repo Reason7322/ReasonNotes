@@ -119,4 +119,19 @@ public final class DeliveryLedgerTest {
                 List.of("reasonnotes-imported"),
                 ledger.events().stream().map(DeliveryLedger.Event::kind).toList());
     }
+
+    @Test
+    public void rediscoveringLocalRevisionDoesNotResetRequestedOrConfirmedState() throws Exception {
+        DeliveryLedger ledger = new DeliveryLedger(temporary.newFolder("state"), 3);
+        ledger.registerLocal(REVISION, "linux");
+        ledger.recordRequested(REVISION, "linux", Instant.parse("2026-10-12T14:00:00Z"));
+
+        ledger.registerLocal(REVISION, "linux");
+
+        assertEquals("transfer-requested", ledger.entry(REVISION, "linux").state());
+        assertEquals(1, ledger.entry(REVISION, "linux").attempts());
+        ledger.recordConfirmed(REVISION, "linux", RECEIPT, Instant.parse("2026-10-12T14:00:01Z"));
+        ledger.registerLocal(REVISION, "linux");
+        assertEquals("confirmed", ledger.entry(REVISION, "linux").state());
+    }
 }

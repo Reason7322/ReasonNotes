@@ -118,7 +118,8 @@ public final class DeliveryLedger {
     public void registerLocal(String revisionId, String targetDevice) {
         validateRevision(revisionId);
         Map<String, Entry> entries = readEntries();
-        entries.putIfAbsent(key(revisionId, targetDevice),
+        if (entries.containsKey(key(revisionId, targetDevice))) return;
+        entries.put(key(revisionId, targetDevice),
                 new Entry(revisionId, targetDevice, "pending", 0, null, null, null));
         writeEntries(entries);
     }
