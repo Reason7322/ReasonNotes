@@ -28,7 +28,7 @@ public final class SettingsActivity extends Activity {
 
     public static List<String> sectionTitles() { return List.of("Sync", "Behavior", "About"); }
     public static List<String> syncFoundationActions() {
-        return List.of("Exchange directory", "Target device");
+        return List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device");
     }
     public static List<AppPreferences.NoteOrder> orderChoices() {
         return List.of(
@@ -100,8 +100,14 @@ public final class SettingsActivity extends Activity {
 
     private View syncCard() {
         LinearLayout card = card();
+        Button syncAll = button("Sync all notes", true);
+        syncAll.setOnClickListener(view -> openSync(SyncActivity.MODE_ALL));
+        card.addView(syncAll, matchWrap());
+        Button chooseNotes = button("Choose notes to sync", false);
+        chooseNotes.setOnClickListener(view -> openSync(SyncActivity.MODE_CHOOSE));
+        card.addView(chooseNotes, matchWrapWithTopMargin());
         exchangeState = text("", 14, UiTokens.TEXT_SECONDARY);
-        card.addView(exchangeState, matchWrap());
+        card.addView(exchangeState, matchWrapWithTopMargin());
         Button choose = button("Choose exchange directory", true);
         choose.setOnClickListener(view -> chooseTree());
         card.addView(choose, matchWrapWithTopMargin());
@@ -129,6 +135,12 @@ public final class SettingsActivity extends Activity {
         });
         card.addView(saveTarget, matchWrapWithTopMargin());
         return card;
+    }
+
+    private void openSync(String mode) {
+        Intent intent = new Intent().setClassName(this, getPackageName() + ".SyncActivity");
+        intent.putExtra(SyncActivity.EXTRA_MODE, mode);
+        startActivity(intent);
     }
 
     private View behaviorCard() {

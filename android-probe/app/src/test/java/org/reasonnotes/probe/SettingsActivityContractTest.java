@@ -12,7 +12,7 @@ public final class SettingsActivityContractTest {
     public void settingsExposeOnlyImplementedGroupsAndActions() {
         assertEquals(List.of("Sync", "Behavior", "About"), SettingsActivity.sectionTitles());
         assertEquals(
-                List.of("Exchange directory", "Target device"),
+                List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device"),
                 SettingsActivity.syncFoundationActions());
         assertFalse(SettingsActivity.sectionTitles().contains("Appearance"));
         assertFalse(SettingsActivity.sectionTitles().contains("Privacy"));

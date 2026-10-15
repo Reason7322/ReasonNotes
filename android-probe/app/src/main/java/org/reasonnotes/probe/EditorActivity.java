@@ -73,6 +73,7 @@ public final class EditorActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (autosave != null) ActiveDraftRegistry.unregister(autosave);
         debounce.shutdown();
         io.shutdown();
         super.onDestroy();
@@ -172,6 +173,7 @@ public final class EditorActivity extends Activity {
                                 draft.content()).revisionId(),
                         () -> singleHeadOrConflictMarker(repository.headIds(noteId)),
                         this::renderStatus);
+                ActiveDraftRegistry.register(autosave);
                 DraftStore.Recovery recovery = autosave.recovery();
                 String initialTitle = recovery.draft() == null ? opened.title() : recovery.draft().title();
                 String initialBody = recovery.draft() == null ? opened.content() : recovery.draft().content();

@@ -9,6 +9,9 @@
         android:supportsRtl="true"
         android:theme="@style/ReasonNotesTheme">
         <activity
+            android:name=".SyncActivity"
+            android:exported="false" />
+        <activity
             android:name=".ConflictActivity"
             android:exported="false" />
         <activity
