@@ -98,6 +98,21 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertTrue(root.findChild(object, "deleteNoteButton").property("enabled"))
         self.assertEqual([], [warning.toString() for warning in warnings])
 
+    def test_selected_sidebar_note_has_no_gold_selection_bar(self):
+        self.assertTrue(self.bridge.createNote())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertNotEqual("", self.bridge.activeNoteId)
+        self.assertIsNone(root.findChild(object, "noteSelectionIndicator"))
+        sidebar_qml = (QML_MAIN.parent / "Sidebar.qml").read_text(encoding="utf-8")
+        self.assertNotIn("noteSelectionIndicator", sidebar_qml)
+        self.assertIn("root.theme.selectedNote", sidebar_qml)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_concept_c_theme_and_sidebar_hierarchy(self):
         self.assertTrue(self.bridge.createNote())
         self.bridge.editDraft("# Minimal Writing\nA calm writing space")

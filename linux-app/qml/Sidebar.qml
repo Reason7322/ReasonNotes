@@ -199,17 +199,6 @@ Rectangle {
                         : (noteDelegate.hovered ? root.theme.surfaceHover : "transparent")
                     radius: root.theme.radiusSmall
                     border.color: noteDelegate.activeFocus ? root.theme.accent : "transparent"
-
-                    Rectangle {
-                        objectName: "noteSelectionIndicator"
-                        visible: noteDelegate.highlighted
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: 3
-                        color: root.theme.accent
-                        radius: 2
-                    }
                 }
 
                 contentItem: RowLayout {
