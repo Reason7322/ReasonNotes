@@ -110,6 +110,10 @@ public final class SyncActivity extends Activity {
         return base + Math.max(systemBottom, imeBottom);
     }
 
+    static File deliveryStateDirectory(File filesDirectory) {
+        return new File(filesDirectory, "delivery-state");
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -144,7 +148,7 @@ public final class SyncActivity extends Activity {
     private void initializeSync() {
         File root = new File(getFilesDir(), "probe-repository");
         ProbeRepository repository = ProbeRepository.open(root);
-        DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
+        DeliveryLedger ledger = new DeliveryLedger(deliveryStateDirectory(getFilesDir()), 3);
         ReceiptStore receipts = new ReceiptStore(root, 3);
         AppPreferences preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));

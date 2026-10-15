@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -69,5 +70,11 @@ public final class SyncActivityContractTest {
     public void insetPaddingUsesLargestKeyboardOrNavigationInset() {
         assertEquals(28, SyncActivity.bottomContentPadding(8, 20, 4));
         assertEquals(108, SyncActivity.bottomContentPadding(8, 20, 100));
+    }
+
+    @Test
+    public void productionLedgerRetainsTheInstalledProbeSiblingDirectory() {
+        File files = new File("/application/files");
+        assertEquals(new File(files, "delivery-state"), SyncActivity.deliveryStateDirectory(files));
     }
 }
