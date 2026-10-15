@@ -98,6 +98,34 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertTrue(root.findChild(object, "deleteNoteButton").property("enabled"))
         self.assertEqual([], [warning.toString() for warning in warnings])
 
+    def test_sidebar_note_icon_is_a_centered_svg_not_a_font_glyph(self):
+        from PySide6.QtSvg import QSvgRenderer
+
+        icon_dir = QML_MAIN.parent / "icons" / "lucide" / "themed"
+        for name in ("notebook-text.svg", "notebook-text-danger.svg"):
+            with self.subTest(asset=name):
+                svg = QSvgRenderer(str(icon_dir / name))
+                self.assertTrue(svg.isValid())
+                self.assertEqual(24, svg.defaultSize().width())
+                self.assertEqual(24, svg.defaultSize().height())
+
+        source = (QML_MAIN.parent / "Sidebar.qml").read_text(encoding="utf-8")
+        self.assertNotIn('text: "▤"', source)
+        self.assertIn('objectName: "noteIconSlot"', source)
+        self.assertIn('objectName: "noteRowIcon"', source)
+        self.assertIn('Layout.preferredWidth: 24', source)
+        self.assertIn('Layout.preferredHeight: 24', source)
+        self.assertIn('anchors.centerIn: parent', source)
+        self.assertIn('Layout.alignment: Qt.AlignVCenter', source)
+
+        self.assertTrue(self.bridge.createNote())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        for _ in range(5):
+            QCoreApplication.processEvents()
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_selected_sidebar_note_has_no_gold_selection_bar(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()

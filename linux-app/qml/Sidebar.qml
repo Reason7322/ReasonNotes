@@ -189,6 +189,8 @@ Rectangle {
                 width: notesList.width
                 height: 56
                 padding: 0
+                leftPadding: root.theme.spacing
+                rightPadding: root.theme.spacingSmall
                 highlighted: noteId === root.presenter.activeNoteId
                 hoverEnabled: true
                 onClicked: root.presenter.selectNote(noteId)
@@ -202,20 +204,32 @@ Rectangle {
                 }
 
                 contentItem: RowLayout {
-                    anchors.leftMargin: root.theme.spacing
-                    anchors.rightMargin: root.theme.spacingSmall
                     spacing: root.theme.spacing
 
-                    Label {
-                        text: "▤"
-                        color: noteDelegate.conflicted
-                            ? root.theme.error
-                            : (noteDelegate.highlighted ? root.theme.accent : root.theme.textSecondary)
-                        font.pixelSize: 21
+                    Item {
+                        objectName: "noteIconSlot"
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Image {
+                            objectName: "noteRowIcon"
+                            anchors.centerIn: parent
+                            width: 20
+                            height: 20
+                            source: noteDelegate.conflicted
+                                ? "icons/lucide/themed/notebook-text-danger.svg"
+                                : "icons/lucide/themed/notebook-text.svg"
+                            sourceSize.width: 40
+                            sourceSize.height: 40
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                        }
                     }
 
                     Label {
                         Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
                         text: noteDelegate.title
                         color: root.theme.textPrimary
                         font.pixelSize: root.theme.sidebarTitleSize
@@ -226,6 +240,7 @@ Rectangle {
 
                     Label {
                         visible: noteDelegate.conflicted
+                        Layout.alignment: Qt.AlignVCenter
                         text: "!"
                         color: root.theme.error
                         font.pixelSize: root.theme.sidebarTitleSize
