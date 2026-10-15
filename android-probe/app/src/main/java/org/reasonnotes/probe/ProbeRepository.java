@@ -203,6 +203,14 @@ public final class ProbeRepository {
         return withLock(() -> headIds(graph(load()), noteId));
     }
 
+    public List<RevisionEnvelope> requireHeads(UUID noteId, Set<String> expectedHeadIds) {
+        return withLock(() -> {
+            RevisionGraph graph = graph(load());
+            requireExpectedHeads(graph, noteId, expectedHeadIds);
+            return graph.heads(noteId);
+        });
+    }
+
     private static Set<String> headIds(RevisionGraph graph, UUID noteId) {
         TreeSet<String> values = new TreeSet<>();
         graph.heads(noteId).forEach(revision -> values.add(revision.revisionId()));
