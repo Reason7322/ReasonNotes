@@ -488,16 +488,146 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertIn("recoverable", conflict_history.property("text"))
         del engine
 
+    def test_approved_sync_drawer_is_right_aligned_and_responsive(self):
+        from PySide6.QtCore import QObject
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("PC Note"))
+        self.assertTrue(self.bridge.editContent("From Fedora"))
+        self.assertTrue(self.bridge.saveNow())
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 1648)
+        root.setProperty("height", 928)
+        for _ in range(8):
+            QCoreApplication.processEvents()
+
+        drawer = root.findChild(QObject, "syncDialog")
+        self.assertTrue(QMetaObject.invokeMethod(drawer, "open"))
+        drawer.setProperty("selectionMode", "selected")
+        for _ in range(10):
+            QCoreApplication.processEvents()
+
+        self.assertGreaterEqual(drawer.property("width"), 560)
+        self.assertLessEqual(drawer.property("width"), 600)
+        self.assertAlmostEqual(
+            drawer.property("x") + drawer.property("width"),
+            root.property("width") - 8,
+            delta=3,
+        )
+        self.assertGreater(drawer.property("height"), 860)
+        self.assertTrue(root.findChild(QObject, "syncList").property("visible"))
+        self.assertTrue(root.findChild(QObject, "syncDrawerSearch").property("visible"))
+        self.assertTrue(root.findChild(QObject, "syncModeSwitch").property("visible"))
+        self.assertTrue(root.findChild(QObject, "syncDrawerSelectionCount").property("visible"))
+
+        root.setProperty("width", 820)
+        root.setProperty("height", 560)
+        for _ in range(10):
+            QCoreApplication.processEvents()
+        self.assertGreaterEqual(drawer.property("x"), 0)
+        self.assertLessEqual(
+            drawer.property("x") + drawer.property("width"),
+            root.property("width"),
+        )
+        self.assertLessEqual(drawer.property("height"), root.property("height"))
+        self.assertGreaterEqual(root.findChild(QObject, "syncList").property("height"), 96)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
+    def test_sync_drawer_selection_search_and_preview_without_network(self):
+        from PySide6.QtCore import QObject, QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("PC Note"))
+        self.assertTrue(self.bridge.editContent("Written on Fedora"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("Other Note"))
+        self.assertTrue(self.bridge.editContent("Second body"))
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 1250)
+        root.setProperty("height", 850)
+        self.bridge.openSyncDialog()
+        drawer = root.findChild(QObject, "syncDialog")
+        self.assertTrue(QMetaObject.invokeMethod(drawer, "open"))
+        for _ in range(8):
+            QCoreApplication.processEvents()
+
+        self.assertEqual("all", drawer.property("selectionMode"))
+        self.assertFalse(root.findChild(QObject, "syncList").property("visible"))
+        self.assertTrue(root.findChild(QObject, "startSyncButton").property("enabled"))
+        selected = root.findChild(QObject, "selectedSyncMode")
+        local_pos = selected.mapToItem(None, selected.width() / 2, selected.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(local_pos.x()), int(local_pos.y())))
+        QCoreApplication.processEvents()
+        self.assertEqual("selected", drawer.property("selectionMode"))
+        self.assertFalse(root.findChild(QObject, "startSyncButton").property("enabled"))
+        self.assertEqual("Idle", self.bridge.syncState)
+
+        search = root.findChild(QObject, "syncDrawerSearch")
+        search.setProperty("text", "PC Note")
+        for _ in range(5):
+            QCoreApplication.processEvents()
+        self.assertEqual(1, self.bridge.syncModel.rowCount())
+        self.assertEqual("PC Note", self.bridge.syncModel.row(0)["title"])
+        sync_list = root.findChild(QObject, "syncList")
+        QMetaObject.invokeMethod(sync_list, "forceLayout")
+        QTest.qWait(60)
+        QCoreApplication.processEvents()
+        # ListView delegates are *visual* children of contentItem rather
+        # than QObject descendants of the top-level window.
+        def visible_items(item):
+            for child in item.childItems():
+                if child.isVisible():
+                    yield child
+                yield from visible_items(child)
+        previews = [
+            item.property("text") for item in visible_items(sync_list)
+            if item.objectName() == "syncNotePreview"
+        ]
+        self.assertIn("Written on Fedora", previews)
+        self.assertNotIn("# PC Note Written on Fedora", previews)
+
+        # Selection and clearing affect the presenter only, not the sender.
+        select_all = root.findChild(QObject, "selectAllSyncButton")
+        pos = select_all.mapToItem(None, select_all.width() / 2, select_all.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(pos.x()), int(pos.y())))
+        for _ in range(5):
+            QCoreApplication.processEvents()
+        self.assertEqual(2, self.bridge.syncSelectionCount)
+        self.assertTrue(root.findChild(QObject, "startSyncButton").property("enabled"))
+
+        clear = root.findChild(QObject, "clearSyncButton")
+        pos = clear.mapToItem(None, clear.width() / 2, clear.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(pos.x()), int(pos.y())))
+        for _ in range(5):
+            QCoreApplication.processEvents()
+        self.assertEqual(0, self.bridge.syncSelectionCount)
+        self.assertFalse(root.findChild(QObject, "startSyncButton").property("enabled"))
+
+        self.preferences.setLanguage("pl")
+        self.preferences.setThemeMode("light")
+        QCoreApplication.processEvents()
+        self.assertEqual("Wybrane notatki", selected.property("text"))
+        self.assertEqual("#ffffff",
+                         root.findChild(QObject, "syncDialogSurface").property("color").name())
+        self.assertEqual("Idle", self.bridge.syncState)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
     def test_minimum_window_keeps_sync_catalogue_and_resize_handle_usable(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()
         root.setProperty("visible", True)
         root.setProperty("width", 820)
         root.setProperty("height", 560)
-        selected_mode = root.findChild(object, "selectedSyncMode")
-        selected_mode.setProperty("checked", True)
         sync_dialog = root.findChild(object, "syncDialog")
         self.assertTrue(QMetaObject.invokeMethod(sync_dialog, "open"))
+        sync_dialog.setProperty("selectionMode", "selected")
         QCoreApplication.processEvents()
 
         sync_list = root.findChild(object, "syncList")
@@ -537,7 +667,7 @@ class QmlSmokeTests(unittest.TestCase):
 
         selected_mode = root.findChild(object, "selectedSyncMode")
         self.assertIsNotNone(selected_mode)
-        selected_mode.setProperty("checked", True)
+        root.findChild(object, "syncDialog").setProperty("selectionMode", "selected")
         QCoreApplication.processEvents()
         self.assertEqual(
             [],
