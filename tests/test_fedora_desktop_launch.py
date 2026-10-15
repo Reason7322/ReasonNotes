@@ -29,7 +29,7 @@ class DesktopLaunchTest(unittest.TestCase):
         self.assertIsNone(args.root)
         self.assertIsNone(args.inbox)
         self.assertIsNone(args.device_id)
-        self.assertIsNone(args.received_dir)
+        self.assertEqual(Path.home() / "Downloads", args.received_dir)
 
     def test_xdg_notes_are_outside_source_checkout_and_config(self):
         application = load_script(ENTRY, "reasonnotes_xdg")
@@ -68,7 +68,68 @@ class DesktopLaunchTest(unittest.TestCase):
             result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             self.assertTrue((root / "repository" / "history").is_dir())
-            self.assertFalse((root / "inbox").exists())
+            self.assertTrue((root / "inbox").is_dir())
+
+    def test_zero_arg_receive_imports_real_archive_without_sending_or_mutating_zip(self):
+        import hashlib
+        from datetime import datetime, timezone
+        from io import BytesIO
+        from uuid import UUID
+        from zipfile import ZipFile
+        from reasonnotes_sync.envelope import Revision
+        from reasonnotes_sync.receipt import ReceiptEnvelope
+        from reasonnotes_sync.repository import Repository
+        from reasonnotes_app.service import NoteService
+
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            downloads = home / "Downloads"
+            downloads.mkdir()
+            note = UUID("ab111111-1111-4111-8111-111111111111")
+            revision = Revision.create(
+                note, (), "android",
+                datetime(2026, 10, 15, 13, 0, tzinfo=timezone.utc),
+                False, "# Arrived note\n\nA test",
+            )
+            unrelated_receipt = ReceiptEnvelope.create(
+                note, "f" * 64, "android", "linux",
+                datetime(2026, 10, 15, 13, 1, tzinfo=timezone.utc),
+            )
+            zip_contents = BytesIO()
+            with ZipFile(zip_contents, "w") as archive:
+                archive.writestr(revision.revision_id + ".md", revision.serialize())
+                archive.writestr(
+                    unrelated_receipt.receipt_id + ".receipt.md",
+                    unrelated_receipt.serialize(),
+                )
+            contents = zip_contents.getvalue()
+            name = "reasonnotes-bundle-" + hashlib.sha256(contents).hexdigest() + ".zip"
+            original = downloads / name
+            original.write_bytes(contents)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "XDG_DATA_HOME": str(home / ".local/share"),
+                "QT_QPA_PLATFORM": "offscreen",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }
+            command = [
+                sys.executable, str(ENTRY), "--check-launch",
+                "--device-id", "a" * 32,
+            ]
+            for _ in range(2):
+                result = subprocess.run(
+                    command, env=env, capture_output=True,
+                    text=True, timeout=15,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertNotIn("receive warning", result.stderr)
+            repo_root = home / ".local/share/ReasonNotes/repository"
+            repo = Repository.open(repo_root, local_device="linux", target_device="android")
+            self.assertEqual([revision.revision_id], [r.revision_id for r in repo.revisions()])
+            self.assertEqual("Arrived note", NoteService(repo).list_notes()[0].title)
+            self.assertEqual(contents, original.read_bytes())
+            self.assertFalse((home / "Downloads" / "modified").exists())
 
     def test_user_desktop_installer_never_overwrites_existing_release_or_note_store(self):
         installer = load_script(INSTALLER, "reasonnotes_installer")

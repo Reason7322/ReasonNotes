@@ -27,7 +27,7 @@ from reasonnotes_app.qt_bridge import QtNotePresenter
 from reasonnotes_app.service import NoteService
 from reasonnotes_sync.kdeconnect_linux import KdeConnectLinux
 from reasonnotes_sync.repository import Repository
-from reasonnotes_sync.sync import sync_linux
+from reasonnotes_sync.sync import scan_inbox, sync_linux
 
 
 APP_ID = "org.reasonnotes.ReasonNotes"
@@ -53,14 +53,18 @@ def parser() -> argparse.ArgumentParser:
         help="private received files folder (default: ~/.local/share/ReasonNotes/inbox)",
     )
     result.add_argument(
-        "--received-dir", type=Path, default=None,
-        help="optional read-only KDE Connect received folder, such as ~/Downloads",
+        "--received-dir", type=Path, default=Path.home() / "Downloads",
+        help="KDE Connect received folder (default: ~/Downloads)",
     )
     result.add_argument(
         "--device-id", default=None,
         help="specific paired Android KDE Connect device ID; otherwise discover one reachable device",
     )
     result.add_argument("--target-device", default="android")
+    result.add_argument(
+        "--no-auto-receive", action="store_true",
+        help="skip incoming note/receipt scan on application startup",
+    )
     result.add_argument("--check-launch", action="store_true", help=argparse.SUPPRESS)
     return result
 
@@ -120,6 +124,18 @@ def main(arguments=None) -> int:
             repository, inbox, KdeConnectLinux(device_id),
             selected_note_ids=selected, received_dir=options.received_dir,
         )
+
+    # Receive-only startup: validate and durably import KDE Connect payloads
+    # into this actual library. Never request a transfer or consume retries.
+    # The later Sync button uses the same receive folder, so new arrivals
+    # appear after the user requests a normal synchronization as well.
+    if not options.no_auto_receive:
+        inbox.mkdir(parents=True, exist_ok=True)
+        report = scan_inbox(
+            repository, inbox, "linux", received_dir=options.received_dir,
+        )
+        for error in report.errors:
+            print("ReasonNotes receive warning: " + error, file=sys.stderr)
 
     presenter = NotePresenter(
         NoteService(repository, origin_device="linux"), run_sync,

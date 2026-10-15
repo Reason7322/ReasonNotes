@@ -14,7 +14,7 @@ from .bundle import (
     read_bundle,
 )
 from .delivery import DeliveryLedger, DeliveryState
-from .receipt import ReceiptError, ReceiptStore
+from .receipt import ReceiptEnvelope, ReceiptError, ReceiptStore
 from .repository import Repository
 
 
@@ -138,6 +138,17 @@ def scan_inbox(
     for source, source_name, data in incoming:
         if data.startswith(_RECEIPT_FORMAT_MARKER):
             try:
+                receipt = ReceiptEnvelope.parse(data)
+                # KDE Connect's global Downloads folder can contain genuine
+                # acknowledgments for other, isolated repositories. They
+                # cannot confirm anything in this library. Ignore only
+                # canonical receipts for revisions not registered here.
+                if (
+                    received_dir is not None
+                    and repository.revision(receipt.revision_id) is None
+                    and ledger.entry(receipt.revision_id, receipt.acknowledging_device) is None
+                ):
+                    continue
                 outcome = receipt_store.accept(
                     data,
                     repository,
