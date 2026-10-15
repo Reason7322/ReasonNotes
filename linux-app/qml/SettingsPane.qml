@@ -11,6 +11,11 @@ Rectangle {
     signal backRequested()
 
     color: root.theme.mainBackground
+    gradient: Gradient {
+        GradientStop { position: 0; color: root.theme.isGlass ? root.theme.glassTop : root.theme.mainBackground }
+        GradientStop { position: 0.25; color: root.theme.mainBackground }
+        GradientStop { position: 1; color: root.theme.isGlass ? root.theme.glassBottom : root.theme.mainBackground }
+    }
 
     ScrollView {
         anchors.fill: parent
@@ -84,6 +89,7 @@ Rectangle {
                         id: darkThemeButton
                         objectName: "darkThemeButton"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         implicitHeight: 52
                         checkable: true
                         checked: root.preferences.themeMode === "dark"
@@ -107,6 +113,7 @@ Rectangle {
                         id: lightThemeButton
                         objectName: "lightThemeButton"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         implicitHeight: 52
                         checkable: true
                         checked: root.preferences.themeMode === "light"
@@ -125,6 +132,30 @@ Rectangle {
                             radius: root.theme.radius
                         }
                     }
+
+                    Button {
+                        id: glassThemeButton
+                        objectName: "glassThemeButton"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        implicitHeight: 52
+                        checkable: true
+                        checked: root.preferences.themeMode === "glass"
+                        text: "Liquid Glass"
+                        onClicked: root.preferences.themeMode = "glass"
+                        contentItem: Label {
+                            text: parent.text
+                            color: parent.checked ? root.theme.accentText : root.theme.textPrimary
+                            font.pixelSize: root.theme.sidebarTitleSize
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            color: glassThemeButton.checked ? root.theme.accent : root.theme.surface
+                            border.color: glassThemeButton.activeFocus ? root.theme.textPrimary : root.theme.border
+                            radius: root.theme.radius
+                        }
+                        }
                 }
 
                 Rectangle {
@@ -157,6 +188,7 @@ Rectangle {
                         id: englishLanguageButton
                         objectName: "englishLanguageButton"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         implicitHeight: 52
                         checkable: true
                         checked: root.preferences.language === "en"
@@ -180,6 +212,7 @@ Rectangle {
                         id: polishLanguageButton
                         objectName: "polishLanguageButton"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         implicitHeight: 52
                         checkable: true
                         checked: root.preferences.language === "pl"

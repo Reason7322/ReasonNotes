@@ -12,6 +12,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem
 
+from reasonnotes_app.liquid_glass_palette import LiquidGlassPalette
 from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
@@ -55,11 +56,13 @@ class QmlSmokeTests(unittest.TestCase):
         presenter = NotePresenter(NoteService(repository, origin_device="linux"))
         self.bridge = QtNotePresenter(presenter)
         self.preferences = AppPreferences()
+        self.liquid_palette = LiquidGlassPalette()
 
     def load_qml(self):
         engine = QQmlApplicationEngine()
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
+        engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -145,6 +148,92 @@ class QmlSmokeTests(unittest.TestCase):
                                    if isinstance(obj.property("text"), str)])
         self.assertEqual("Markdown *still works*", self.bridge.currentContent)
         self.assertEqual("User text remains untouched", self.bridge.currentTitle)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
+    def test_liquid_glass_theme_uses_live_kvantum_colors_and_preserves_notes(self):
+        from PySide6.QtCore import QObject, QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("A real note"))
+        self.assertTrue(self.bridge.editContent("Never recolor or change my text"))
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 1200)
+        root.setProperty("height", 800)
+        QCoreApplication.processEvents()
+
+        theme = root.findChild(QObject, "theme")
+        settings = root.findChild(QObject, "settingsButton")
+        pos = settings.mapToItem(None, settings.width() / 2, settings.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(pos.x()), int(pos.y())))
+        QCoreApplication.processEvents()
+        button = root.findChild(QObject, "glassThemeButton")
+        self.assertIsNotNone(button)
+        pos = button.mapToItem(None, button.width() / 2, button.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, pos=QPoint(int(pos.x()), int(pos.y())))
+        for _ in range(6):
+            QCoreApplication.processEvents()
+
+        self.assertEqual("glass", self.preferences.themeMode)
+        self.assertTrue(theme.property("isGlass"))
+        self.assertEqual(
+            self.liquid_palette.accentColor.name(),
+            theme.property("accent").name(),
+        )
+        self.assertEqual(
+            self.liquid_palette.textColor.name(),
+            theme.property("textPrimary").name(),
+        )
+        # Simulate Noctalia regenerating the Kvantum material while the
+        # desktop window is already open: QML must change reactively.
+        test_palette = Path(self.temporary.name) / "Kvantum" / "LiquidGlass"
+        test_palette.mkdir(parents=True)
+        generated = test_palette / "LiquidGlass.kvconfig"
+        generated.write_text(
+            "[GeneralColors]\n"
+            "window.color=#1c2021\n"
+            "base.color=#2a2f32B8\n"
+            "alt.base.color=#171a1c\n"
+            "button.color=#2f3537\n"
+            "light.color=#383f42\n"
+            "mid.color=#636b6e\n"
+            "highlight.color=#679dbc\n"
+            "text.color=#f2f2f3\n"
+            "disabled.text.color=#656a6d\n"
+            "highlight.text.color=#1c2022\n",
+            encoding="utf-8",
+        )
+        self.liquid_palette.path = generated
+        self.liquid_palette.reload()
+        QCoreApplication.processEvents()
+        self.assertEqual("#679dbc", theme.property("accent").name())
+        self.assertLess(theme.property("mainBackground").alpha(), 255)
+        self.assertLess(theme.property("sidebar").alpha(), 255)
+        self.assertEqual(0, root.property("color").alpha())
+        self.assertTrue(button.property("checked"))
+        self.assertAlmostEqual(
+            button.property("width"),
+            root.findChild(QObject, "darkThemeButton").property("width"),
+            delta=3,
+        )
+        self.assertAlmostEqual(
+            button.property("width"),
+            root.findChild(QObject, "lightThemeButton").property("width"),
+            delta=3,
+        )
+        self.assertEqual("A real note", self.bridge.currentTitle)
+        self.assertEqual("Never recolor or change my text", self.bridge.currentContent)
+
+        # Existing themes remain identical and are selectable without restart.
+        self.preferences.setThemeMode("dark")
+        QCoreApplication.processEvents()
+        self.assertEqual("#15171c", theme.property("mainBackground").name())
+        self.preferences.setThemeMode("light")
+        QCoreApplication.processEvents()
+        self.assertEqual("#fafafc", theme.property("mainBackground").name())
         self.assertEqual([], [w.toString() for w in warnings])
         del engine
 
@@ -644,6 +733,7 @@ class QmlSmokeTests(unittest.TestCase):
         engine = QQmlApplicationEngine()
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
+        engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -686,6 +776,7 @@ class QmlSmokeTests(unittest.TestCase):
 
     def test_editor_is_read_only_until_a_note_exists(self):
         engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -705,6 +796,7 @@ class QmlSmokeTests(unittest.TestCase):
         self.bridge.editDraft("\n".join(f"line {index}" for index in range(200)))
         self.assertTrue(self.bridge.saveNow())
         engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)

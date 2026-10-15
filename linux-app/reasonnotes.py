@@ -22,6 +22,7 @@ from PySide6.QtCore import QCoreApplication, QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
+from reasonnotes_app.liquid_glass_palette import LiquidGlassPalette
 from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
@@ -143,7 +144,9 @@ def main(arguments=None) -> int:
     )
     bridge = QtNotePresenter(presenter)
     preferences = AppPreferences()
+    liquid_palette = LiquidGlassPalette()
     engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("glassPalette", liquid_palette)
     engine.rootContext().setContextProperty("appPreferences", preferences)
     engine.rootContext().setContextProperty("presenter", bridge)
     engine.rootContext().setContextProperty("smokeTest", False)

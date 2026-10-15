@@ -11,7 +11,7 @@ class AppPreferences(QObject):
     def __init__(self, settings: QSettings | None = None, parent: QObject | None = None):
         super().__init__(parent)
         self._settings = settings if settings is not None else QSettings()
-        self._theme_mode = self._load_choice("ui/themeMode", ("dark", "light"), "dark")
+        self._theme_mode = self._load_choice("ui/themeMode", ("dark", "light", "glass"), "dark")
         self._language = self._load_choice("ui/language", ("en", "pl"), "en")
 
     def _load_choice(self, key: str, allowed: tuple[str, ...], default: str) -> str:
@@ -24,7 +24,7 @@ class AppPreferences(QObject):
 
     @themeMode.setter
     def themeMode(self, new_value: str) -> None:
-        if new_value not in ("dark", "light"):
+        if new_value not in ("dark", "light", "glass"):
             return
         if new_value == self._theme_mode:
             return

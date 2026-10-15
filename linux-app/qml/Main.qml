@@ -22,7 +22,7 @@ ApplicationWindow {
     minimumWidth: 820
     minimumHeight: 560
     title: i18n.t("ReasonNotes")
-    color: theme.mainBackground
+    color: theme.isGlass ? "transparent" : theme.mainBackground
     palette.window: theme.sidebar
     palette.windowText: theme.textPrimary
     palette.base: theme.editor

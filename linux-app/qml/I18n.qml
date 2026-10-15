@@ -63,6 +63,7 @@ QtObject {
         "Choose the appearance of ReasonNotes.": "Wybierz wygląd aplikacji ReasonNotes.",
         "Dark": "Ciemny",
         "Light": "Jasny",
+        "Liquid Glass": "Liquid Glass",
         "Language": "Język",
         "Choose the language used in menus and controls.": "Wybierz język menu i elementów sterujących.",
         "Settings are saved automatically.": "Ustawienia zapisują się automatycznie.",

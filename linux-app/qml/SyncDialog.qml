@@ -57,6 +57,11 @@ Dialog {
     background: Rectangle {
         objectName: "syncDialogSurface"
         color: root.theme.surface
+        gradient: Gradient {
+            GradientStop { position: 0; color: root.theme.isGlass ? root.theme.frosted(glassPalette.lightColor, 0.98) : root.theme.surface }
+            GradientStop { position: 0.24; color: root.theme.isGlass ? root.theme.frosted(glassPalette.baseColor, 0.98) : root.theme.surface }
+            GradientStop { position: 1; color: root.theme.isGlass ? root.theme.frosted(glassPalette.windowColor, 0.98) : root.theme.surface }
+        }
         border.color: root.theme.border
         border.width: 1
         radius: 14

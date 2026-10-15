@@ -14,6 +14,11 @@ Rectangle {
     signal deleteRequested()
 
     color: theme.sidebar
+    gradient: Gradient {
+        GradientStop { position: 0; color: root.theme.isGlass ? root.theme.glassTop : root.theme.sidebar }
+        GradientStop { position: 0.34; color: root.theme.sidebar }
+        GradientStop { position: 1; color: root.theme.isGlass ? root.theme.glassBottom : root.theme.sidebar }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -86,6 +91,7 @@ Rectangle {
                     objectName: "saveActionIcon"
                     kind: "save"
                     lightMode: root.theme.isLight
+                    glassMode: root.theme.isGlass
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
                     visualState: !saveButton.enabled ? "disabled"
@@ -113,6 +119,7 @@ Rectangle {
                     objectName: "syncActionIcon"
                     kind: "sync"
                     lightMode: root.theme.isLight
+                    glassMode: root.theme.isGlass
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
                     visualState: syncButton.hovered ? "hover" : "normal"
@@ -137,6 +144,7 @@ Rectangle {
                     objectName: "deleteActionIcon"
                     kind: "delete"
                     lightMode: root.theme.isLight
+                    glassMode: root.theme.isGlass
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
                     visualState: !deleteNoteButton.enabled ? "disabled"
@@ -233,10 +241,14 @@ Rectangle {
                             source: noteDelegate.conflicted
                                 ? (root.theme.isLight
                                     ? "icons/lucide/themed/notebook-text-danger-light.svg"
-                                    : "icons/lucide/themed/notebook-text-danger.svg")
+                                    : (root.theme.isGlass
+                                        ? "icons/lucide/themed/notebook-text-danger-glass.svg"
+                                        : "icons/lucide/themed/notebook-text-danger.svg"))
                                 : (root.theme.isLight
                                     ? "icons/lucide/themed/notebook-text-light.svg"
-                                    : "icons/lucide/themed/notebook-text.svg")
+                                    : (root.theme.isGlass
+                                        ? "icons/lucide/themed/notebook-text-glass.svg"
+                                        : "icons/lucide/themed/notebook-text.svg"))
                             sourceSize.width: 40
                             sourceSize.height: 40
                             fillMode: Image.PreserveAspectFit
@@ -282,6 +294,7 @@ Rectangle {
                     objectName: "settingsActionIcon"
                     kind: "settings"
                     lightMode: root.theme.isLight
+                    glassMode: root.theme.isGlass
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
                     visualState: settingsButton.hovered ? "hover" : "normal"

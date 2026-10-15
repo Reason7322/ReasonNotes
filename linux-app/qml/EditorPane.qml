@@ -13,6 +13,11 @@ Rectangle {
     property bool scrollToEndPending: false
 
     color: theme.mainBackground
+    gradient: Gradient {
+        GradientStop { position: 0; color: root.theme.isGlass ? root.theme.glassTop : root.theme.mainBackground }
+        GradientStop { position: 0.28; color: root.theme.mainBackground }
+        GradientStop { position: 1; color: root.theme.isGlass ? root.theme.glassBottom : root.theme.mainBackground }
+    }
 
 
     Item {

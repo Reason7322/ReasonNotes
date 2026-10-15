@@ -8,6 +8,7 @@ Item {
     property string kind: "save"
     property string visualState: "normal" // normal, hover, disabled
     property bool lightMode: false
+    property bool glassMode: false
 
     implicitWidth: 24
     implicitHeight: 24
@@ -22,7 +23,10 @@ Item {
             const icon = root.kind === "sync" ? "refresh-cw"
                 : root.kind === "delete" ? "trash"
                 : root.kind === "settings" ? "settings" : "save"
-            const variant = root.lightMode
+            const variant = root.glassMode
+                ? (root.kind === "delete" && root.visualState === "hover"
+                    ? "-danger-glass" : "-glass")
+                : root.lightMode
                 ? (root.visualState === "hover" && root.kind === "delete"
                     ? "-danger-light" : "-light")
                 : (root.visualState === "hover"
