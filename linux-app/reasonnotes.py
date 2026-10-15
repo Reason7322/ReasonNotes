@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Launch the ReasonNotes Qt Quick desktop application."""
+"""Native Qt Quick ReasonNotes desktop entry point.
+
+Normal launch needs no development arguments. Application code and user note
+data live in separate directories; no existing test repositories are imported.
+"""
 
 import argparse
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 
 
@@ -12,7 +19,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from PySide6.QtCore import QCoreApplication, QUrl
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
 from reasonnotes_app.presenter import NotePresenter
@@ -23,40 +30,99 @@ from reasonnotes_sync.repository import Repository
 from reasonnotes_sync.sync import sync_linux
 
 
+APP_ID = "org.reasonnotes.ReasonNotes"
+DEVICE_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
+
+
+def data_directory() -> Path:
+    """XDG-compliant user data; never a source checkout or temporary fixture."""
+    home = Path.home()
+    xdg = os.environ.get("XDG_DATA_HOME", "")
+    base = Path(xdg).expanduser() if xdg and Path(xdg).is_absolute() else home / ".local/share"
+    return base / "ReasonNotes"
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="reasonnotes")
-    result.add_argument("--root", required=True, type=Path)
-    result.add_argument("--inbox", required=True, type=Path)
     result.add_argument(
-        "--received-dir", type=Path,
-        help="additional KDE Connect receive folder (for example ~/Downloads)",
+        "--root", type=Path, default=None,
+        help="notes repository (default: ~/.local/share/ReasonNotes/repository)",
     )
-    result.add_argument("--device-id", required=True)
+    result.add_argument(
+        "--inbox", type=Path, default=None,
+        help="private received files folder (default: ~/.local/share/ReasonNotes/inbox)",
+    )
+    result.add_argument(
+        "--received-dir", type=Path, default=None,
+        help="optional read-only KDE Connect received folder, such as ~/Downloads",
+    )
+    result.add_argument(
+        "--device-id", default=None,
+        help="specific paired Android KDE Connect device ID; otherwise discover one reachable device",
+    )
     result.add_argument("--target-device", default="android")
+    result.add_argument("--check-launch", action="store_true", help=argparse.SUPPRESS)
     return result
+
+
+def discover_device_id(command_runner=subprocess.run) -> str | None:
+    """Choose only an unambiguous *reachable* KDE Connect peer."""
+    try:
+        result = command_runner(
+            ["kdeconnect-cli", "--list-available", "--id-only"],
+            env=KdeConnectLinux.environment(),
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode:
+        return None
+    available = {
+        line.strip() for line in result.stdout.splitlines()
+        if DEVICE_ID_PATTERN.fullmatch(line.strip())
+    }
+    return next(iter(available)) if len(available) == 1 else None
 
 
 def main(arguments=None) -> int:
     options = parser().parse_args(arguments)
+    root = (options.root or data_directory() / "repository").expanduser()
+    inbox = (options.inbox or data_directory() / "inbox").expanduser()
+    if options.device_id is not None and not DEVICE_ID_PATTERN.fullmatch(options.device_id):
+        raise SystemExit("--device-id must contain exactly 32 lowercase hexadecimal characters")
+    device_id = options.device_id or discover_device_id()
+
     QCoreApplication.setOrganizationName("ReasonNotes")
     QCoreApplication.setOrganizationDomain("reasonnotes.local")
     QCoreApplication.setApplicationName("ReasonNotes")
     application = QGuiApplication([sys.argv[0]])
+    application.setDesktopFileName(APP_ID)
+    icon = Path(__file__).parent / "icons" / "reasonnotes.svg"
+    if icon.is_file():
+        application.setWindowIcon(QIcon(str(icon)))
+
+    # Only the designated private user repository is opened at startup.
+    # No network transfer, received-file import, or sync is automatic.
     repository = Repository.open(
-        options.root,
+        root,
         local_device="linux",
         target_device=options.target_device,
     )
-    adapter = KdeConnectLinux(options.device_id)
+
+    def run_sync(selected):
+        if device_id is None:
+            raise RuntimeError(
+                "No single reachable KDE Connect device found. Pair your phone "
+                "or launch ReasonNotes with --device-id."
+            )
+        inbox.mkdir(parents=True, exist_ok=True)
+        return sync_linux(
+            repository, inbox, KdeConnectLinux(device_id),
+            selected_note_ids=selected, received_dir=options.received_dir,
+        )
+
     presenter = NotePresenter(
-        NoteService(repository, origin_device="linux"),
-        lambda selected: sync_linux(
-            repository,
-            options.inbox,
-            adapter,
-            selected_note_ids=selected,
-            received_dir=options.received_dir,
-        ),
+        NoteService(repository, origin_device="linux"), run_sync,
     )
     bridge = QtNotePresenter(presenter)
     engine = QQmlApplicationEngine()
@@ -66,6 +132,9 @@ def main(arguments=None) -> int:
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
         return 1
+    if options.check_launch:
+        return 0
+    # Hold the bridge/engine alive for the full native Qt event loop.
     return application.exec()
 
 

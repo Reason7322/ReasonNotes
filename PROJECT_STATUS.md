@@ -195,7 +195,19 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
-## Latest development checkpoint — single-carrier KDE Connect transfer
+## Latest development checkpoint — native Fedora desktop launch
+
+The owner requested desktop usability and ordinary launch instead of more
+synchronization research. The Qt Quick/PySide6 desktop app now opens without
+developer-only arguments, uses an isolated XDG user note repository, discovers
+exactly one reachable KDE Connect peer if possible, and starts without phone
+connectivity. A native user-level Fedora launcher, .desktop entry, and scalable
+icon are provided; data remains outside versioned installed application code.
+Native Hyprland/Wayland smoke test and Fedora tests pass. No Android APK,
+sync protocol, existing user notes or test history was altered in this scope.
+See `docs/milestone2/FEDORA_NATIVE_DESKTOP.md`.
+
+## Previous development checkpoint — single-carrier KDE Connect transfer
 
 The owner approved an isolated repair after the physical Android sync
 successfully scheduled 21 receipt transfers but Fedora observed only one file

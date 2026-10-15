@@ -62,7 +62,14 @@ stale-choice, and immutable-history behavior is unchanged. Rich Markdown
 rendering is intentionally not part of this checkpoint; editing remains
 plain source so no independent document model can diverge from saved content.
 
-## Launch contract
+## Historical developer launch contract (superseded)
+
+The original developer-only invocation described below is retained as
+historical context. The later Fedora-native desktop checkpoint installs a
+normal application menu entry and supports zero-argument startup with an
+isolated XDG note repository; see `FEDORA_NATIVE_DESKTOP.md`.
+
+## Launch contract — original prototype
 
 The launcher deliberately requires explicit repository and transport paths:
 
