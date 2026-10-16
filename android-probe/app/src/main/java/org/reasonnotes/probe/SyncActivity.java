@@ -88,6 +88,7 @@ public final class SyncActivity extends Activity {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SyncPlanner planner;
+    private ProbeRepository repository;
     private SyncCoordinator coordinator;
     private SelectionModel selection;
     private LinearLayout catalogueView;
@@ -164,16 +165,18 @@ public final class SyncActivity extends Activity {
 
     private void initializeSync() {
         File root = new File(getFilesDir(), "probe-repository");
-        ProbeRepository repository = ProbeRepository.open(root);
+        // The picker only needs immutable history. Full derived-view repair is
+        // deferred until a real sync is requested, not before displaying notes.
+        ProbeRepository opened = ProbeRepository.openForDisplay(root);
         DeliveryLedger ledger = new DeliveryLedger(deliveryStateDirectory(getFilesDir()), 3);
         ReceiptStore receipts = new ReceiptStore(root, 3);
         AppPreferences preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         String target = preferences.targetDeviceId();
         String peer = preparePeerLedger(ledger, target);
-        planner = new SyncPlanner(repository, ledger, receipts, "android", peer);
+        planner = new SyncPlanner(opened, ledger, receipts, "android", peer);
         coordinator = new SyncCoordinator(
-                repository,
+                opened,
                 ledger,
                 receipts,
                 planner,
@@ -181,12 +184,13 @@ public final class SyncActivity extends Activity {
                 ActiveDraftRegistry::flush,
                 () -> {
                     ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
-                            this, repository, ledger, receipts, "android");
+                            this, opened, ledger, receipts, "android");
                     return new SyncCoordinator.ScanEvidence(
                             report.imported(), report.confirmed(), report.receiptsQueued(), report.errors());
                 },
                 files -> requestTransfer(files, target),
                 () -> Instant.now().truncatedTo(ChronoUnit.SECONDS));
+        repository = opened;
     }
 
     private View buildContent() {
@@ -359,6 +363,9 @@ public final class SyncActivity extends Activity {
             SyncStatus result = null;
             RuntimeException failure = null;
             try {
+                // Required durability/recovery step only when user starts a
+                // transfer, never while they are simply opening the picker.
+                repository.reconcile();
                 result = coordinator.synchronize(outgoing, true);
             } catch (RuntimeException error) {
                 failure = error;

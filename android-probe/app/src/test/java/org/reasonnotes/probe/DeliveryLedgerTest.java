@@ -19,6 +19,34 @@ public final class DeliveryLedgerTest {
     private static final String RECEIPT = "9".repeat(64);
 
     @Test
+    public void bulkRegisterPreservesExistingConfirmedAndRetryState() throws Exception {
+        File state = temporary.newFolder("batched");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        String second = "a".repeat(64);
+        String third = "b".repeat(64);
+        ledger.registerLocal(REVISION, "linux");
+        ledger.recordRequested(REVISION, "linux", Instant.parse("2026-10-12T14:00:00Z"));
+        ledger.recordConfirmed(REVISION, "linux", RECEIPT, Instant.parse("2026-10-12T14:00:01Z"));
+        ledger.registerLocals(List.of(REVISION, second, third, second), "linux");
+        assertEquals(3, ledger.entries("linux").size());
+        assertEquals("confirmed", ledger.entry(REVISION, "linux").state());
+        assertEquals(RECEIPT, ledger.entry(REVISION, "linux").receiptId());
+        assertEquals("pending", ledger.entry(second, "linux").state());
+        assertEquals("pending", ledger.entry(third, "linux").state());
+
+        var ledgerPath = new File(state, "delivery.tsv").toPath();
+        var old = java.nio.file.attribute.FileTime.from(
+                Instant.parse("2001-01-01T00:00:00Z"));
+        java.nio.file.Files.setLastModifiedTime(ledgerPath, old);
+        ledger.registerLocals(List.of(REVISION, second, third), "linux");
+        assertEquals(old, java.nio.file.Files.getLastModifiedTime(ledgerPath));
+        assertEquals(3, new DeliveryLedger(state, 3).entries("linux").size());
+        assertThrows(IllegalArgumentException.class, () -> ledger.registerLocals(
+                List.of("not-a-revision", "c".repeat(64)), "linux"));
+        assertEquals(3, ledger.entries("linux").size());
+    }
+
+    @Test
     public void defaultOnceExplicitRetriesBoundAtThreeAndForceRemainsAvailable() throws Exception {
         DeliveryLedger ledger = new DeliveryLedger(temporary.newFolder("state"), 3);
         ledger.registerLocal(REVISION, "linux");

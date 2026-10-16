@@ -115,18 +115,31 @@ public final class SyncPlanner {
     }
 
     public List<CatalogueItem> catalogue() {
+        // One immutable revision read + one ledger registration/read for the
+        // entire catalogue. Previous implementation read all history for
+        // every note and the full delivery ledger for every revision.
         Map<String, RevisionEnvelope> all = registerLocalHistory();
+        Map<UUID, List<RevisionEnvelope>> noteHistory = new HashMap<>();
+        RevisionGraph graph = new RevisionGraph();
+        for (RevisionEnvelope revision : all.values()) {
+            graph.add(revision);
+            noteHistory.computeIfAbsent(revision.noteId(),
+                    ignored -> new ArrayList<>()).add(revision);
+        }
+        Map<String, DeliveryLedger.Entry> deliveryEntries = new HashMap<>();
+        for (DeliveryLedger.Entry entry : ledger.entries(targetDevice)) {
+            deliveryEntries.put(entry.revisionId(), entry);
+        }
+
         ArrayList<CatalogueItem> result = new ArrayList<>();
-        for (UUID noteId : repository.noteIds()) {
-            List<RevisionEnvelope> noteHistory = all.values().stream()
-                    .filter(revision -> revision.noteId().equals(noteId))
-                    .toList();
-            List<RevisionEnvelope> heads = repository.heads(noteId);
+        for (Map.Entry<UUID, List<RevisionEnvelope>> note : noteHistory.entrySet()) {
+            UUID noteId = note.getKey();
+            List<RevisionEnvelope> heads = graph.heads(noteId);
             if (heads.isEmpty()) continue;
             boolean deleted = heads.size() == 1 && heads.get(0).deleted();
-            String state = deliveryState(noteHistory);
+            String state = deliveryState(note.getValue(), deliveryEntries);
             if (deleted && state.equals("confirmed")) continue;
-            RevisionEnvelope titleSource = noteHistory.stream()
+            RevisionEnvelope titleSource = note.getValue().stream()
                     .filter(revision -> !revision.deleted())
                     .max(Comparator.comparing(RevisionEnvelope::modifiedUtc)
                             .thenComparing(RevisionEnvelope::revisionId))
@@ -149,12 +162,12 @@ public final class SyncPlanner {
 
     private Map<String, RevisionEnvelope> registerLocalHistory() {
         HashMap<String, RevisionEnvelope> result = new HashMap<>();
+        ArrayList<String> local = new ArrayList<>();
         for (RevisionEnvelope revision : repository.revisions()) {
             result.put(revision.revisionId(), revision);
-            if (revision.originDevice().equals(localDevice)) {
-                ledger.registerLocal(revision.revisionId(), targetDevice);
-            }
+            if (revision.originDevice().equals(localDevice)) local.add(revision.revisionId());
         }
+        ledger.registerLocals(local, targetDevice);
         return result;
     }
 
@@ -194,14 +207,15 @@ public final class SyncPlanner {
         return new DependencyResult(send, confirmed, blocked);
     }
 
-    private String deliveryState(List<RevisionEnvelope> history) {
+    private String deliveryState(
+            List<RevisionEnvelope> history, Map<String, DeliveryLedger.Entry> entries) {
         boolean pending = false;
         boolean requested = false;
         boolean attention = false;
         boolean confirmed = false;
         for (RevisionEnvelope revision : history) {
             if (!revision.originDevice().equals(localDevice)) continue;
-            DeliveryLedger.Entry entry = ledger.entry(revision.revisionId(), targetDevice);
+            DeliveryLedger.Entry entry = entries.get(revision.revisionId());
             if (entry == null) continue;
             switch (entry.state()) {
                 case "pending" -> pending = true;

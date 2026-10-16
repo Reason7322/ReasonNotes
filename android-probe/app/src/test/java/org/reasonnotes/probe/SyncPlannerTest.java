@@ -154,6 +154,42 @@ public final class SyncPlannerTest {
     }
 
     @Test
+    public void largeCatalogueUsesSingleHistoryAndDeliverySnapshots() throws Exception {
+        Fixture fixture = fixture();
+        java.util.LinkedHashMap<UUID, String> expected = new java.util.LinkedHashMap<>();
+        Instant base = Instant.parse("2026-10-15T07:00:00Z");
+        for (int i = 0; i < 18; i++) {
+            UUID id = UUID.nameUUIDFromBytes(("perf-note-" + i)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            java.util.Set<String> parents = Set.of();
+            for (int revision = 0; revision < 7; revision++) {
+                String name = "Note " + i;
+                RevisionEnvelope saved = fixture.repository().createRevision(
+                        id, parents, "# " + name + "\n\nrevision " + revision,
+                        "android", base.plusSeconds(i * 8L + revision), false);
+                parents = Set.of(saved.revisionId());
+            }
+            expected.put(id, "Note " + i);
+        }
+
+        long began = System.nanoTime();
+        List<SyncPlanner.CatalogueItem> catalogue = fixture.planner().catalogue();
+        long ms = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - began);
+        System.out.println("ANDROID_SYNC_PICKER_18_NOTES_126_REVISIONS_JVM_MS=" + ms);
+        assertEquals(18, catalogue.size());
+        for (SyncPlanner.CatalogueItem item : catalogue) {
+            assertEquals(expected.get(item.noteId()), item.title());
+            assertEquals("pending", item.deliveryState());
+            assertFalse(item.conflicted());
+            assertFalse(item.deleted());
+        }
+        assertEquals(126, fixture.ledger().entries("linux").size());
+        assertTrue("Catalogue regression: " + ms + "ms", ms < 2500);
+        assertEquals(catalogue, fixture.planner().catalogue());
+    }
+
+    @Test
     public void catalogueIncludesConflictAndEligibleDeletedTombstoneWithoutResurrection() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope a = fixture.repository().createRevision(

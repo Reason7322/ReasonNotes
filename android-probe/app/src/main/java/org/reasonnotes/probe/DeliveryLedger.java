@@ -194,12 +194,29 @@ public final class DeliveryLedger {
     }
 
     public void registerLocal(String revisionId, String targetDevice) {
-        validateRevision(revisionId);
+        registerLocals(List.of(revisionId), targetDevice);
+    }
+
+    /** Register all newly discovered local revisions atomically. Never
+     * overwrite existing pending/requested/confirmed/attention evidence.
+     * A catalogue refresh must not re-read and fsync the ledger per revision. */
+    public void registerLocals(List<String> revisionIds, String targetDevice) {
+        Objects.requireNonNull(revisionIds, "revisionIds");
+        if (targetDevice == null || targetDevice.isBlank()) {
+            throw new IllegalArgumentException("target identity must not be empty");
+        }
+        for (String id : revisionIds) validateRevision(id);
+        if (revisionIds.isEmpty()) return;
         Map<String, Entry> entries = readEntries();
-        if (entries.containsKey(key(revisionId, targetDevice))) return;
-        entries.put(key(revisionId, targetDevice),
-                new Entry(revisionId, targetDevice, "pending", 0, null, null, null));
-        writeEntries(entries);
+        boolean changed = false;
+        for (String id : revisionIds) {
+            String entryKey = key(id, targetDevice);
+            if (entries.containsKey(entryKey)) continue;
+            entries.put(entryKey,
+                    new Entry(id, targetDevice, "pending", 0, null, null, null));
+            changed = true;
+        }
+        if (changed) writeEntries(entries);
     }
 
     public Entry entry(String revisionId, String targetDevice) {
