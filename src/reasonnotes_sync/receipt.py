@@ -646,11 +646,21 @@ class ReceiptStore:
             raise ReceiptError("receipt peer has no delivery entry")
         if entry.attempts < 1:
             raise ReceiptError("revision was never requested to receipt peer")
-        if (
-            entry.state == DeliveryState.CONFIRMED
+        # A peer can acknowledge an already imported revision again. Receipt
+        # identity also includes imported_utc, so this second, otherwise
+        # valid acknowledgment has a different hash. Preserve the original
+        # ledger confirmation; do not weaken DeliveryLedger.record_confirmed.
+
+    @staticmethod
+    def _redundant_confirmation(
+        receipt: ReceiptEnvelope, ledger: DeliveryLedger
+    ) -> bool:
+        entry = ledger.entry(receipt.revision_id, receipt.acknowledging_device)
+        return bool(
+            entry
+            and entry.state == DeliveryState.CONFIRMED
             and entry.receipt_id != receipt.receipt_id
-        ):
-            raise ReceiptError("confirmed revision has a different receipt")
+        )
 
     def accept(
         self,
@@ -665,6 +675,8 @@ class ReceiptStore:
         del source_name  # Transport names are never trusted for identity.
         receipt = ReceiptEnvelope.parse(data)
         self._validate_confirmation(receipt, repository, ledger, local_device)
+        if self._redundant_confirmation(receipt, ledger):
+            return ReceiptImportOutcome("duplicate", receipt.receipt_id, receipt.revision_id)
         created = self._atomic_write(
             self.inbox_path(receipt.receipt_id), receipt.serialize(), replace=False
         )
@@ -697,6 +709,8 @@ class ReceiptStore:
             try:
                 receipt = ReceiptEnvelope.parse(path.read_bytes())
                 self._validate_confirmation(receipt, repository, ledger, local_device)
+                if self._redundant_confirmation(receipt, ledger):
+                    continue
                 if ledger.record_confirmed(
                     receipt.revision_id,
                     receipt.acknowledging_device,

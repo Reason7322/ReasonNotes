@@ -368,10 +368,19 @@ public final class ReceiptStore {
         if (entry.attempts() < 1) {
             throw new IllegalArgumentException("revision was never requested to receipt peer");
         }
-        if (entry.state().equals("confirmed")
-                && !receipt.receiptId().equals(entry.receiptId())) {
-            throw new IllegalArgumentException("confirmed revision has a different receipt");
-        }
+        // An independently valid receipt for the same note, revision and peer
+        // may have a different imported-utc timestamp after a duplicate
+        // incoming transfer. The original ledger confirmation is authoritative.
+        // Only the higher-level receipt scan may treat this as redundant;
+        // DeliveryLedger.recordConfirmed must retain its strict mismatch guard.
+    }
+
+    private static boolean previouslyConfirmedByAnotherReceipt(
+            ReceiptEnvelope receipt, DeliveryLedger ledger) {
+        DeliveryLedger.Entry entry = ledger.entry(
+                receipt.revisionId(), receipt.acknowledgingDevice());
+        return entry != null && entry.state().equals("confirmed")
+                && !receipt.receiptId().equals(entry.receiptId());
     }
 
     public ImportOutcome accept(
@@ -384,6 +393,11 @@ public final class ReceiptStore {
         if (sourceName == null) throw new IllegalArgumentException("source name");
         ReceiptEnvelope receipt = ReceiptEnvelope.parse(data);
         validateConfirmation(receipt, repository, ledger, localDevice);
+        if (previouslyConfirmedByAnotherReceipt(receipt, ledger)) {
+            // Already confirmed. Do not replace the trusted receipt, create
+            // another inbox file, or record another confirmation event.
+            return new ImportOutcome("duplicate", receipt.receiptId(), receipt.revisionId());
+        }
         boolean created = durableWrite(inboxFile(receipt.receiptId()), receipt.serialize(), false);
         boolean changed = ledger.recordConfirmed(
                 receipt.revisionId(),
@@ -418,6 +432,11 @@ public final class ReceiptStore {
                     ReceiptEnvelope receipt = ReceiptEnvelope.parse(Files.readAllBytes(file.toPath()));
                     validateConfirmation(receipt, revisionById.get(receipt.revisionId()),
                             ledger, localDevice);
+                    if (previouslyConfirmedByAnotherReceipt(receipt, ledger)) {
+                        // Legacy redundant receipt persisted before this fix.
+                        // Keep the original confirmation intact during recovery.
+                        continue;
+                    }
                     if (ledger.recordConfirmed(
                             receipt.revisionId(),
                             receipt.acknowledgingDevice(),

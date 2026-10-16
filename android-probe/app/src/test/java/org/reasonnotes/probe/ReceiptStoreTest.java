@@ -56,7 +56,7 @@ public final class ReceiptStoreTest {
     }
 
     @Test
-    public void differentReceiptIdentityCannotReplaceExistingConfirmation() throws Exception {
+    public void secondValidReceiptForSameRevisionAndPeerIsRedundantNotAnError() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(root);
         RevisionEnvelope revision = local(repository);
@@ -70,11 +70,22 @@ public final class ReceiptStoreTest {
         ReceiptEnvelope different = ReceiptEnvelope.create(
                 revision.noteId(), revision.revisionId(), "android", "linux", T0.plusSeconds(9));
 
-        assertThrows(IllegalArgumentException.class, () -> store.accept(
-                different.serialize(), repository, ledger, "linux", "different.md", T0.plusSeconds(10)));
-
+        ReceiptStore.ImportOutcome redundant = store.accept(
+                different.serialize(), repository, ledger, "linux", "different.md", T0.plusSeconds(10));
+        assertEquals("duplicate", redundant.kind());
         assertFalse(store.inboxFile(different.receiptId()).exists());
         assertEquals(accepted.receiptId(), ledger.entry(revision.revisionId(), "android").receiptId());
+        assertEquals(1, ledger.events().stream()
+                .filter(event -> event.kind().equals("reasonnotes-confirmed")).count());
+        // Re-scanning old matching and alternate receipts may not stop sync.
+        Files.write(store.inboxFile(different.receiptId()).toPath(), different.serialize());
+        ReceiptStore.ReconcileReport reconciled = new ReceiptStore(root, 3).reconcileConfirmations(
+                repository, ledger, "linux", T0.plusSeconds(11));
+        assertTrue(reconciled.errors().isEmpty());
+        assertTrue(reconciled.confirmed().isEmpty());
+        assertEquals(accepted.receiptId(), ledger.entry(revision.revisionId(), "android").receiptId());
+        assertEquals(1, ledger.events().stream()
+                .filter(event -> event.kind().equals("reasonnotes-confirmed")).count());
     }
 
     @Test

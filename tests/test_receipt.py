@@ -180,7 +180,7 @@ class ReceiptStoreTests(unittest.TestCase):
         history = self.root / "history" / str(NOTE_ID)
         self.assertEqual(len(tuple(history.glob("*.md"))), 1)
 
-    def test_different_receipt_identity_cannot_replace_existing_confirmation(self):
+    def test_second_valid_receipt_for_same_revision_and_peer_is_redundant(self):
         self.requested_revision()
         accepted = self.receipt()
         self.store.accept(
@@ -193,17 +193,33 @@ class ReceiptStoreTests(unittest.TestCase):
         )
         different = self.receipt(imported_utc=IMPORTED + timedelta(seconds=9))
 
-        with self.assertRaisesRegex(ReceiptError, "different receipt"):
-            self.store.accept(
-                different.serialize(),
-                self.repository,
-                self.ledger,
-                local_device="linux",
-                source_name="different.md",
-                confirmed_utc=IMPORTED + timedelta(seconds=10),
-            )
-
+        redundant = self.store.accept(
+            different.serialize(),
+            self.repository,
+            self.ledger,
+            local_device="linux",
+            source_name="different.md",
+            confirmed_utc=IMPORTED + timedelta(seconds=10),
+        )
+        self.assertEqual(redundant.kind, "duplicate")
         self.assertFalse(self.store.inbox_path(different.receipt_id).exists())
+        entry = DeliveryLedger(self.root).entry(self.revision.revision_id, "android")
+        self.assertEqual(entry.receipt_id, accepted.receipt_id)
+        self.assertEqual(
+            sum(event.kind == EventKind.REASONNOTES_CONFIRMED
+                for event in DeliveryLedger(self.root).events()), 1
+        )
+
+        # A second receipt can already exist in the persisted inbox from
+        # an interrupted older scan. Recovery must not reject it either.
+        self.store.inbox_path(different.receipt_id).write_bytes(different.serialize())
+        report = self.store.reconcile_confirmations(
+            self.repository, self.ledger,
+            local_device="linux",
+            confirmed_utc=IMPORTED + timedelta(seconds=11),
+        )
+        self.assertEqual(report.errors, ())
+        self.assertEqual(report.confirmed, ())
         entry = DeliveryLedger(self.root).entry(self.revision.revision_id, "android")
         self.assertEqual(entry.receipt_id, accepted.receipt_id)
 
