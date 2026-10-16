@@ -13,10 +13,21 @@ Rectangle {
     property bool scrollToEndPending: false
 
     color: theme.mainBackground
-    gradient: Gradient {
-        GradientStop { position: 0; color: root.theme.isGlass ? root.theme.glassTop : root.theme.mainBackground }
-        GradientStop { position: 0.28; color: root.theme.mainBackground }
-        GradientStop { position: 1; color: root.theme.isGlass ? root.theme.glassBottom : root.theme.mainBackground }
+    // Kitty uses an edge-lighting effect, not a full-surface striped
+    // gradient. The main reading surface remains uniform and fully opaque.
+    Rectangle {
+        objectName: "glassEdgeReflection"
+        visible: root.theme.isGlass
+        z: 0
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 28
+        color: "transparent"
+        gradient: Gradient {
+            GradientStop { position: 0; color: root.theme.glassTop }
+            GradientStop { position: 1; color: root.theme.glassBottom }
+        }
     }
 
 

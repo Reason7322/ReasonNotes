@@ -210,9 +210,17 @@ class QmlSmokeTests(unittest.TestCase):
         self.liquid_palette.reload()
         QCoreApplication.processEvents()
         self.assertEqual("#679dbc", theme.property("accent").name())
-        self.assertLess(theme.property("mainBackground").alpha(), 255)
-        self.assertLess(theme.property("sidebar").alpha(), 255)
-        self.assertEqual(0, root.property("color").alpha())
+        # Corrected material paints the root opaque. The previously
+        # transparent root exposed sharp wallpaper bands on Hyprland.
+        self.assertEqual(255, theme.property("mainBackground").alpha())
+        self.assertEqual(255, root.property("color").alpha())
+        self.assertEqual(255, theme.property("sidebar").alpha())
+        self.assertLess(
+            theme.property("surface").alpha(), 255,
+        )
+        edges = root.findChildren(QObject, "glassEdgeReflection")
+        self.assertEqual(3, len(edges))
+        self.assertTrue(all(edge.property("height") == 28 for edge in edges))
         self.assertTrue(button.property("checked"))
         self.assertAlmostEqual(
             button.property("width"),
