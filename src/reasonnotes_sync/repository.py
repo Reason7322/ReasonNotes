@@ -1,6 +1,8 @@
 """Durable immutable revision storage and generated-state reconciliation."""
 
 from dataclasses import dataclass
+from functools import wraps
+from threading import RLock
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -22,7 +24,7 @@ class ConflictRequired(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ImportOutcome:
-    kind: Literal["imported", "duplicate", "quarantined"]
+    kind: Literal["imported", "duplicate", "quarantined", "purged"]
     revision_id: str | None
     detail: str
 
@@ -36,6 +38,14 @@ class ReconcileReport:
     errors: tuple[str, ...]
 
 
+def synchronized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._mutation_lock:
+            return method(self, *args, **kwargs)
+    return call
+
+
 class Repository:
     """A repository whose immutable history is the source of truth."""
 
@@ -47,6 +57,7 @@ class Repository:
         target_device: str | None = None,
     ):
         self.root = root
+        self._mutation_lock = RLock()
         self.local_device = local_device
         self.target_device = target_device
         self.history_dir = root / "history"
@@ -54,6 +65,8 @@ class Repository:
         self.notes_dir = root / "notes"
         self.conflicts_dir = root / "conflicts"
         self.quarantine_dir = root / "quarantine"
+        # Permanent, content-free deletion fence. These IDs outlive history.
+        self.purged_dir = root / "purged"
 
     @classmethod
     def open(
@@ -78,6 +91,7 @@ class Repository:
             self.notes_dir,
             self.conflicts_dir,
             self.quarantine_dir,
+            self.purged_dir,
         ):
             directory.mkdir(exist_ok=True)
 
@@ -113,10 +127,91 @@ class Repository:
             return
         self._fsync_directory(path.parent)
 
+    def purged_ids(self) -> frozenset[UUID]:
+        """Content-free deletion IDs used to reject stale received revisions."""
+        found: set[UUID] = set()
+        for path in self.purged_dir.glob("*.id"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                note_id = UUID(path.stem)
+            except ValueError:
+                continue
+            if str(note_id) == path.stem:
+                found.add(note_id)
+        return frozenset(found)
+
+    def is_purged(self, note_id: UUID) -> bool:
+        return (self.purged_dir / f"{note_id}.id").is_file()
+
+    @synchronized
+    def purge_note(self, note_id: UUID) -> None:
+        """Permanently delete managed note content, including all old history.
+
+        The durable deletion fence is committed FIRST. A crash before physical
+        file removal cannot resurrect the note, even if an old transfer arrives.
+        """
+        if not isinstance(note_id, UUID):
+            raise TypeError("note_id must be UUID")
+        self._ensure_layout()
+        marker = self.purged_dir / f"{note_id}.id"
+        if not marker.is_file():
+            self._atomic_write(marker, (str(note_id) + "\n").encode("ascii"))
+        self._finish_purge(note_id)
+        self.reconcile()
+
+    def _finish_purge(self, note_id: UUID) -> None:
+        if not self.is_purged(note_id):
+            return
+        directory = self.history_dir / str(note_id)
+        # Delivery/receipt queues must be forgotten *before* removing history.
+        # If interrupted, the durable fence keeps the note hidden and this
+        # cleanup is retried from the still-present immutable files.
+        revision_ids = set()
+        if directory.is_dir() and not directory.is_symlink():
+            for path in directory.glob("*.md"):
+                # Historical envelopes may themselves be corrupt. We only
+                # need their content-addressed filenames for queue cleanup;
+                # corrupted content must not prevent permanent erasure.
+                revision_id = path.stem
+                if len(revision_id) == 64 and all(
+                    char in "0123456789abcdef" for char in revision_id
+                ):
+                    revision_ids.add(revision_id)
+        if revision_ids:
+            from .receipt import ReceiptStore
+            DeliveryLedger(self.root).forget_revisions(revision_ids)
+            ReceiptStore(self.root).forget_revisions(revision_ids)
+        # Never follow symlinks, including a maliciously replaced history dir.
+        if directory.is_symlink():
+            directory.unlink()
+        elif directory.is_dir():
+            for path in directory.iterdir():
+                if path.is_file() or path.is_symlink():
+                    path.unlink()
+                else:
+                    raise RuntimeError("unexpected nested note history directory")
+            directory.rmdir()
+        for path in (
+            self.notes_dir / f"{note_id}.md",
+            self.conflicts_dir / f"{note_id}.json",
+        ):
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+        for folder in (self.history_dir, self.notes_dir, self.conflicts_dir):
+            self._fsync_directory(folder)
+
+    def _finish_all_purges(self) -> None:
+        for note_id in self.purged_ids():
+            self._finish_purge(note_id)
+
     def _history_path(self, revision: Revision) -> Path:
         return self.history_dir / str(revision.note_id) / f"{revision.revision_id}.md"
 
+    @synchronized
     def _write_history(self, revision: Revision) -> bool:
+        if self.is_purged(revision.note_id):
+            raise ConflictRequired("cannot reintroduce permanently deleted note")
         path = self._history_path(revision)
         data = revision.serialize()
         # Received bundles may be scanned again at every startup. Existing
@@ -159,25 +254,31 @@ class Repository:
     def _load_revisions(self) -> tuple[tuple[Revision, ...], tuple[str, ...]]:
         revisions: list[Revision] = []
         errors: list[str] = []
+        purged = self.purged_ids()
         for path in sorted(self.history_dir.glob("*/*.md")):
             try:
                 revision = Revision.parse(path.read_bytes())
                 expected = self._history_path(revision)
                 if path != expected:
                     raise EnvelopeError("history path does not match envelope identity")
+                if revision.note_id in purged:
+                    continue
             except (EnvelopeError, OSError) as error:
                 errors.append(f"{path}: {error}")
                 continue
             revisions.append(revision)
         return tuple(revisions), tuple(errors)
 
+    @synchronized
     def revisions(self) -> tuple[Revision, ...]:
         revisions, _ = self._load_revisions()
         return revisions
 
+    @synchronized
     def graph(self) -> RevisionGraph:
         return RevisionGraph(self.revisions())
 
+    @synchronized
     def revision(self, revision_id: str) -> Revision | None:
         return next(
             (item for item in self.revisions() if item.revision_id == revision_id), None
@@ -261,7 +362,9 @@ class Repository:
         )
         return maximal[0] if len(maximal) == 1 else None
 
+    @synchronized
     def reconcile(self) -> ReconcileReport:
+        self._finish_all_purges()
         revisions, errors = self._load_revisions()
         graph = RevisionGraph(revisions)
         by_id = {revision.revision_id: revision for revision in revisions}
@@ -348,12 +451,15 @@ class Repository:
             pass
         return ImportOutcome("quarantined", None, detail)
 
+    @synchronized
     def import_bytes(self, data: bytes, source_name: str) -> ImportOutcome:
         try:
             revision = Revision.parse(data)
         except EnvelopeError as error:
             return self._quarantine(data, source_name, str(error))
 
+        if self.is_purged(revision.note_id):
+            return ImportOutcome("purged", revision.revision_id, "permanently deleted note")
         created = self._write_history(revision)
         if not created:
             # Repository.open() reconciles on startup. A verified duplicate
@@ -372,6 +478,7 @@ class Repository:
             )
         return ImportOutcome("imported", revision.revision_id, "revision imported durably")
 
+    @synchronized
     def create_revision(
         self,
         note_id: UUID,
@@ -402,6 +509,7 @@ class Repository:
         self._store_local_revision(revision)
         return revision
 
+    @synchronized
     def _store_local_revision(self, revision: Revision) -> None:
         self._write_history(revision)
         self.reconcile()
@@ -410,6 +518,7 @@ class Repository:
                 revision.revision_id, self.target_device
             )
 
+    @synchronized
     def store_resolution(self, revision: Revision) -> None:
         status = self.graph().status(revision.note_id)
         if not status.conflicted:

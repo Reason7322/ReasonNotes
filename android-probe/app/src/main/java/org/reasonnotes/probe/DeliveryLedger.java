@@ -12,6 +12,7 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -191,6 +192,32 @@ public final class DeliveryLedger {
                         : attempts > 0 ? "transfer-requested" : "pending";
         return new Entry(a.revisionId(), a.targetDevice(), state,
                 attempts, latest, null, null);
+    }
+
+    /** Retire outgoing revisions from a permanently purged note. */
+    public void forgetRevisions(Set<String> ids) {
+        if (ids.isEmpty()) return;
+        for (String id : ids) validateRevision(id);
+        Map<String, Entry> entries = readEntries();
+        if (entries.values().removeIf(entry -> ids.contains(entry.revisionId()))) {
+            writeEntries(entries);
+        }
+        if (eventsFile.isFile()) {
+            try {
+                List<String> rows = Files.readAllLines(eventsFile.toPath(), StandardCharsets.UTF_8);
+                List<String> kept = rows.stream().filter(row -> {
+                    String[] fields = row.split("\t", -1);
+                    return fields.length < 2 || !ids.contains(fields[1]);
+                }).toList();
+                if (kept.size() != rows.size()) {
+                    atomicWrite(eventsFile, String.join("\n", kept)
+                            .concat(kept.isEmpty() ? "" : "\n")
+                            .getBytes(StandardCharsets.UTF_8));
+                }
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot retire delivery event log", error);
+            }
+        }
     }
 
     public void registerLocal(String revisionId, String targetDevice) {

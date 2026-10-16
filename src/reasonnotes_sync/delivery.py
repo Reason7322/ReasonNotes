@@ -218,6 +218,33 @@ class DeliveryLedger:
             (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         )
 
+    def forget_revisions(self, revision_ids: set[str]) -> None:
+        """Remove only delivery metadata for permanently erased note revisions."""
+        if not revision_ids:
+            return
+        for revision_id in revision_ids:
+            _validate_hash(revision_id)
+        with self._lock(self.delivery_lock_path):
+            current = self._read()
+            retained = {
+                key: entry for key, entry in current.items()
+                if entry.revision_id not in revision_ids
+            }
+            if len(retained) != len(current):
+                self._write(retained)
+        with self._lock(self.events_lock_path):
+            if self.events_path.is_file():
+                lines = self.events_path.read_text(encoding="utf-8").splitlines()
+                retained_lines = [
+                    line for line in lines
+                    if json.loads(line).get("revision_id") not in revision_ids
+                ]
+                if len(lines) != len(retained_lines):
+                    self._atomic_write(
+                        self.events_path,
+                        ("".join(line + "\n" for line in retained_lines)).encode("utf-8"),
+                    )
+
     def register_local(self, revision_id: str, target_device: str) -> None:
         revision_id = _validate_hash(revision_id)
         target_device = _validate_device(target_device)

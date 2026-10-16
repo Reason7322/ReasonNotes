@@ -73,12 +73,12 @@ class NoteServiceTest(unittest.TestCase):
         self.assertEqual("# Renamed\nEdited body", self.service.open_note(note_id))
         self.assertEqual(1, len(edited.parents))
 
-        deleted = self.service.delete_note(note_id)
-        self.assertTrue(deleted.deleted)
+        self.service.delete_note(note_id)
+        self.assertTrue(self.repository.is_purged(note_id))
         self.assertEqual([], self.service.list_notes())
         with self.assertRaises(NoteNotFoundError):
             self.service.open_note(note_id)
-        self.assertEqual(3, len(self.repository.revisions()))
+        self.assertEqual(0, len(self.repository.revisions()))
 
     def test_search_is_unicode_aware_case_insensitive_and_excludes_deleted(self) -> None:
         german = self.service.create_note("# Straße\nA useful note")
@@ -145,15 +145,8 @@ class NoteServiceTest(unittest.TestCase):
         self.assertEqual((remote.revision_id,), saved.parents)
         self.assertEqual(3, len(self.repository.revisions()))
 
-    def test_delete_rejects_remote_tombstone_arriving_during_write(self) -> None:
-        clock = InterleavingClock()
-        service = NoteService(
-            self.repository,
-            origin_device="linux",
-            clock=clock,
-            note_id_factory=lambda: NOTE_A,
-        )
-        note_id = service.create_note("Displayed body")
+    def test_purge_cannot_be_reverted_by_old_remote_tombstone(self) -> None:
+        note_id = self.service.create_note("Displayed body")
         displayed = self.repository.graph().heads(note_id)[0]
         remote_deletion = Revision.create(
             note_id=note_id,
@@ -163,20 +156,11 @@ class NoteServiceTest(unittest.TestCase):
             deleted=True,
             body="",
         )
-        clock.arm(
-            lambda: self.repository.import_bytes(
-                remote_deletion.serialize(), "remote-delete.md"
-            )
-        )
-
-        with self.assertRaises(ConflictRequired):
-            service.delete_note(note_id)
-
-        self.assertEqual(
-            (remote_deletion.revision_id,),
-            self.repository.graph().status(note_id).head_ids,
-        )
-        self.assertEqual(2, len(self.repository.revisions()))
+        self.service.delete_note(note_id)
+        outcome = self.repository.import_bytes(remote_deletion.serialize(), "stale.md")
+        self.assertEqual("purged", outcome.kind)
+        self.assertEqual(0, len(self.repository.revisions()))
+        self.assertTrue(self.repository.is_purged(note_id))
 
     def test_empty_live_note_is_untitled_not_conflicted(self) -> None:
         note_id = self.service.create_note("")

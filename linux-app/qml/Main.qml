@@ -125,6 +125,7 @@ ApplicationWindow {
                 theme: theme
                 i18n: i18n
                 preferences: appPreferences
+                purgeSync: typeof purgeSyncBridge !== "undefined" ? purgeSyncBridge : null
                 visible: root.settingsVisible
                 onBackRequested: root.settingsVisible = false
             }
@@ -152,7 +153,7 @@ ApplicationWindow {
 
         Label {
             width: parent ? parent.width : 420
-            text: i18n.t("ReasonNotes will create a deletion revision. The note remains recoverable from immutable history.")
+            text: i18n.t("This permanently erases the note and all its previous versions. It cannot be undone. The paired phone will delete its copy the next time both apps are open.")
             color: theme.textPrimary
             wrapMode: Text.Wrap
             font.pixelSize: theme.secondarySize

@@ -22,6 +22,24 @@ public final class DraftStoreTest {
     private static final String REMOTE = "c".repeat(64);
 
     @Test
+    public void permanentPurgeClearsDraftAndRefusesLateEditorWrites() throws Exception {
+        File files = temporary.newFolder("private-files");
+        ProbeRepository repository = ProbeRepository.open(new File(files, "probe-repository"));
+        DraftStore store = new DraftStore(new File(files, "drafts"));
+        UUID noteId = UUID.fromString("bbbbbbbb-2222-4222-8222-222222222222");
+        String originalRevision = "a".repeat(64);
+        store.write(noteId, originalRevision, "Secret", "Private draft contents");
+        assertTrue(store.current(noteId) != null);
+
+        repository.purgeNote(noteId);
+        assertNull(store.current(noteId));
+        assertTrue(repository.isPurged(noteId));
+        assertThrows(IllegalStateException.class,
+                () -> store.write(noteId, originalRevision, "Secret", "Resurrected"));
+        assertNull(store.current(noteId));
+    }
+
+    @Test
     public void restartRoundTripsExactUnicodeAndNewlines() throws Exception {
         File root = temporary.newFolder("drafts");
         DraftStore first = new DraftStore(root);

@@ -45,6 +45,7 @@ public final class ProbeRepository {
     private final File state;
     private final File current;
     private final File quarantine;
+    private final File purged;
     private final ReentrantLock mutationLock;
 
     private ProbeRepository(File root) {
@@ -53,6 +54,7 @@ public final class ProbeRepository {
         this.state = new File(root, "state");
         this.current = new File(root, "current");
         this.quarantine = new File(root, "quarantine");
+        this.purged = new File(root, "purged");
         String lockKey;
         try {
             lockKey = root.getCanonicalFile().toPath().normalize().toString();
@@ -81,6 +83,17 @@ public final class ProbeRepository {
         return repository;
     }
 
+    /** Serialize editor-draft writes with permanent purges on this repository. */
+    public static <T> T withRepositoryLock(File root, java.util.function.Supplier<T> action) {
+        String key;
+        try { key = root.getCanonicalFile().toPath().normalize().toString(); }
+        catch (IOException error) { key = root.getAbsoluteFile().toPath().normalize().toString(); }
+        ReentrantLock lock = ROOT_LOCKS.computeIfAbsent(key, ignored -> new ReentrantLock());
+        lock.lock();
+        try { return action.get(); }
+        finally { lock.unlock(); }
+    }
+
     public File root() { return root; }
 
     private <T> T withLock(Supplier<T> action) {
@@ -100,7 +113,7 @@ public final class ProbeRepository {
     }
 
     private void ensureDirectories() {
-        for (File directory : List.of(root, history, state, current, quarantine)) {
+        for (File directory : List.of(root, history, state, current, quarantine, purged)) {
             if (!directory.isDirectory() && !directory.mkdirs()) {
                 throw new IllegalStateException("cannot create repository directory: " + directory);
             }
@@ -150,12 +163,151 @@ public final class ProbeRepository {
         durableWrite(target, data, true);
     }
 
+    private File purgeMarker(UUID noteId) {
+        return new File(purged, noteId + ".id");
+    }
+
+    public boolean isPurged(UUID noteId) {
+        return withLock(() -> purgeMarker(noteId).isFile());
+    }
+
+    public Set<UUID> purgedNoteIds() {
+        return withLock(this::purgedIdsLocked);
+    }
+
+    private Set<UUID> purgedIdsLocked() {
+        TreeSet<UUID> result = new TreeSet<>();
+        File[] files = purged.listFiles(file -> file.isFile() && file.getName().endsWith(".id"));
+        if (files == null) return Set.of();
+        for (File file : files) {
+            try {
+                UUID id = UUID.fromString(file.getName().substring(0, file.getName().length() - 3));
+                if ((id + ".id").equals(file.getName())) result.add(id);
+            } catch (IllegalArgumentException ignored) {
+                // Malformed fences never authorize erasure.
+            }
+        }
+        return Set.copyOf(result);
+    }
+
+    private java.util.Set<String> noteRevisionIdsLocked(UUID noteId) throws IOException {
+        java.util.Set<String> revisionIds = new java.util.HashSet<>();
+        File directory = new File(history, noteId.toString());
+        if (!directory.isDirectory()) return revisionIds;
+        File[] files = directory.listFiles(file -> file.isFile()
+                && file.getName().endsWith(".md"));
+        if (files == null) throw new IOException("cannot inspect purge history");
+        for (File file : files) {
+            String name = file.getName();
+            String revisionId = name.substring(0, name.length() - 3);
+            if (revisionId.matches("[0-9a-f]{64}")) revisionIds.add(revisionId);
+        }
+        return revisionIds;
+    }
+
+    private void retirePurgedQueueLocked(java.util.Set<String> revisionIds) {
+        if (revisionIds.isEmpty()) return;
+        new DeliveryLedger(new File(root.getParentFile(), "delivery-state"), 3)
+                .forgetRevisions(revisionIds);
+        new ReceiptStore(root, 3).forgetRevisions(revisionIds);
+    }
+
+    private void finishPurgeLocked(UUID noteId) {
+        finishPurgeLocked(noteId, false);
+    }
+
+    private void finishPurgeLocked(UUID noteId, boolean queuesRetired) {
+        if (!purgeMarker(noteId).isFile()) return;
+        File directory = new File(history, noteId.toString());
+        try {
+            if (!queuesRetired) {
+                // Recovery may run after a crash. Retire only the affected
+                // revisions before removing their history-to-note mapping.
+                retirePurgedQueueLocked(noteRevisionIdsLocked(noteId));
+            }
+            if (directory.isDirectory()) {
+                File[] children = directory.listFiles();
+                if (children == null) throw new IOException("cannot inspect note history");
+                for (File item : children) {
+                    if (!item.isFile() || !item.delete()) {
+                        throw new IOException("cannot delete note history member");
+                    }
+                }
+                if (!directory.delete()) throw new IOException("cannot delete history folder");
+            }
+            Files.deleteIfExists(new File(current, noteId + ".md").toPath());
+            Files.deleteIfExists(currentIdPath(noteId).toPath());
+            Files.deleteIfExists(new File(root.getParentFile(), "drafts/" + noteId + ".draft").toPath());
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot permanently purge note", error);
+        }
+    }
+
+    private void finishAllPurgesLocked() {
+        for (UUID noteId : purgedIdsLocked()) finishPurgeLocked(noteId);
+    }
+
+    /** Stage all fences before any content removal, retire the corresponding
+     * delivery and receipt state once, then physically erase each note. */
+    private void purgeManyLocked(Set<UUID> notes) {
+        if (notes.isEmpty()) return;
+        try {
+            for (UUID id : new TreeSet<>(notes)) {
+                File marker = purgeMarker(id);
+                if (!marker.isFile()) {
+                    durableWrite(marker, (id + "\n").getBytes(StandardCharsets.US_ASCII), false);
+                }
+            }
+            java.util.Set<String> revisionIds = new java.util.HashSet<>();
+            for (UUID id : notes) revisionIds.addAll(noteRevisionIdsLocked(id));
+            retirePurgedQueueLocked(revisionIds);
+            for (UUID id : new TreeSet<>(notes)) finishPurgeLocked(id, true);
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot finish permanent deletion batch", error);
+        }
+    }
+
+    private void purgeNoteLocked(UUID noteId) {
+        File marker = purgeMarker(noteId);
+        try {
+            if (!marker.isFile()) {
+                durableWrite(marker, (noteId + "\n").getBytes(StandardCharsets.US_ASCII), false);
+            }
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot store permanent deletion fence", error);
+        }
+        finishPurgeLocked(noteId);
+    }
+
+    public void purgeNote(UUID noteId) {
+        withLock(() -> {
+            purgeNoteLocked(noteId);
+            reconcileLocked();
+        });
+    }
+
+    /** Accept a deletion fence without requiring this note to be present. */
+    public void applyRemotePurges(Set<UUID> noteIds) {
+        withLock(() -> {
+            purgeManyLocked(noteIds);
+            if (!noteIds.isEmpty()) reconcileLocked();
+        });
+    }
+
     private Map<String, RevisionEnvelope> load() {
         Map<String, RevisionEnvelope> revisions = new LinkedHashMap<>();
+        Set<UUID> purgedIds = purgedIdsLocked();
         File[] noteDirectories = history.listFiles(File::isDirectory);
         if (noteDirectories == null) return revisions;
         java.util.Arrays.sort(noteDirectories, Comparator.comparing(File::getName));
         for (File directory : noteDirectories) {
+            try {
+                UUID id = UUID.fromString(directory.getName());
+                if (purgedIds.contains(id)) continue;
+            } catch (IllegalArgumentException invalidHistoryFolder) {
+                // Ignore unexpected unrelated folders, never treat them as notes.
+                continue;
+            }
             File[] files = directory.listFiles(file -> file.isFile() && file.getName().endsWith(".md"));
             if (files == null) continue;
             java.util.Arrays.sort(files, Comparator.comparing(File::getName));
@@ -286,6 +438,9 @@ public final class ProbeRepository {
     }
 
     private ImportOutcome persistImportedLocked(RevisionEnvelope revision, byte[] data) {
+        if (purgeMarker(revision.noteId()).isFile()) {
+            return new ImportOutcome("purged", revision.revisionId(), "permanently deleted note");
+        }
         File path = new File(new File(history, revision.noteId().toString()), revision.revisionId() + ".md");
         // Incoming documents are scanned repeatedly on foreground/resume.
         // A verified duplicate must not create/fsync a temporary history file
@@ -318,6 +473,9 @@ public final class ProbeRepository {
         return withLock(() -> {
             Map<String, RevisionEnvelope> revisions = load();
             RevisionGraph graph = graph(revisions);
+            if (purgeMarker(noteId).isFile()) {
+                throw new IllegalStateException("note has been permanently deleted");
+            }
             requireExpectedHeads(graph, noteId, expectedHeadIds);
             if (!graph.pending(noteId).isEmpty()) {
                 throw new IllegalStateException("incomplete history requires synchronization");
@@ -329,61 +487,49 @@ public final class ProbeRepository {
         });
     }
 
-    /** A single, lock-protected operation: skip conflicts, persist valid tombstones,
-     * and rebuild derived views once rather than once per selected note. */
+    /** Explicit permanent deletion of selected notes, including any conflicts.
+     * Each fence is written before history removal. A partial I/O failure
+     * is reported; startup will finish purging fenced IDs before rendering. */
     public record BatchDeleteResult(
             List<UUID> deleted, List<UUID> skipped, Map<UUID, String> failed) {}
 
     public BatchDeleteResult deleteNotes(
             Set<UUID> selectedNoteIds, String originDevice, Instant modifiedUtc) {
-        if (selectedNoteIds.isEmpty()) {
-            return new BatchDeleteResult(List.of(), List.of(), Map.of());
-        }
+        if (selectedNoteIds.isEmpty()) return new BatchDeleteResult(List.of(), List.of(), Map.of());
         return withLock(() -> {
-            Map<String, RevisionEnvelope> revisions = load();
-            RevisionGraph snapshot = graph(revisions);
+            Map<String, RevisionEnvelope> existing = load();
+            Set<UUID> existingIds = noteIds(existing);
+            RevisionGraph snapshot = graph(existing);
             ArrayList<UUID> deleted = new ArrayList<>();
             ArrayList<UUID> skipped = new ArrayList<>();
             Map<UUID, String> failed = new LinkedHashMap<>();
-            // Deterministic order gives predictable failure reporting.
-            for (UUID noteId : new TreeSet<>(selectedNoteIds)) {
-                List<RevisionEnvelope> heads = snapshot.heads(noteId);
-                if (heads.size() != 1 || heads.get(0).deleted()
-                        || !snapshot.pending(noteId).isEmpty()) {
-                    // An unresolved conflict or incomplete ancestry must be
-                    // preserved. Other independently valid notes still delete.
-                    skipped.add(noteId);
-                    continue;
-                }
-                RevisionEnvelope tombstone = RevisionEnvelope.create(
-                        noteId, List.of(heads.get(0).revisionId()), originDevice,
-                        modifiedUtc, true, "");
-                File path = new File(new File(history, noteId.toString()),
-                        tombstone.revisionId() + ".md");
-                try {
-                    durableWrite(path, tombstone.serialize(), false);
-                    deleted.add(noteId);
-                } catch (IOException error) {
-                    failed.put(noteId, "Could not save deletion: " + error.getMessage());
-                }
-            }
-            if (!deleted.isEmpty()) {
-                // On restart, Repository.open() reconstructs these views
-                // from immutable history if the process dies in between.
-                // Never report complete success if reconciliation fails.
-                try {
-                    reconcileLocked();
-                } catch (RuntimeException error) {
-                    for (UUID noteId : deleted) {
-                        failed.put(noteId,
-                                "Deletion stored in history but views need recovery: "
-                                        + error.getMessage());
+            for (UUID id : new TreeSet<>(selectedNoteIds)) {
+                if (!existingIds.contains(id) && !purgeMarker(id).isFile()) {
+                    skipped.add(id);
+                } else if (purgeMarker(id).isFile()) {
+                    deleted.add(id); // idempotent retry of a prior deletion
+                } else {
+                    List<RevisionEnvelope> heads = snapshot.heads(id);
+                    if (heads.size() != 1 || heads.get(0).deleted()
+                            || !snapshot.pending(id).isEmpty()) {
+                        // Previous UX contract: conflicting notes are skipped,
+                        // not silently erased in bulk.
+                        skipped.add(id);
+                    } else {
+                        deleted.add(id);
                     }
-                    deleted.clear();
                 }
             }
-            return new BatchDeleteResult(
-                    List.copyOf(deleted), List.copyOf(skipped), Map.copyOf(failed));
+            try {
+                purgeManyLocked(Set.copyOf(deleted));
+                if (!deleted.isEmpty()) reconcileLocked();
+            } catch (RuntimeException error) {
+                for (UUID id : deleted) failed.put(id,
+                        "Deletion marker saved but cleanup needs retry: " + error.getMessage());
+                deleted.clear();
+            }
+            return new BatchDeleteResult(List.copyOf(deleted),
+                    List.copyOf(skipped), Map.copyOf(failed));
         });
     }
 
@@ -396,6 +542,9 @@ public final class ProbeRepository {
         return withLock(() -> {
             Map<String, RevisionEnvelope> revisions = load();
             RevisionGraph graph = graph(revisions);
+            if (purgeMarker(noteId).isFile()) {
+                throw new IllegalStateException("note has been permanently deleted");
+            }
             requireExpectedHeads(graph, noteId, expectedHeadIds);
             if (expectedHeadIds.size() < 2) throw new IllegalStateException("note is not conflicted");
             RevisionEnvelope selected = revisions.get(selectedRevisionId);
@@ -446,6 +595,7 @@ public final class ProbeRepository {
     }
 
     private void reconcileLocked() {
+        finishAllPurgesLocked();
         Map<String, RevisionEnvelope> revisions = load();
         RevisionGraph graph = graph(revisions);
         Set<UUID> noteIds = noteIds(revisions);

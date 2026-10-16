@@ -8,6 +8,7 @@ Rectangle {
     required property var theme
     required property var i18n
     required property var preferences
+    property var purgeSync: null
     signal backRequested()
 
     color: root.theme.mainBackground
@@ -74,6 +75,79 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 1
+                    color: root.theme.border
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    text: "Automatic permanent deletion"
+                    color: root.theme.textPrimary
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    wrapMode: Text.WordWrap
+                    text: "While ReasonNotes is open, pair your phone using this computer's address and private pairing key. Only deletion IDs are exchanged. Closing the app stops the connection."
+                    color: root.theme.textSecondary
+                    font.pixelSize: root.theme.secondarySize
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    text: "Computer address"
+                    color: root.theme.textSecondary
+                    font.pixelSize: root.theme.secondarySize
+                }
+
+                TextField {
+                    objectName: "purgeComputerAddress"
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    readOnly: true
+                    selectByMouse: true
+                    text: root.purgeSync !== null ? root.purgeSync.computerAddress : ""
+                    color: root.theme.textPrimary
+                    font.pixelSize: root.theme.secondarySize
+                    background: Rectangle {
+                        color: root.theme.surface
+                        border.color: root.theme.border
+                        radius: root.theme.radiusSmall
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    text: "Private pairing key (copy to Android Settings)"
+                    color: root.theme.textSecondary
+                    font.pixelSize: root.theme.secondarySize
+                }
+
+                TextField {
+                    objectName: "purgePairingKey"
+                    Layout.fillWidth: true
+                    visible: root.purgeSync !== null
+                    readOnly: true
+                    selectByMouse: true
+                    text: root.purgeSync !== null ? root.purgeSync.pairingCode : ""
+                    color: root.theme.textPrimary
+                    font.pixelSize: root.theme.secondarySize
+                    background: Rectangle {
+                        color: root.theme.surface
+                        border.color: root.theme.border
+                        radius: root.theme.radiusSmall
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    visible: root.purgeSync !== null
                     color: root.theme.border
                 }
 

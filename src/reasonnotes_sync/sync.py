@@ -182,6 +182,10 @@ def scan_inbox(
         if not data.startswith(_FORMAT_MARKER):
             continue
         outcome = repository.import_bytes(data, source_name)
+        if outcome.kind == "purged":
+            # Stale KDE Connect files may remain in Downloads. No import,
+            # receipt or quarantine is permitted to resurrect their content.
+            continue
         if outcome.kind == "imported" and outcome.revision_id:
             imported.append(outcome.revision_id)
         elif outcome.kind == "duplicate" and outcome.revision_id:

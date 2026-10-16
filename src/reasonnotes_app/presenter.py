@@ -278,8 +278,10 @@ class NotePresenter:
         return self.save_active()
 
     def delete_active(self) -> bool:
-        if self.active_note_id is None or not self.save_active():
+        if self.active_note_id is None:
             return False
+        # Deleting must not save a pending draft into history just before
+        # erasing it. The deletion fence is the authoritative operation.
         note_id = UUID(self.active_note_id)
         try:
             self.service.delete_note(note_id)

@@ -190,21 +190,15 @@ class NoteService:
         self._edit_bases[note_id] = revision.revision_id
         return revision
 
-    def delete_note(self, note_id: UUID) -> Revision:
-        current = self._require_live_head(note_id)
-        expected_head = self._edit_bases.get(note_id, current.revision_id)
-        if current.revision_id != expected_head:
-            raise ConflictRequired("note changed since it was opened")
-        revision = self.repository.create_revision(
-            note_id,
-            "",
-            self.origin_device,
-            self._now(),
-            deleted=True,
-            expected_head_ids=(expected_head,),
-        )
+    def delete_note(self, note_id: UUID) -> None:
+        """Permanently purge all managed history, including conflicted heads.
+
+        A durable content-free fence survives until other paired instances
+        have also purged, preventing old KDE Connect transfers resurrecting it.
+        """
+        self.repository.purge_note(note_id)
         self._edit_bases.pop(note_id, None)
-        return revision
+        self._conflict_snapshots.pop(note_id, None)
 
     def conflict(self, note_id: UUID) -> tuple[ConflictCandidate, ...]:
         candidates = list_conflict(self.repository, note_id)

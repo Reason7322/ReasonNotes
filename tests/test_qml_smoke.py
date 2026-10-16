@@ -1082,22 +1082,19 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual(1, self.bridge.syncModel.rowCount())
         self.assertEqual("Beta", self.bridge.syncModel.row(0)["title"])
 
-    def test_sync_catalogue_includes_deleted_note_tombstone(self):
+    def test_purged_note_is_absent_from_sync_catalogue(self):
         self.assertTrue(self.bridge.createNote())
         note_id = self.bridge.activeNoteId
         self.bridge.editDraft("# Shared")
         self.assertTrue(self.bridge.saveNow())
         self.assertTrue(self.bridge.deleteCurrent())
-
         self.bridge.openSyncDialog()
-
         rows = [
             self.bridge.syncModel.row(index)
             for index in range(self.bridge.syncModel.rowCount())
         ]
-        deleted = next(row for row in rows if row["noteId"] == note_id)
-        self.assertEqual("Deleted note", deleted["title"])
-        self.assertEqual("Pending deletion", deleted["preview"])
+        self.assertFalse(any(row["noteId"] == note_id for row in rows))
+        self.assertTrue(self.bridge.presenter.repository.is_purged(UUID(note_id)))
 
     def test_sync_runs_off_gui_thread_and_reports_completion(self):
         started = Event()

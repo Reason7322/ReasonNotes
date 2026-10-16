@@ -58,13 +58,17 @@ public final class DraftStore {
         validateBase(baseRevisionId);
         Objects.requireNonNull(title, "title");
         Objects.requireNonNull(content, "content");
-        return withLock(() -> {
+        return ProbeRepository.withRepositoryLock(
+                new File(root.getParentFile(), "probe-repository"), () -> withLock(() -> {
+            if (isPurged(noteId)) {
+                throw new IllegalStateException("note was permanently deleted");
+            }
             Draft current = readLocked(noteId);
             long generation = current == null ? 1 : Math.addExact(current.generation(), 1);
             Draft draft = new Draft(noteId, generation, baseRevisionId, title, content);
             writeLocked(draft);
             return draft;
-        });
+        }));
     }
 
     public Draft current(UUID noteId) {
@@ -85,7 +89,15 @@ public final class DraftStore {
         validateBase(capturedBaseRevisionId);
         validateBase(savedRevisionId);
         validateBase(observedCurrentHeadId);
-        withLock(() -> {
+        ProbeRepository.withRepositoryLock(
+                new File(root.getParentFile(), "probe-repository"), () -> withLock(() -> {
+            if (isPurged(noteId)) {
+                try { Files.deleteIfExists(path(noteId).toPath()); }
+                catch (IOException error) {
+                    throw new IllegalStateException("cannot retire purged draft", error);
+                }
+                return null;
+            }
             Draft current = readLocked(noteId);
             if (current == null
                     || current.generation() < completedGeneration
@@ -108,7 +120,12 @@ public final class DraftStore {
                     current.title(),
                     current.content()));
             return null;
-        });
+        }));
+    }
+
+    private boolean isPurged(UUID noteId) {
+        return new File(new File(root.getParentFile(), "probe-repository/purged"),
+                noteId + ".id").isFile();
     }
 
     private File path(UUID noteId) { return new File(root, noteId + ".draft"); }

@@ -106,7 +106,11 @@ public final class ExchangeDirectory {
                 ProbeRepository.ImportOutcome outcome = repository.importEnvelope(data, name);
                 if (outcome.kind().equals("imported")) imported++;
                 else if (outcome.kind().equals("duplicate")) duplicates++;
-                else {
+                else if (outcome.kind().equals("purged")) {
+                    // An old transfer must never resurrect permanently deleted content.
+                    ignored++;
+                    continue;
+                } else {
                     rejectedRevisions++;
                     continue;
                 }

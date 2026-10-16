@@ -1,8 +1,9 @@
 package org.reasonnotes.probe;
 
 import static org.junit.Assert.*;
-
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
@@ -20,121 +21,111 @@ public final class BulkNoteDeletionTest {
 
     private NoteService service(ProbeRepository repository) {
         ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(A, B, C));
-        return new NoteService(repository, "android", () -> Instant.parse("2026-10-16T12:00:00Z"), ids::removeFirst);
+        return new NoteService(repository, "android",
+                () -> Instant.parse("2026-10-16T12:00:00Z"), ids::removeFirst);
     }
 
-    @Test public void deletesSeveralNotesAsIndependentRecoverableTombstones() throws Exception {
+    @Test public void permanentBulkPurgeDeletesAllRevisionHistoryNotJustCurrentHead() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repo = ProbeRepository.open(root);
         NoteService service = service(repo);
-        var first = service.createNote("First", "keep in history");
-        var second = service.createNote("Second", "keep in history");
-        var remaining = service.createNote("Third", "stays live");
+        var first = service.createNote("First", "private old");
+        service.saveNote(A, first.baseHeadIds(), "First", "private newer");
+        var second = service.createNote("Second", "private second");
+        var third = service.createNote("Third", "stay live");
 
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, Set.of(A, B));
         assertTrue(result.successful());
         assertEquals(Set.of(A, B), Set.copyOf(result.deleted()));
+        assertEquals(Set.of(A, B), repo.purgedNoteIds());
         assertEquals(Set.of(C), Set.copyOf(service.listNotes("").stream()
                 .map(NoteService.NoteSummary::noteId).toList()));
-        assertEquals(5, repo.revisions().size());
-        assertTrue(repo.heads(A).get(0).deleted());
-        assertTrue(repo.heads(B).get(0).deleted());
-        assertEquals(List.of(first.revisionId()), repo.heads(A).get(0).parents());
-        assertEquals(List.of(second.revisionId()), repo.heads(B).get(0).parents());
-        assertEquals(remaining.revisionId(), service.openNote(C).revisionId());
-        assertEquals(5, ProbeRepository.open(root).revisions().size());
+        assertEquals(1, repo.revisions().size());
+        assertFalse(new File(root, "history/" + A).exists());
+        assertFalse(new File(root, "history/" + B).exists());
+        assertEquals(third.revisionId(), repo.revisions().get(0).revisionId());
+        assertEquals("purged", repo.importEnvelope(
+                RevisionEnvelope.create(A, List.of(), "linux",
+                    Instant.parse("2026-10-16T13:00:00Z"), false, "old private")
+                    .serialize(), "stale.md").kind());
+        assertEquals(1, ProbeRepository.open(root).revisions().size());
     }
 
-    @Test public void oneConflictedNoteIsSkippedWhileOtherNotesDelete() throws Exception {
-        ProbeRepository repo = ProbeRepository.open(temporary.newFolder("repo"));
+    @Test public void unresolvedConflictsRemainUntouchedWhileOtherNotesPurge() throws Exception {
+        ProbeRepository repo = ProbeRepository.open(temporary.newFolder("conflict"));
         NoteService service = service(repo);
         var first = service.createNote("First", "live");
-        var second = service.createNote("Second", "live");
+        var second = service.createNote("Second", "base");
         RevisionEnvelope remote = RevisionEnvelope.create(B,
                 List.of(second.revisionId()), "linux",
                 Instant.parse("2026-10-16T12:00:01Z"), false, "# Remote edit");
-        var local = service.saveNote(B, second.baseHeadIds(), "Second local", "edited");
+        service.saveNote(B, second.baseHeadIds(), "Local edit", "new text");
         repo.importEnvelope(remote.serialize(), "remote.md");
         assertEquals(2, repo.heads(B).size());
-        int before = repo.revisions().size();
 
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, Set.of(A, B));
-        assertEquals(List.of(A), result.deleted());
-        assertEquals(List.of(B), result.skipped());
-        assertTrue(result.failed().isEmpty());
-        assertEquals(before + 1, repo.revisions().size());
-        assertTrue(repo.heads(A).get(0).deleted());
-        assertEquals(first.revisionId(), repo.heads(A).get(0).parents().get(0));
-        assertEquals(local.revisionId(), repo.heads(B).stream().filter(h ->
-                h.originDevice().equals("android")).findFirst().orElseThrow().revisionId());
+        assertEquals(Set.of(A), Set.copyOf(result.deleted()));
+        assertEquals(Set.of(B), Set.copyOf(result.skipped()));
+        assertTrue(repo.isPurged(A));
+        assertFalse(repo.isPurged(B));
+        assertEquals(3, repo.revisions().size());
+        assertEquals(2, repo.heads(B).size());
+        assertEquals("duplicate", repo.importEnvelope(remote.serialize(), "old.md").kind());
     }
 
-    @Test public void nonexistentOrAlreadyDeletedNotesAreSkipped() throws Exception {
-        ProbeRepository repo = ProbeRepository.open(temporary.newFolder("repo"));
+    @Test public void missingIdIsSkippedAndPreviouslyPurgedIdIsIdempotent() throws Exception {
+        ProbeRepository repo = ProbeRepository.open(temporary.newFolder("missing"));
         NoteService service = service(repo);
-        var first = service.createNote("First", "live");
-        var second = service.createNote("Second", "live");
-        service.deleteNote(B, second.baseHeadIds());
-        int before = repo.revisions().size();
-        BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, Set.of(A, B, C));
-        assertEquals(List.of(A), result.deleted());
-        assertEquals(Set.of(B, C), Set.copyOf(result.skipped()));
-        assertTrue(result.failed().isEmpty());
-        assertEquals(before + 1, repo.revisions().size());
-        assertEquals(first.revisionId(), repo.heads(A).get(0).parents().get(0));
+        service.createNote("First", "live");
+        BulkNoteDeletion.Result first = BulkNoteDeletion.delete(service, Set.of(A, B));
+        assertEquals(List.of(A), first.deleted());
+        assertEquals(List.of(B), first.skipped());
+        BulkNoteDeletion.Result repeated = BulkNoteDeletion.delete(service, Set.of(A, B));
+        assertEquals(List.of(A), repeated.deleted());
+        assertEquals(List.of(B), repeated.skipped());
+        assertTrue(repo.revisions().isEmpty());
     }
 
-    @Test public void bulkDeletingFourteenOfFifteenSkipsConflictAndPersistsEveryTombstone()
-            throws Exception {
-        File root = temporary.newFolder("larger-repo");
+    @Test public void purgeOfFifteenNotesIncludesConflictedHeadAndIsFast() throws Exception {
+        File root = temporary.newFolder("large");
         ProbeRepository repo = ProbeRepository.open(root);
         NoteService service = new NoteService(repo, "android",
                 () -> Instant.parse("2026-10-16T12:00:00Z"), UUID::randomUUID);
         java.util.LinkedHashSet<UUID> selected = new java.util.LinkedHashSet<>();
-        java.util.HashMap<UUID, String> originalHeads = new java.util.HashMap<>();
-        for (int i = 0; i < 15; i++) {
-            NoteService.OpenNote original = service.createNote("Note " + i, "content " + i);
-            selected.add(original.noteId());
-            originalHeads.put(original.noteId(), original.revisionId());
-        }
+        for (int i = 0; i < 15; i++) selected.add(
+                service.createNote("Test " + i, "private content " + i).noteId());
         UUID conflicted = selected.iterator().next();
-        String base = originalHeads.get(conflicted);
-        RevisionEnvelope local = repo.createRevision(conflicted, Set.of(base),
-                "# Local", "android", Instant.parse("2026-10-16T12:02:00Z"), false);
+        String base = repo.heads(conflicted).get(0).revisionId();
+        repo.createRevision(conflicted, Set.of(base), "# Local", "android",
+                Instant.parse("2026-10-16T12:01:00Z"), false);
         RevisionEnvelope remote = RevisionEnvelope.create(conflicted, List.of(base),
-                "linux", Instant.parse("2026-10-16T12:03:00Z"), false, "# Remote");
+                "linux", Instant.parse("2026-10-16T12:02:00Z"), false, "# Remote");
         repo.importEnvelope(remote.serialize(), "remote.md");
-        int before = repo.revisions().size();
-        long began = System.nanoTime();
+        long started = System.nanoTime();
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, selected);
-        long durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
-                System.nanoTime() - began);
-        System.out.println("ANDROID_15_NOTE_BATCH_JVM_MS=" + durationMs);
-
+        long ms = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        System.out.println("ANDROID_15_NOTE_PERMANENT_PURGE_JVM_MS=" + ms);
         assertEquals(14, result.deleted().size());
         assertEquals(List.of(conflicted), result.skipped());
         assertTrue(result.failed().isEmpty());
-        assertEquals(before + 14, repo.revisions().size());
-        assertEquals(2, repo.heads(conflicted).size());
-        assertEquals(Set.of(local.revisionId(), remote.revisionId()),
-                repo.headIds(conflicted));
-        for (UUID id : result.deleted()) {
-            assertTrue(repo.heads(id).get(0).deleted());
-            assertEquals(List.of(originalHeads.get(id)), repo.heads(id).get(0).parents());
-        }
-        ProbeRepository reloaded = ProbeRepository.open(root);
-        assertEquals(2, reloaded.heads(conflicted).size());
-        assertEquals(before + 14, reloaded.revisions().size());
-        assertEquals(1, service.listNotes("").size());
-        // Broad regression guard only: actual one-second phone target must
-        // be measured on device, not inferred from a fast host JVM.
-        assertTrue("Batch regression: " + durationMs + "ms", durationMs < 3000);
+        assertEquals(14, repo.purgedNoteIds().size());
+        assertEquals(3, repo.revisions().size());
+        assertEquals(3, ProbeRepository.open(root).revisions().size());
+        assertTrue("Deletion regression: " + ms + " ms", ms < 3000);
     }
 
-    @Test public void emptySelectionDoesNothing() throws Exception {
-        ProbeRepository repo = ProbeRepository.open(temporary.newFolder("repo"));
-        BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service(repo), Set.of());
-        assertTrue(result.successful());
-        assertEquals(0, repo.revisions().size());
+    @Test public void crashAfterFenceBeforePurgeRepairsAndBlocksOldImports() throws Exception {
+        File root = temporary.newFolder("crash");
+        ProbeRepository repo = ProbeRepository.open(root);
+        var first = service(repo).createNote("Private", "secret");
+        File marker = new File(root, "purged/" + A + ".id");
+        Files.write(marker.toPath(), (A + "\n").getBytes(StandardCharsets.US_ASCII));
+        assertTrue(repo.revisions().isEmpty());
+        assertTrue(ProbeRepository.open(root).revisions().isEmpty());
+        assertFalse(new File(root, "history/" + A).exists());
+        assertEquals("purged", repo.importEnvelope(
+                RevisionEnvelope.create(A, List.of(), "linux",
+                        Instant.parse("2026-10-16T13:00:00Z"), false, "secret")
+                        .serialize(), "stale.md").kind());
     }
 }

@@ -158,12 +158,8 @@ public final class NoteService {
         return open(revision);
     }
 
-    public RevisionEnvelope deleteNote(UUID noteId, Set<String> expectedHeadIds) {
-        List<RevisionEnvelope> heads = repository.requireHeads(noteId, expectedHeadIds);
-        if (heads.size() != 1) throw new ConflictRequiredException(noteId);
-        if (heads.get(0).deleted()) throw new NoteNotFoundException(noteId);
-        return repository.createRevision(
-                noteId, expectedHeadIds, "", originDevice, now(), true);
+    public void deleteNote(UUID noteId, Set<String> expectedHeadIds) {
+        repository.purgeNote(noteId);
     }
 
     public ProbeRepository.BatchDeleteResult deleteNotes(Set<UUID> noteIds) {

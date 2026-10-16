@@ -30,6 +30,7 @@ from reasonnotes_app.service import NoteService
 from reasonnotes_app.wayland_blur import WaylandBlurController
 from reasonnotes_sync.kdeconnect_linux import KdeConnectLinux
 from reasonnotes_sync.repository import Repository
+from reasonnotes_sync.foreground_purge import PurgeRelay, shared_key, PORT
 from reasonnotes_sync.sync import scan_inbox, sync_linux
 
 
@@ -153,6 +154,35 @@ def main(arguments=None) -> int:
     engine.rootContext().setContextProperty("appPreferences", preferences)
     engine.rootContext().setContextProperty("presenter", bridge)
     engine.rootContext().setContextProperty("smokeTest", False)
+    # Foreground-only LAN relay. The key is never sent over HTTP. No socket
+    # is opened when checking QML syntax or after the app exits.
+    from PySide6.QtCore import QObject, Property, QTimer
+    import socket
+
+    class DeletionPairing(QObject):
+        @Property(str, constant=True)
+        def pairingCode(self):
+            return key.hex()
+
+        @Property(str, constant=True)
+        def computerAddress(self):
+            return display_address
+
+        @Property(str, constant=True)
+        def port(self):
+            return str(PORT)
+
+    key = bytes(32) if options.check_launch else shared_key(
+        data_directory() / "delete-sync-key"
+    )
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 80))
+            display_address = probe.getsockname()[0]
+    except OSError:
+        display_address = "See your computer's LAN IPv4 address"
+    pairing = DeletionPairing()
+    engine.rootContext().setContextProperty("purgeSyncBridge", pairing)
     qml_path = Path(__file__).with_name("qml") / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
@@ -161,6 +191,40 @@ def main(arguments=None) -> int:
     if options.check_launch:
         blur_controller.close()
         return 0
+
+    relay = PurgeRelay(repository, key)
+    try:
+        relay.start()
+    except OSError as error:
+        # Do not crash the editor because a LAN port is unavailable.
+        print(f"ReasonNotes deletion relay unavailable: {error}", file=sys.stderr)
+
+    # QML state belongs to the GUI thread. Network workers only mutate the
+    # shared, locked repository; the GUI refreshes when the counter changes.
+    changes_seen = [relay.changes]
+    refresh_timer = QTimer()
+    refresh_timer.setInterval(600)
+
+    def refresh_after_remote_purge():
+        current = relay.changes
+        if current == changes_seen[0]:
+            return
+        changes_seen[0] = current
+        if presenter.active_note_id is not None and repository.is_purged(
+            UUID(presenter.active_note_id)
+        ):
+            presenter.active_note_id = None
+            presenter._active_head_ids = ()
+            presenter.draft = ""
+            presenter.dirty = False
+            presenter.conflict_view = None
+        presenter.refresh()
+        bridge._notify(body=True, conflict=True)
+
+    refresh_timer.timeout.connect(refresh_after_remote_purge)
+    refresh_timer.start()
+    application.aboutToQuit.connect(refresh_timer.stop)
+    application.aboutToQuit.connect(relay.stop)
     application.aboutToQuit.connect(blur_controller.close)
     # Hold the bridge/engine alive for the full native Qt event loop.
     return application.exec()

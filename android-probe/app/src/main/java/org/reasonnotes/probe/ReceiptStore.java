@@ -198,6 +198,39 @@ public final class ReceiptStore {
         if (changed) writeEntries(entries);
     }
 
+    /** Remove incoming/outgoing receipt records referencing erased history. */
+    public void forgetRevisions(java.util.Set<String> ids) {
+        if (ids.isEmpty()) return;
+        Map<String, DeliveryEntry> entries = readEntries();
+        if (entries.values().removeIf(entry -> ids.contains(entry.revisionId()))) {
+            writeEntries(entries);
+        }
+        File[] inboxFiles = inbox.listFiles(file -> file.isFile()
+                && file.getName().endsWith(".receipt.md"));
+        if (inboxFiles != null) {
+            for (File file : inboxFiles) forgetReceiptFile(file, ids);
+        }
+        File[] targets = outbox.listFiles(File::isDirectory);
+        if (targets != null) {
+            for (File target : targets) {
+                File[] files = target.listFiles(file -> file.isFile()
+                        && file.getName().endsWith(".receipt.md"));
+                if (files != null) for (File file : files) forgetReceiptFile(file, ids);
+            }
+        }
+    }
+
+    private static void forgetReceiptFile(File file, java.util.Set<String> ids) {
+        try {
+            ReceiptEnvelope receipt = ReceiptEnvelope.parse(Files.readAllBytes(file.toPath()));
+            if (ids.contains(receipt.revisionId())) Files.deleteIfExists(file.toPath());
+        } catch (IllegalArgumentException error) {
+            // An invalid unrelated receipt cannot block explicit note deletion.
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot remove purged note receipt", error);
+        }
+    }
+
     public File inboxFile(String receiptId) {
         validateHash(receiptId);
         return new File(inbox, receiptId + ".receipt.md");

@@ -32,6 +32,46 @@ class RepositoryTests(unittest.TestCase):
     def index(self):
         return json.loads((self.root / "state" / "index.json").read_text())
 
+    def test_permanent_purge_wipes_full_revision_history_and_rejects_old_reimports(self):
+        first = self.create_root("original secret")
+        updated = self.repository.create_revision(NOTE_ID, "new secret", "linux", T1)
+        self.assertTrue(self.history_path(first).exists())
+        self.assertTrue(self.history_path(updated).exists())
+        self.repository.purge_note(NOTE_ID)
+        self.assertTrue(self.repository.is_purged(NOTE_ID))
+        self.assertEqual(self.repository.revisions(), ())
+        self.assertFalse(self.history_path(first).exists())
+        self.assertFalse(self.history_path(updated).exists())
+        self.assertFalse((self.root / "notes" / f"{NOTE_ID}.md").exists())
+        self.assertFalse((self.root / "history" / str(NOTE_ID)).exists())
+        self.assertEqual("purged", self.repository.import_bytes(first.serialize(), "old-transfer.md").kind)
+        self.assertEqual(self.repository.revisions(), ())
+        with self.assertRaises(ConflictRequired):
+            self.repository.create_revision(NOTE_ID, "attempt", "linux", T2)
+
+    def test_purge_fence_survives_crash_before_history_file_cleanup(self):
+        first = self.create_root("sensitive")
+        marker = self.root / "purged" / f"{NOTE_ID}.id"
+        self.repository._atomic_write(marker, (str(NOTE_ID) + "\n").encode("ascii"))
+        self.assertEqual(self.repository.revisions(), ())
+        reopened = Repository.open(self.root)
+        self.assertTrue(reopened.is_purged(NOTE_ID))
+        self.assertFalse(self.history_path(first).exists())
+        self.assertFalse((self.root / "notes" / f"{NOTE_ID}.md").exists())
+
+    def test_purge_is_idempotent_and_conflict_history_is_purged(self):
+        parent = self.create_root("base secret")
+        self.repository.create_revision(NOTE_ID, "linux conflict", "linux", T1)
+        remote = Revision.create(NOTE_ID, (parent.revision_id,), "android", T2,
+                                 False, "android conflict")
+        self.assertEqual("imported", self.repository.import_bytes(remote.serialize(), "conflict.md").kind)
+        self.assertTrue(self.repository.graph().status(NOTE_ID).conflicted)
+        self.repository.purge_note(NOTE_ID)
+        self.repository.purge_note(NOTE_ID)
+        self.assertEqual(self.repository.revisions(), ())
+        self.assertFalse((self.root / "conflicts" / f"{NOTE_ID}.json").exists())
+        self.assertTrue((self.root / "purged" / f"{NOTE_ID}.id").is_file())
+
     def test_import_writes_history_before_index_and_working_view(self):
         revision = Revision.create(NOTE_ID, (), "android", T0, False, "incoming")
         events = []

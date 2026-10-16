@@ -461,6 +461,30 @@ class ReceiptStore:
             raise ReceiptError("receipt is missing from outbox")
         return matching[0]
 
+    def forget_revisions(self, revision_ids: set[str]) -> None:
+        """Remove obsolete receipt metadata and queued envelopes for purged notes."""
+        if not revision_ids:
+            return
+        ids = {_validated_hash(revision, "revision ID") for revision in revision_ids}
+        with self._delivery_lock():
+            entries = self._read_entries()
+            retained = {
+                key: entry for key, entry in entries.items()
+                if entry.revision_id not in ids
+            }
+            if len(retained) != len(entries):
+                self._write_entries(retained)
+            for path in self.outbox_dir.glob("*/*.receipt.md"):
+                receipt = ReceiptEnvelope.parse(path.read_bytes())
+                if receipt.revision_id in ids:
+                    path.unlink()
+                    self._fsync_directory(path.parent)
+            for path in self.inbox_dir.glob("*.receipt.md"):
+                receipt = ReceiptEnvelope.parse(path.read_bytes())
+                if receipt.revision_id in ids:
+                    path.unlink()
+                    self._fsync_directory(path.parent)
+
     def queue(
         self,
         revision: Revision,

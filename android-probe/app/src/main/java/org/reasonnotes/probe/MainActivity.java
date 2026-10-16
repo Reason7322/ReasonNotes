@@ -151,6 +151,15 @@ public final class MainActivity extends Activity {
         });
     }
 
+    /** Called only for foreground remote deletions, on Android UI thread. */
+    public void onRemotePurges(Set<UUID> ids) {
+        if (repository == null || service == null) return;
+        pins.clearPins(ids);
+        selection.removeAll(ids);
+        updateSelectionUi();
+        renderNotes();
+    }
+
     @Override protected void onSaveInstanceState(Bundle outState) {
         ArrayList<String> ids = new ArrayList<>();
         // Do not restore potentially deleted selections across recreation.
@@ -348,10 +357,9 @@ public final class MainActivity extends Activity {
         int count = selectedIds.size();
         new AlertDialog.Builder(this)
                 .setTitle("Delete " + count + (count == 1 ? " note?" : " notes?"))
-                .setMessage("The selected notes will be removed from the list. "
-                        + "Their deletions remain recoverable in immutable history and can sync "
-                        + "to your other device. Notes with unresolved conflicts will "
-                        + "be skipped; the other selected notes will be deleted.")
+                .setMessage("Permanently erase the selected notes and all previous versions? "
+                        + "This cannot be undone. Notes with unresolved conflicts are skipped. "
+                        + "Their copies on paired devices will be erased once ReasonNotes reconnects.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> {
                     deletionInProgress = true;
@@ -386,6 +394,9 @@ public final class MainActivity extends Activity {
         deletionInProgress = false;
         pins.clearPins(result.deleted());
         selection.removeAll(result.deleted());
+        if (!result.deleted().isEmpty()) {
+            ((ReasonNotesApplication) getApplication()).requestImmediatePoll();
+        }
         int deleted = result.deleted().size();
         int skipped = result.skipped().size();
         int failed = result.failed().size();
@@ -397,9 +408,9 @@ public final class MainActivity extends Activity {
             String message = "Deleted " + deleted + " of " + requested + " selected notes.";
             if (skipped > 0) {
                 message += "\n\nSkipped " + skipped
-                        + " conflicted, unavailable, or already deleted "
+                        + " missing or already permanently deleted "
                         + (skipped == 1 ? "note" : "notes")
-                        + ". Resolve conflicts separately if you want to delete them.";
+                        + ". They were not found in the local repository.";
             }
             if (failed > 0) {
                 message += "\n\n" + failed + " deletion operations could not "

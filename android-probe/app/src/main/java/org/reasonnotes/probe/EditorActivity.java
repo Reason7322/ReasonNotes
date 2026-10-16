@@ -83,6 +83,16 @@ public final class EditorActivity extends Activity {
         });
     }
 
+    /** If the PC permanently deleted this note, close without autosaving. */
+    public void onRemotePurges(Set<UUID> ids) {
+        if (noteId == null || !ids.contains(noteId)) return;
+        closing = true;
+        binding = true;
+        if (body != null) body.setText("");
+        if (title != null) title.setText("");
+        finish();
+    }
+
     @Override protected void onPause() {
         if (!closing) flushEditor(false);
         super.onPause();
@@ -336,11 +346,14 @@ public final class EditorActivity extends Activity {
     private void confirmDelete() {
         new AlertDialog.Builder(this)
                 .setTitle("Delete note?")
-                .setMessage("The deletion remains recoverable in immutable history.")
+                .setMessage("Permanently erase this note and every previous version? "
+                        + "This cannot be undone. Other paired devices will erase their "
+                        + "copies when ReasonNotes reconnects.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> io.execute(() -> {
                     try {
                         service.deleteNote(noteId, repository.headIds(noteId));
+                        ((ReasonNotesApplication) getApplication()).requestImmediatePoll();
                         runOnUiThread(() -> {
                             closing = true;
                             finish();
