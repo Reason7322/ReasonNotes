@@ -62,6 +62,16 @@ public final class ProbeRepository {
         this.mutationLock = ROOT_LOCKS.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
     }
 
+    /** Open for immediate history-backed listing/editing, without writing the
+     * regenerated working views on the UI's critical path. The caller may
+     * invoke reconcile() asynchronously; immutable history remains the source
+     * of truth for notes and updates. */
+    public static ProbeRepository openForDisplay(File root) {
+        ProbeRepository repository = new ProbeRepository(root);
+        repository.withLock(repository::ensureDirectories);
+        return repository;
+    }
+
     public static ProbeRepository open(File root) {
         ProbeRepository repository = new ProbeRepository(root);
         repository.withLock(() -> {

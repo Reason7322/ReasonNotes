@@ -108,6 +108,31 @@ public final class ProbeRepositoryTest {
     }
 
     @Test
+    public void fastDisplayReadsCommittedHistoryWithoutDoingWorkingViewWrites() throws Exception {
+        File rootDirectory = temporary.newFolder("fast-display");
+        ProbeRepository first = ProbeRepository.open(rootDirectory);
+        RevisionEnvelope original = revision("Saved note", List.of(), "android", 0, false);
+        first.importEnvelope(original.serialize(), "original.md");
+        var index = new File(rootDirectory, "state/index.txt").toPath();
+        var view = new File(rootDirectory, "current/" + NOTE + ".md").toPath();
+        Files.deleteIfExists(index);
+        Files.deleteIfExists(view);
+
+        ProbeRepository fast = ProbeRepository.openForDisplay(rootDirectory);
+        NoteService service = new NoteService(fast, "android",
+                () -> Instant.parse("2026-10-16T20:00:00Z"), UUID::randomUUID);
+        assertEquals(1, service.listNotes("").size());
+        assertEquals("Saved note", service.openNote(NOTE).title());
+        assertFalse(Files.exists(index));
+        assertFalse(Files.exists(view));
+
+        fast.reconcile();
+        assertTrue(Files.exists(index));
+        assertTrue(Files.exists(view));
+        assertEquals("Saved note", new String(Files.readAllBytes(view), StandardCharsets.UTF_8));
+    }
+
+    @Test
     public void reconcileRepairsHistoryOnlyInterruptionAndMissingView() throws Exception {
         File rootDirectory = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(rootDirectory);

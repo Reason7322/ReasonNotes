@@ -7,10 +7,14 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.util.TypedValue;
+import android.graphics.Color;
+import android.text.InputType;
+import android.view.inputmethod.EditorInfo;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
@@ -41,8 +45,8 @@ public final class EditorActivity extends Activity {
     private EditorAutosaveController autosave;
     private EditText title;
     private EditText body;
-    private TextView localStatus;
-    private TextView deliveryStatus;
+    private TextView editorWarning;
+    private boolean conflictingChanges;
     private boolean binding;
     private boolean closing;
 
@@ -56,15 +60,27 @@ public final class EditorActivity extends Activity {
             finish();
             return;
         }
-        repository = ProbeRepository.open(new File(getFilesDir(), "probe-repository"));
-        service = new NoteService(
-                repository,
-                "android",
-                () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
-                UUID::randomUUID);
-        drafts = new DraftStore(new File(getFilesDir(), "drafts"));
         setContentView(buildContent());
-        loadNote();
+        // The screen and its controls must exist before repository I/O.
+        io.execute(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            try {
+                repository = ProbeRepository.openForDisplay(
+                        new File(getFilesDir(), "probe-repository"));
+                service = new NoteService(
+                        repository,
+                        "android",
+                        () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
+                        UUID::randomUUID);
+                drafts = new DraftStore(new File(getFilesDir(), "drafts"));
+                loadNoteOnWorker();
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed())
+                        showWarning("Could not open note: " + error.getMessage());
+                });
+            }
+        });
     }
 
     @Override protected void onPause() {
@@ -88,75 +104,100 @@ public final class EditorActivity extends Activity {
     }
 
     private View buildContent() {
+        // The editor is a writing surface, not a form inside another card.
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(UiTokens.BACKGROUND);
-        int base = UiTokens.dp(this, UiTokens.SPACE_M);
-        root.setPadding(base, base, base, base);
+        int horizontal = UiTokens.dp(this, UiTokens.SPACE_L);
+        int vertical = UiTokens.dp(this, UiTokens.SPACE_S);
+        root.setPadding(horizontal, vertical, horizontal, vertical);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            view.setPadding(
-                    base,
-                    base + bars.top,
-                    base,
-                    HomeLayout.bottomContentPadding(base, bars.bottom, ime.bottom));
+            view.setPadding(horizontal, vertical + bars.top, horizontal,
+                    HomeLayout.bottomContentPadding(vertical, bars.bottom, ime.bottom));
             return insets;
         });
 
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = button("‹", "Back");
+        ImageButton back = iconButton(R.drawable.ic_note_back, "Back to notes");
         back.setOnClickListener(view -> flushEditor(true));
         toolbar.addView(back, new LinearLayout.LayoutParams(
-                UiTokens.dp(this, 52), UiTokens.dp(this, 48)));
-        TextView label = text("Edit note", 15, UiTokens.TEXT_SECONDARY);
-        toolbar.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        Button more = button("⋮", "More actions");
+                UiTokens.dp(this, 48), UiTokens.dp(this, 48)));
+        View space = new View(this);
+        toolbar.addView(space, new LinearLayout.LayoutParams(0, 1, 1f));
+        ImageButton more = iconButton(R.drawable.ic_note_more, "More note actions");
         more.setOnClickListener(this::showOverflow);
         toolbar.addView(more, new LinearLayout.LayoutParams(
-                UiTokens.dp(this, 52), UiTokens.dp(this, 48)));
+                UiTokens.dp(this, 48), UiTokens.dp(this, 48)));
         root.addView(toolbar, matchWrap());
 
         title = new EditText(this);
-        title.setHint("Untitled");
+        title.setHint("Title");
         title.setSingleLine(true);
         title.setTextColor(UiTokens.TEXT);
         title.setHintTextColor(UiTokens.TEXT_SECONDARY);
-        title.setTextSize(25);
+        title.setTextSize(27);
         title.setTypeface(UiTokens.medium());
-        title.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        title.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, UiTokens.dp(this, UiTokens.SPACE_S));
+        title.setBackgroundColor(Color.TRANSPARENT);
+        title.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_L), 0,
+                UiTokens.dp(this, UiTokens.SPACE_S));
+        title.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        title.setEnabled(false);
         root.addView(title, matchWrap());
 
-        LinearLayout statusRow = new LinearLayout(this);
-        localStatus = text("Loading…", 12, UiTokens.TEXT_SECONDARY);
-        deliveryStatus = text("Phone delivery: not confirmed", 12, UiTokens.TEXT_SECONDARY);
-        deliveryStatus.setGravity(Gravity.END);
-        statusRow.addView(localStatus, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        statusRow.addView(deliveryStatus, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(statusRow, matchWrap());
+        // Only errors and stale drafts should interrupt writing. Routine save
+        // and transport details remain in the dedicated sync interface.
+        editorWarning = text("", 13, UiTokens.DANGER);
+        editorWarning.setVisibility(View.GONE);
+        editorWarning.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_S), 0,
+                UiTokens.dp(this, UiTokens.SPACE_S));
+        root.addView(editorWarning, matchWrap());
 
         body = new EditText(this);
-        body.setHint("Write Markdown…");
+        body.setHint("Start writing…");
         body.setGravity(Gravity.TOP | Gravity.START);
         body.setTextColor(UiTokens.TEXT);
         body.setHintTextColor(UiTokens.TEXT_SECONDARY);
         body.setTextSize(17);
-        body.setLineSpacing(0f, 1.25f);
-        body.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
-        int bodyPadding = UiTokens.dp(this, UiTokens.SPACE_M);
-        body.setPadding(bodyPadding, bodyPadding, bodyPadding, bodyPadding);
+        body.setLineSpacing(0f, 1.18f);
+        body.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        body.setBackgroundColor(Color.TRANSPARENT);
+        body.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, 0);
+        body.setEnabled(false);
         root.addView(body, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         ViewCompat.requestApplyInsets(root);
         return root;
     }
 
-    private void loadNote() {
-        io.execute(() -> {
+    private ImageButton iconButton(int icon, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(icon);
+        button.setContentDescription(description);
+        button.setScaleType(android.widget.ImageView.ScaleType.CENTER);
+        TypedValue ripple = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless,
+                ripple, true)) {
+            button.setBackgroundResource(ripple.resourceId);
+        } else {
+            button.setBackgroundColor(Color.TRANSPARENT);
+        }
+        return button;
+    }
+
+    private void showWarning(String message) {
+        if (editorWarning == null) return;
+        editorWarning.setText(message);
+        editorWarning.setVisibility(View.VISIBLE);
+    }
+
+    private void loadNoteOnWorker() {
             try {
                 NoteService.OpenNote opened = service.openNote(noteId);
+                if (isFinishing() || isDestroyed()) return;
                 autosave = new EditorAutosaveController(
                         drafts,
                         noteId,
@@ -177,13 +218,20 @@ public final class EditorActivity extends Activity {
                 DraftStore.Recovery recovery = autosave.recovery();
                 String initialTitle = recovery.draft() == null ? opened.title() : recovery.draft().title();
                 String initialBody = recovery.draft() == null ? opened.content() : recovery.draft().content();
-                runOnUiThread(() -> bindEditor(initialTitle, initialBody, recovery));
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed())
+                        bindEditor(initialTitle, initialBody, recovery);
+                });
             } catch (NoteService.ConflictRequiredException conflict) {
-                runOnUiThread(this::openConflictAndFinish);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) openConflictAndFinish();
+                });
             } catch (RuntimeException error) {
-                runOnUiThread(() -> localStatus.setText("Could not open note: " + error.getMessage()));
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed())
+                        showWarning("Could not open note: " + error.getMessage());
+                });
             }
-        });
     }
 
     private void bindEditor(String initialTitle, String initialBody, DraftStore.Recovery recovery) {
@@ -191,6 +239,19 @@ public final class EditorActivity extends Activity {
         title.setText(initialTitle);
         body.setText(initialBody);
         binding = false;
+        title.setEnabled(true);
+        body.setEnabled(true);
+        // A newly created note should be ready for immediate typing, without
+        // requiring a second tap. Existing populated notes stay undisturbed.
+        if (initialBody.isEmpty()) {
+            body.requestFocus();
+            body.post(() -> {
+                if (isFinishing() || isDestroyed() || !body.hasFocus()) return;
+                InputMethodManager ime = (InputMethodManager)
+                        getSystemService(INPUT_METHOD_SERVICE);
+                if (ime != null) ime.showSoftInput(body, InputMethodManager.SHOW_IMPLICIT);
+            });
+        }
         TextWatcher watcher = new SimpleTextWatcher() {
             @Override public void afterTextChanged(Editable value) {
                 if (binding || autosave == null) return;
@@ -201,6 +262,17 @@ public final class EditorActivity extends Activity {
         };
         title.addTextChangedListener(watcher);
         body.addTextChangedListener(watcher);
+        // Reconstruct generated views from immutable history *after* the
+        // editor is interactive. No disk work on the UI thread.
+        io.execute(() -> {
+            try { repository.reconcile(); }
+            catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed())
+                        showWarning("Working-view recovery failed: " + error.getMessage());
+                });
+            }
+        });
         if (recovery.draft() == null) renderStatus(EditorAutosaveController.Status.SAVED);
         else renderStatus(recovery.safeToApply()
                 ? EditorAutosaveController.Status.DIRTY
@@ -212,7 +284,6 @@ public final class EditorActivity extends Activity {
             if (finishWhenSaved) finish();
             return;
         }
-        localStatus.setText("Saving locally…");
         io.execute(() -> autosave.flush().whenComplete((status, error) -> runOnUiThread(() -> {
             if (finishWhenSaved && status == EditorAutosaveController.Status.SAVED) {
                 closing = true;
@@ -225,26 +296,20 @@ public final class EditorActivity extends Activity {
 
     private void renderStatus(EditorAutosaveController.Status status) {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || editorWarning == null) return;
             switch (status) {
-                case SAVED -> {
-                    localStatus.setText("Saved locally");
-                    localStatus.setTextColor(UiTokens.SUCCESS);
-                }
-                case DIRTY -> {
-                    localStatus.setText("Unsaved draft preserved");
-                    localStatus.setTextColor(UiTokens.ACCENT);
-                }
-                case SAVING -> {
-                    localStatus.setText("Saving locally…");
-                    localStatus.setTextColor(UiTokens.TEXT_SECONDARY);
-                }
-                case ERROR -> {
-                    localStatus.setText("Save failed — draft preserved");
-                    localStatus.setTextColor(UiTokens.DANGER);
-                }
+                case ERROR -> showWarning("Couldn't save. Your draft is preserved.");
                 case STALE -> {
-                    localStatus.setText("Note changed — draft preserved");
-                    localStatus.setTextColor(UiTokens.DANGER);
+                    conflictingChanges = true;
+                    showWarning("This note changed elsewhere. Your draft is preserved.");
+                }
+                case SAVED, DIRTY, SAVING -> {
+                    // If the recovered draft is stale, editing cannot erase
+                    // its warning or magically resolve the conflicting heads.
+                    if (status == EditorAutosaveController.Status.SAVED) {
+                        conflictingChanges = false;
+                    }
+                    if (!conflictingChanges) editorWarning.setVisibility(View.GONE);
                 }
             }
         });
@@ -253,12 +318,15 @@ public final class EditorActivity extends Activity {
     private void showOverflow(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add("Save");
-        menu.getMenu().add("Delete");
-        if (repository.headIds(noteId).size() > 1) menu.getMenu().add("Resolve conflict");
+        menu.getMenu().add("Delete note");
+        menu.getMenu().add("Sync details");
+        if (conflictingChanges) menu.getMenu().add("Resolve conflict");
         menu.setOnMenuItemClickListener(item -> {
             String action = item.getTitle().toString();
             if (action.equals("Save")) flushEditor(false);
-            else if (action.equals("Delete")) confirmDelete();
+            else if (action.equals("Delete note")) confirmDelete();
+            else if (action.equals("Sync details"))
+                startActivity(new Intent(this, SyncActivity.class));
             else openConflictAndFinish();
             return true;
         });
@@ -290,16 +358,6 @@ public final class EditorActivity extends Activity {
         startActivity(intent);
         closing = true;
         finish();
-    }
-
-    private Button button(String label, String description) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setContentDescription(description);
-        button.setTextColor(UiTokens.TEXT);
-        button.setTextSize(24);
-        button.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
-        return button;
     }
 
     private TextView text(String value, float size, int color) {
