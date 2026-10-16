@@ -1,5 +1,6 @@
 package org.reasonnotes.probe;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -23,6 +24,14 @@ public final class PinStore {
         if (pinned) values.add(noteId.toString());
         else values.remove(noteId.toString());
         preferences.putStringSet(KEY, values);
+    }
+
+    /** Clearing many pins must not write preferences once per note. */
+    public void clearPins(Collection<UUID> noteIds) {
+        HashSet<String> values = new HashSet<>(preferences.getStringSet(KEY));
+        boolean changed = false;
+        for (UUID noteId : noteIds) changed |= values.remove(noteId.toString());
+        if (changed) preferences.putStringSet(KEY, values);
     }
 
     public Set<UUID> visiblePinned(Set<UUID> visibleNoteIds) {

@@ -156,6 +156,10 @@ public final class NoteService {
                 noteId, expectedHeadIds, "", originDevice, now(), true);
     }
 
+    public ProbeRepository.BatchDeleteResult deleteNotes(Set<UUID> noteIds) {
+        return repository.deleteNotes(noteIds, originDevice, now());
+    }
+
     public ConflictSnapshot inspectConflict(UUID noteId) {
         List<RevisionEnvelope> heads = repository.heads(noteId);
         if (heads.size() < 2) throw new ConflictRequiredException(noteId);

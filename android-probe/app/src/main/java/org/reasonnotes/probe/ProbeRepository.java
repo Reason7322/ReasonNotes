@@ -132,6 +132,14 @@ public final class ProbeRepository {
         }
     }
 
+    /** Generated views are derived from immutable history; rewriting an
+     * identical view on every reconciliation adds costly flash syncs. */
+    private static void durableWriteIfChanged(File target, byte[] data) throws IOException {
+        if (target.isFile() && java.util.Arrays.equals(
+                Files.readAllBytes(target.toPath()), data)) return;
+        durableWrite(target, data, true);
+    }
+
     private Map<String, RevisionEnvelope> load() {
         Map<String, RevisionEnvelope> revisions = new LinkedHashMap<>();
         File[] noteDirectories = history.listFiles(File::isDirectory);
@@ -301,6 +309,64 @@ public final class ProbeRepository {
         });
     }
 
+    /** A single, lock-protected operation: skip conflicts, persist valid tombstones,
+     * and rebuild derived views once rather than once per selected note. */
+    public record BatchDeleteResult(
+            List<UUID> deleted, List<UUID> skipped, Map<UUID, String> failed) {}
+
+    public BatchDeleteResult deleteNotes(
+            Set<UUID> selectedNoteIds, String originDevice, Instant modifiedUtc) {
+        if (selectedNoteIds.isEmpty()) {
+            return new BatchDeleteResult(List.of(), List.of(), Map.of());
+        }
+        return withLock(() -> {
+            Map<String, RevisionEnvelope> revisions = load();
+            RevisionGraph snapshot = graph(revisions);
+            ArrayList<UUID> deleted = new ArrayList<>();
+            ArrayList<UUID> skipped = new ArrayList<>();
+            Map<UUID, String> failed = new LinkedHashMap<>();
+            // Deterministic order gives predictable failure reporting.
+            for (UUID noteId : new TreeSet<>(selectedNoteIds)) {
+                List<RevisionEnvelope> heads = snapshot.heads(noteId);
+                if (heads.size() != 1 || heads.get(0).deleted()
+                        || !snapshot.pending(noteId).isEmpty()) {
+                    // An unresolved conflict or incomplete ancestry must be
+                    // preserved. Other independently valid notes still delete.
+                    skipped.add(noteId);
+                    continue;
+                }
+                RevisionEnvelope tombstone = RevisionEnvelope.create(
+                        noteId, List.of(heads.get(0).revisionId()), originDevice,
+                        modifiedUtc, true, "");
+                File path = new File(new File(history, noteId.toString()),
+                        tombstone.revisionId() + ".md");
+                try {
+                    durableWrite(path, tombstone.serialize(), false);
+                    deleted.add(noteId);
+                } catch (IOException error) {
+                    failed.put(noteId, "Could not save deletion: " + error.getMessage());
+                }
+            }
+            if (!deleted.isEmpty()) {
+                // On restart, Repository.open() reconstructs these views
+                // from immutable history if the process dies in between.
+                // Never report complete success if reconciliation fails.
+                try {
+                    reconcileLocked();
+                } catch (RuntimeException error) {
+                    for (UUID noteId : deleted) {
+                        failed.put(noteId,
+                                "Deletion stored in history but views need recovery: "
+                                        + error.getMessage());
+                    }
+                    deleted.clear();
+                }
+            }
+            return new BatchDeleteResult(
+                    List.copyOf(deleted), List.copyOf(skipped), Map.copyOf(failed));
+        });
+    }
+
     public RevisionEnvelope resolveConflict(
             UUID noteId,
             Set<String> expectedHeadIds,
@@ -380,7 +446,7 @@ public final class ProbeRepository {
                     .append('|').append(String.join(",", graph.pending(noteId))).append('\n');
         }
         try {
-            durableWrite(new File(state, "index.txt"), index.toString().getBytes(StandardCharsets.UTF_8), true);
+            durableWriteIfChanged(new File(state, "index.txt"), index.toString().getBytes(StandardCharsets.UTF_8));
             for (UUID noteId : noteIds) {
                 RevisionEnvelope choice = selected.get(noteId);
                 File idPath = currentIdPath(noteId);
@@ -390,11 +456,11 @@ public final class ProbeRepository {
                     Files.deleteIfExists(view.toPath());
                     continue;
                 }
-                durableWrite(idPath, (choice.revisionId() + "\n").getBytes(StandardCharsets.US_ASCII), true);
+                durableWriteIfChanged(idPath, (choice.revisionId() + "\n").getBytes(StandardCharsets.US_ASCII));
                 if (choice.deleted()) {
                     Files.deleteIfExists(view.toPath());
                 } else {
-                    durableWrite(view, choice.body().getBytes(StandardCharsets.UTF_8), true);
+                    durableWriteIfChanged(view, choice.body().getBytes(StandardCharsets.UTF_8));
                 }
             }
         } catch (IOException error) {

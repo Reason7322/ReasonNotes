@@ -37,6 +37,19 @@ public final class PinStoreTest {
     }
 
     @Test
+    public void clearingDeletedPinsKeepsUnselectedPins() {
+        FakePreferences preferences = new FakePreferences();
+        PinStore pins = new PinStore(preferences);
+        pins.setPinned(LIVE, true);
+        pins.setPinned(STALE, true);
+        pins.clearPins(Set.of(LIVE));
+        assertFalse(pins.isPinned(LIVE));
+        assertTrue(pins.isPinned(STALE));
+        pins.clearPins(Set.of(LIVE)); // idempotent
+        assertTrue(pins.isPinned(STALE));
+    }
+
+    @Test
     public void pinningDoesNotCreateNoteRevisions() throws Exception {
         ProbeRepository repository = ProbeRepository.open(temporary.newFolder("repo"));
         repository.createRevision(LIVE, Set.of(), "note", "android", Instant.parse("2026-10-15T04:00:00Z"), false);

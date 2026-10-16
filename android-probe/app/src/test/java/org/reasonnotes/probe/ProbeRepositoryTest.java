@@ -100,6 +100,31 @@ public final class ProbeRepositoryTest {
     }
 
     @Test
+    public void reconcileDoesNotRewriteUnchangedDerivedViews() throws Exception {
+        File rootDirectory = temporary.newFolder("repo");
+        ProbeRepository repository = ProbeRepository.open(rootDirectory);
+        RevisionEnvelope original = revision("untouched content", List.of(), "android", 0, false);
+        repository.importEnvelope(original.serialize(), "original.md");
+        var index = new File(rootDirectory, "state/index.txt").toPath();
+        var currentId = new File(rootDirectory, "state/current-" + NOTE + ".txt").toPath();
+        var working = new File(rootDirectory, "current/" + NOTE + ".md").toPath();
+        var old = java.nio.file.attribute.FileTime.from(Instant.parse("2001-01-01T00:00:00Z"));
+        for (var file : List.of(index, currentId, working)) {
+            Files.setLastModifiedTime(file, old);
+        }
+
+        repository.reconcile();
+        for (var file : List.of(index, currentId, working)) {
+            assertEquals(old, Files.getLastModifiedTime(file));
+        }
+        Files.delete(working);
+        repository.reconcile();
+        assertEquals("untouched content", new String(Files.readAllBytes(working), StandardCharsets.UTF_8));
+        assertEquals(old, Files.getLastModifiedTime(index));
+        assertEquals(old, Files.getLastModifiedTime(currentId));
+    }
+
+    @Test
     public void allHeadsExposeEveryNoteForAcceptancePreviews() throws Exception {
         ProbeRepository repository = ProbeRepository.open(temporary.newFolder("repo"));
         RevisionEnvelope first = revision("first note", List.of(), "linux", 0, false);

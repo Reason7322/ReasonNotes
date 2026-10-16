@@ -318,15 +318,32 @@ public final class MainActivity extends Activity {
                 .setTitle("Delete " + count + (count == 1 ? " note?" : " notes?"))
                 .setMessage("The selected notes will be removed from the list. "
                         + "Their deletions remain recoverable in immutable history and can sync "
-                        + "to your other device. Conflicted notes must be resolved first.")
+                        + "to your other device. Notes with unresolved conflicts will "
+                        + "be skipped; the other selected notes will be deleted.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> {
                     deletionInProgress = true;
                     updateSelectionUi();
                     io.execute(() -> {
-                        BulkNoteDeletion.Result result = BulkNoteDeletion.delete(
-                                service, repository, selectedIds);
-                        runOnUiThread(() -> finishBulkDelete(result, count));
+                        try {
+                            BulkNoteDeletion.Result result = BulkNoteDeletion.delete(
+                                    service, selectedIds);
+                            runOnUiThread(() -> finishBulkDelete(result, count));
+                        } catch (RuntimeException error) {
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed()) return;
+                                deletionInProgress = false;
+                                updateSelectionUi();
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Deletion could not finish")
+                                        .setMessage("An unexpected error interrupted the operation. "
+                                                + "Reopen the notes list before retrying: "
+                                                + error.getMessage())
+                                        .setPositiveButton("OK", null)
+                                        .show();
+                                renderNotes();
+                            });
+                        }
                     });
                 })
                 .show();
@@ -335,30 +352,31 @@ public final class MainActivity extends Activity {
     private void finishBulkDelete(BulkNoteDeletion.Result result, int requested) {
         if (isFinishing() || isDestroyed()) return;
         deletionInProgress = false;
-        if (!result.blocked().isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Cannot delete selected notes")
-                    .setMessage(result.blocked().size()
-                            + " selected note(s) have conflicts, are missing or are already deleted. "
-                            + "No notes were deleted. Resolve conflicts or refresh the selection first.")
-                    .setPositiveButton("OK", null)
-                    .show();
-            updateSelectionUi();
-            renderNotes();
-            return;
-        }
-        for (UUID id : result.deleted()) pins.setPinned(id, false);
+        pins.clearPins(result.deleted());
         selection.removeAll(result.deleted());
-        if (result.successful()) {
+        int deleted = result.deleted().size();
+        int skipped = result.skipped().size();
+        int failed = result.failed().size();
+        if (skipped == 0 && failed == 0) {
             selection.clear();
-            Toast.makeText(this, "Deleted " + requested + (requested == 1 ? " note" : " notes"),
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Deleted " + deleted
+                    + (deleted == 1 ? " note" : " notes"), Toast.LENGTH_LONG).show();
         } else {
+            String message = "Deleted " + deleted + " of " + requested + " selected notes.";
+            if (skipped > 0) {
+                message += "\n\nSkipped " + skipped
+                        + " conflicted, unavailable, or already deleted "
+                        + (skipped == 1 ? "note" : "notes")
+                        + ". Resolve conflicts separately if you want to delete them.";
+            }
+            if (failed > 0) {
+                message += "\n\n" + failed + " deletion operations could not "
+                        + "be completed safely. Check the app's note list before retrying.";
+            }
             new AlertDialog.Builder(this)
-                    .setTitle("Some notes could not be deleted")
-                    .setMessage("Deleted " + result.deleted().size() + " of " + requested
-                            + " notes. " + result.failed().size()
-                            + " failed and remain selected. Nothing was silently discarded.")
+                    .setTitle(failed > 0 ? "Some deletions need attention"
+                            : "Deleted " + deleted + ", skipped " + skipped)
+                    .setMessage(message)
                     .setPositiveButton("OK", null)
                     .show();
         }
