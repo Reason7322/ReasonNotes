@@ -249,6 +249,8 @@ Rectangle {
             editor.text = root.presenter.currentContent
         root.applyingBody = false
         if (switched) {
+            // A successful switch has already flushed the old draft.
+            autosaveTimer.stop()
             root.loadedNoteId = newNoteId
             root.scrollToEndPending = newNoteId !== ""
             if (root.scrollToEndPending)

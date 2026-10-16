@@ -64,11 +64,19 @@ class NotePresenter:
         target = self.repository.target_device
         if target is None:
             return {}
+        # Load immutable revisions once and resolve ledger IDs in memory.
+        # Repository.revision() scans the entire history for each ID; calling
+        # it for every delivery entry caused O(entries * revisions) disk I/O
+        # on every UI refresh and note switch.
+        revision_notes = {
+            revision.revision_id: revision.note_id
+            for revision in self.repository.revisions()
+        }
         states: dict[UUID, list[DeliveryState]] = {}
         for entry in DeliveryLedger(self.repository.root).entries(target):
-            revision = self.repository.revision(entry.revision_id)
-            if revision is not None:
-                states.setdefault(revision.note_id, []).append(entry.state)
+            note_id = revision_notes.get(entry.revision_id)
+            if note_id is not None:
+                states.setdefault(note_id, []).append(entry.state)
 
         result = {}
         for note_id, note_states in states.items():

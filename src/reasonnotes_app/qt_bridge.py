@@ -166,6 +166,14 @@ class QtNotePresenter(QObject):
                 }
             )
         self._sync_model.replace(sync_rows)
+        # A selection only needs the already displayed delivery status.
+        # Never recompute the entire sync catalogue from a QML property read.
+        self._delivery_status_by_note = {
+            row["noteId"]: row["deliveryStatus"] for row in sync_rows
+        }
+        self._refresh_conflict_model()
+
+    def _refresh_conflict_model(self) -> None:
         candidates = (
             ()
             if self.presenter.conflict_view is None
@@ -175,8 +183,16 @@ class QtNotePresenter(QObject):
             [self._conflict_mapping(candidate) for candidate in candidates]
         )
 
-    def _notify(self, *, body: bool = False, conflict: bool = False) -> None:
-        self._refresh_models()
+    def _notify(
+        self, *, body: bool = False, conflict: bool = False,
+        refresh_models: bool = True,
+    ) -> None:
+        if refresh_models:
+            self._refresh_models()
+        elif conflict:
+            # Conflict candidates can change on an otherwise clean switch.
+            # Refresh only this small model, not all notes and sync history.
+            self._refresh_conflict_model()
         self.stateChanged.emit()
         self.saveStatusChanged.emit()
         if body:
@@ -234,10 +250,7 @@ class QtNotePresenter(QObject):
         active_note_id = self.presenter.active_note_id
         if active_note_id is None:
             return "No note selected"
-        for row in self.presenter.sync_notes():
-            if row.note_id == active_note_id:
-                return row.delivery_status
-        return "Local"
+        return self._delivery_status_by_note.get(active_note_id, "Local")
 
     @Property(bool, notify=conflictChanged)
     def hasConflict(self):
@@ -259,8 +272,19 @@ class QtNotePresenter(QObject):
 
     @Slot(str, result=bool)
     def selectNote(self, note_id: str):
+        before = self.presenter.notes
+        was_dirty = self.presenter.dirty
         changed = self.presenter.select_note(note_id)
-        self._notify(body=changed, conflict=True)
+        # Selecting an already saved note never changes either catalogue.
+        # A dirty-note switch may flush a revision and change sidebar order,
+        # title and delivery status, so update lists only in that case.
+        self._notify(
+            body=changed, conflict=True,
+            refresh_models=(
+                self.presenter.notes != before
+                or (was_dirty and not self.presenter.dirty)
+            ),
+        )
         return changed
 
     def _notify_draft_edit(self) -> None:
@@ -299,8 +323,12 @@ class QtNotePresenter(QObject):
 
     @Slot(result=bool)
     def autosave(self):
+        was_dirty = self.presenter.dirty
         saved = self.presenter.autosave()
-        self._notify()
+        # A previous note's idle timer may still fire after a switch.
+        # A clean draft produces no revision and needs no model refresh.
+        if was_dirty or not saved:
+            self._notify()
         return saved
 
     @Slot(result=bool)

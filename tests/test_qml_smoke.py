@@ -5,6 +5,7 @@ from threading import Event, get_ident
 import time
 import unittest
 from unittest.mock import patch
+from uuid import UUID
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -882,6 +883,160 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual("Daily", self.bridge.notesModel.row(0)["title"])
         self.assertGreater(len(note_resets), 0)
         self.assertGreater(len(sync_resets), 0)
+
+    def test_clean_note_switch_only_changes_selection_not_catalogues(self):
+        self.assertTrue(self.bridge.createNote())
+        first = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("First"))
+        self.assertTrue(self.bridge.editContent("First body"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.createNote())
+        second = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Second"))
+        self.assertTrue(self.bridge.editContent("Second body"))
+        self.assertTrue(self.bridge.saveNow())
+
+        engine, root, warnings = self.load_qml()
+        resets = {"notes": 0, "sync": 0}
+        self.bridge.notesModel.modelReset.connect(
+            lambda: resets.__setitem__("notes", resets["notes"] + 1)
+        )
+        self.bridge.syncModel.modelReset.connect(
+            lambda: resets.__setitem__("sync", resets["sync"] + 1)
+        )
+        repo = self.bridge.presenter.repository
+        load = repo._load_revisions
+        scans = []
+
+        def counted_load():
+            scans.append(1)
+            return load()
+
+        # The real Qt property bindings also query save permissions and
+        # delivery status after selection notifications. Emulate those reads.
+        self.bridge.stateChanged.connect(
+            lambda: (self.bridge.activeDeliveryStatus, self.bridge.canEdit)
+        )
+        with patch.object(repo, "_load_revisions", side_effect=counted_load):
+            for note_id, title, content in (
+                (first, "First", "First body"),
+                (second, "Second", "Second body"),
+                (first, "First", "First body"),
+            ):
+                previous_scans = len(scans)
+                self.assertTrue(self.bridge.selectNote(note_id))
+                QCoreApplication.processEvents()
+                self.assertEqual(title, self.bridge.currentTitle)
+                self.assertEqual(content, self.bridge.currentContent)
+                self.assertEqual(title, root.findChild(object, "currentNoteHeading").property("text"))
+                self.assertEqual(content, root.findChild(object, "markdownEditor").property("text"))
+                self.assertEqual("Pending", self.bridge.activeDeliveryStatus)
+                self.assertLessEqual(len(scans) - previous_scans, 8)
+        self.assertEqual({"notes": 0, "sync": 0}, resets)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_switch_with_dirty_filtered_note_updates_sync_catalogue(self):
+        self.assertTrue(self.bridge.createNote())
+        edited_note = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Temporary"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.createNote())
+        other_note = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Keep visible"))
+        self.assertTrue(self.bridge.saveNow())
+        self.bridge.search("Keep visible")
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertTrue(self.bridge.selectNote(edited_note))
+        self.assertTrue(self.bridge.editTitle("Renamed while filtered"))
+
+        resets = []
+        self.bridge.syncModel.modelReset.connect(lambda: resets.append(1))
+        self.assertTrue(self.bridge.selectNote(other_note))
+        self.assertEqual("Saved", self.bridge.saveState)
+        self.assertGreater(len(resets), 0)
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        rows = [
+            self.bridge.syncModel.row(n)
+            for n in range(self.bridge.syncModel.rowCount())
+        ]
+        self.assertEqual(
+            "Renamed while filtered",
+            next(row["title"] for row in rows if row["noteId"] == edited_note),
+        )
+        self.assertEqual(
+            "# Renamed while filtered\n\n",
+            self.bridge.presenter.service.open_note(UUID(edited_note)),
+        )
+
+    def test_selection_delivery_uses_snapshot_updated_by_sync(self):
+        from datetime import datetime, timezone
+        from reasonnotes_sync.delivery import DeliveryLedger
+
+        self.assertTrue(self.bridge.createNote())
+        note_id = self.bridge.activeNoteId
+        repo = self.bridge.presenter.repository
+        revision_id = repo.graph().heads(UUID(note_id))[0].revision_id
+        self.assertEqual("Pending", self.bridge.activeDeliveryStatus)
+        ledger = DeliveryLedger(repo.root)
+        ledger.record_requested(
+            revision_id, "android", datetime.now(timezone.utc).replace(microsecond=0)
+        )
+        # Repository mutation alone is not a sync completion notification.
+        self.assertEqual("Pending", self.bridge.activeDeliveryStatus)
+        self.bridge._sync_completed(
+            object(), SyncReport((), (), (), (), (), (), (), ())
+        )
+        self.assertEqual("Transfer requested", self.bridge.activeDeliveryStatus)
+        self.assertEqual("Transfer requested", self.bridge.syncModel.row(0)["deliveryStatus"])
+
+    def test_clean_autosave_does_not_rebuild_catalogues(self):
+        self.assertTrue(self.bridge.createNote())
+        resets = []
+        self.bridge.notesModel.modelReset.connect(lambda: resets.append("notes"))
+        self.bridge.syncModel.modelReset.connect(lambda: resets.append("sync"))
+        with patch.object(self.bridge, "_refresh_models", side_effect=AssertionError("clean autosave rescan")):
+            self.assertTrue(self.bridge.autosave())
+        self.assertEqual([], resets)
+
+    def test_conflict_candidates_refresh_without_resetting_note_lists(self):
+        from datetime import datetime, timezone
+        from reasonnotes_sync.envelope import Revision
+
+        self.assertTrue(self.bridge.createNote())
+        first = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editDraft("# Base"))
+        self.assertTrue(self.bridge.saveNow())
+        repo = self.bridge.presenter.repository
+        base = repo.graph().heads(UUID(first))[0]
+        self.assertTrue(self.bridge.editDraft("# Local head"))
+        self.assertTrue(self.bridge.saveNow())
+        remote = Revision.create(
+            UUID(first), (base.revision_id,), "android",
+            datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc),
+            False, "# Remote head",
+        )
+        repo.import_bytes(remote.serialize(), "external-remote.md")
+        self.bridge.presenter.refresh()
+        self.bridge._notify()
+        self.assertTrue(self.bridge.createNote())
+        second = self.bridge.activeNoteId
+        note_resets, sync_resets = [], []
+        self.bridge.notesModel.modelReset.connect(lambda: note_resets.append(1))
+        self.bridge.syncModel.modelReset.connect(lambda: sync_resets.append(1))
+
+        self.assertTrue(self.bridge.selectNote(first))
+        self.assertTrue(self.bridge.hasConflict)
+        self.assertEqual(2, self.bridge.conflictModel.rowCount())
+        self.assertFalse(self.bridge.canEdit)
+        self.assertEqual([], note_resets)
+        self.assertEqual([], sync_resets)
+
+        self.assertTrue(self.bridge.selectNote(second))
+        self.assertFalse(self.bridge.hasConflict)
+        self.assertEqual(0, self.bridge.conflictModel.rowCount())
+        self.assertEqual([], note_resets)
+        self.assertEqual([], sync_resets)
 
     def test_autosave_waits_for_typing_pause(self):
         from PySide6.QtCore import QObject
