@@ -219,7 +219,11 @@ Rectangle {
 
     Timer {
         id: autosaveTimer
-        interval: 500
+        objectName: "autosaveTimer"
+        // Coalesce ordinary typing into a single immutable revision after
+        // a meaningful idle period. Explicit Save, switching, and closing
+        // still flush dirty drafts immediately.
+        interval: 2500
         repeat: false
         onTriggered: root.presenter.autosave()
     }

@@ -83,6 +83,7 @@ class QtNotePresenter(QObject):
     """Qt-facing adapter; all application decisions remain in NotePresenter."""
 
     stateChanged = Signal()
+    saveStatusChanged = Signal()
     currentBodyChanged = Signal()
     conflictChanged = Signal()
     selectionChanged = Signal()
@@ -177,6 +178,7 @@ class QtNotePresenter(QObject):
     def _notify(self, *, body: bool = False, conflict: bool = False) -> None:
         self._refresh_models()
         self.stateChanged.emit()
+        self.saveStatusChanged.emit()
         if body:
             self.currentBodyChanged.emit()
         if conflict:
@@ -211,11 +213,11 @@ class QtNotePresenter(QObject):
     def activeNoteId(self):
         return self.presenter.active_note_id or ""
 
-    @Property(str, notify=stateChanged)
+    @Property(str, notify=saveStatusChanged)
     def saveState(self):
         return self.presenter.save_state
 
-    @Property(str, notify=stateChanged)
+    @Property(str, notify=saveStatusChanged)
     def saveError(self):
         return self.presenter.save_error
 
@@ -261,10 +263,16 @@ class QtNotePresenter(QObject):
         self._notify(body=changed, conflict=True)
         return changed
 
+    def _notify_draft_edit(self) -> None:
+        # Typing changes only the in-memory draft and its save indicator.
+        # A full refresh traverses immutable history and delivery ledgers;
+        # doing that for every character blocks the Qt UI thread.
+        self.saveStatusChanged.emit()
+
     @Slot(str, result=bool)
     def editDraft(self, body: str):
         changed = self.presenter.edit_draft(body)
-        self._notify()
+        self._notify_draft_edit()
         return changed
 
     @Slot(str, result=bool)
@@ -272,7 +280,7 @@ class QtNotePresenter(QObject):
         changed = self.presenter.edit_draft(
             change_title(self.presenter.draft, title)
         )
-        self._notify()
+        self._notify_draft_edit()
         return changed
 
     @Slot(str, result=bool)
@@ -280,7 +288,7 @@ class QtNotePresenter(QObject):
         changed = self.presenter.edit_draft(
             change_content(self.presenter.draft, content)
         )
-        self._notify()
+        self._notify_draft_edit()
         return changed
 
     @Slot(result=bool)

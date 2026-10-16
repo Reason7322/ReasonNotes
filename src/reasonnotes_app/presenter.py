@@ -56,6 +56,7 @@ class NotePresenter:
         self.sync_state = "Idle"
         self.sync_message = ""
         self.conflict_view: ConflictView | None = None
+        self._skipped_conflict_draft = False
         self._active_head_ids: tuple[str, ...] = ()
         self.refresh()
 
@@ -172,6 +173,7 @@ class NotePresenter:
         self.draft = initial_body
         self.dirty = False
         self.conflict_view = None
+        self._skipped_conflict_draft = False
         self.save_state = "Saved"
         self.save_error = ""
         self.refresh()
@@ -208,6 +210,7 @@ class NotePresenter:
         self.draft = body
         self.dirty = False
         self.conflict_view = None
+        self._skipped_conflict_draft = False
         self.save_state = "Saved"
         self.save_error = ""
         return True
@@ -218,7 +221,10 @@ class NotePresenter:
             self.dirty = True
             self._set_save_error("create or select a note before editing")
             return False
-        if not self.can_edit:
+        # Conflict views are raised on selection/sync/save, and the durable
+        # save checks current repository heads. Avoid rebuilding the entire
+        # revision graph on every single keystroke in the draft editor.
+        if self.conflict_view is not None or self._skipped_conflict_draft:
             self._set_save_error("resolve the conflict before editing")
             return False
         self.draft = body
@@ -402,6 +408,7 @@ class NotePresenter:
             return False
         if resolution is None:
             self.conflict_view = None
+            self._skipped_conflict_draft = self.dirty
             if self.dirty:
                 self._set_save_error(
                     "unresolved conflict; draft preserved read-only"
@@ -415,6 +422,7 @@ class NotePresenter:
             self.refresh()
             return True
         self.conflict_view = None
+        self._skipped_conflict_draft = False
         if resolution.deleted:
             self.active_note_id = None
             self._active_head_ids = ()

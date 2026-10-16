@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from threading import Event, get_ident
 import time
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -848,6 +849,49 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual("Saved", self.bridge.saveState)
         self.assertEqual("# QML note\nBody", self.bridge.currentBody)
         self.assertEqual("QML note", self.bridge.notesModel.row(0)["title"])
+
+    def test_keystrokes_do_not_scan_history_or_rebuild_ui_models(self):
+        self.assertTrue(self.bridge.createNote())
+        note_count = len(self.bridge.presenter.repository.revisions())
+        note_resets, sync_resets, general_signals, status_signals = [], [], [], []
+        self.bridge.notesModel.modelReset.connect(lambda: note_resets.append(1))
+        self.bridge.syncModel.modelReset.connect(lambda: sync_resets.append(1))
+        self.bridge.stateChanged.connect(lambda: general_signals.append(1))
+        self.bridge.saveStatusChanged.connect(lambda: status_signals.append(1))
+
+        # A keystroke must never call graph(), enumerate revisions, or
+        # rebuild either note list. Persistence is reserved for the timer
+        # or explicit Save/selection/close, not these edit callbacks.
+        with patch.object(self.bridge.presenter.repository, "graph", side_effect=AssertionError("per-key graph traversal")), patch.object(
+            self.bridge, "_refresh_models", side_effect=AssertionError("per-key model refresh")
+        ):
+            for title in ("D", "Da", "Dai", "Daily"):
+                self.assertTrue(self.bridge.editTitle(title))
+            for body in ("O", "On", "One", "One line"):
+                self.assertTrue(self.bridge.editContent(body))
+
+        self.assertEqual([], note_resets)
+        self.assertEqual([], sync_resets)
+        self.assertEqual([], general_signals)
+        self.assertEqual(8, len(status_signals))
+        self.assertEqual("Dirty", self.bridge.saveState)
+        self.assertEqual(note_count, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual("# Daily\n\nOne line", self.bridge.currentBody)
+        self.assertTrue(self.bridge.saveNow())
+        self.assertEqual(note_count + 1, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual("Daily", self.bridge.notesModel.row(0)["title"])
+        self.assertGreater(len(note_resets), 0)
+        self.assertGreater(len(sync_resets), 0)
+
+    def test_autosave_waits_for_typing_pause(self):
+        from PySide6.QtCore import QObject
+
+        engine, root, warnings = self.load_qml()
+        timer = root.findChild(QObject, "autosaveTimer")
+        self.assertIsNotNone(timer)
+        self.assertEqual(2500, timer.property("interval"))
+        self.assertFalse(timer.property("repeat"))
+        self.assertEqual([], [warning.toString() for warning in warnings])
 
     def test_title_is_editable_and_body_is_separate_in_qml(self):
         self.assertTrue(self.bridge.createNote())
