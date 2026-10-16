@@ -8,6 +8,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -16,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -23,6 +25,8 @@ import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +46,17 @@ public final class MainActivity extends Activity {
     private GridLayout otherGrid;
     private TextView emptyState;
     private TextView localStatus;
+    private String incomingStatus;
+    private final NoteSelection selection = new NoteSelection();
+    private final Set<UUID> visibleNotes = new LinkedHashSet<>();
+    private LinearLayout selectionBar;
+    private TextView selectionCount;
+    private Button selectionDelete;
+    private Button selectionOptions;
+    private Button selectionCancel;
+    private Button newNoteButton;
+    private boolean deletionInProgress;
+    private static final String STATE_SELECTED = "selected-note-ids";
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -55,17 +70,79 @@ public final class MainActivity extends Activity {
         LocalPreferences preferences = new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE));
         pins = new PinStore(preferences);
+        if (state != null) {
+            ArrayList<String> restored = state.getStringArrayList(STATE_SELECTED);
+            if (restored != null) {
+                for (String id : restored) {
+                    try { selection.addAll(Set.of(UUID.fromString(id))); }
+                    catch (IllegalArgumentException ignored) { /* Old malformed state. */ }
+                }
+            }
+        }
         setContentView(buildContent());
+        updateSelectionUi();
         renderNotes();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (service != null) renderNotes();
+        if (service != null) checkIncomingOnResume();
+    }
+
+    /**
+     * Android's counterpart to Fedora's receive-on-open behavior.
+     * Use the existing SAF exchange grant; never start outgoing sync here.
+     */
+    private void checkIncomingOnResume() {
+        if (ExchangeDirectory.savedTree(this) == null) {
+            // No configured incoming directory. Ordinary offline editing
+            // must still open without an error or transport request.
+            incomingStatus = null;
+            renderNotes();
+            return;
+        }
+        io.execute(() -> {
+            try {
+                ExchangeDirectory.ScanReport report = IncomingReceive.scanPhone(
+                        this, repository);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    incomingStatus = IncomingReceive.status(report);
+                    renderNotes();
+                });
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    incomingStatus = "Incoming check failed: " + error.getMessage();
+                    renderNotes();
+                });
+            }
+        });
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        ArrayList<String> ids = new ArrayList<>();
+        // Do not restore potentially deleted selections across recreation.
+        if (!deletionInProgress) {
+            for (UUID id : selection.snapshot()) ids.add(id.toString());
+        }
+        outState.putStringArrayList(STATE_SELECTED, ids);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override public void onBackPressed() {
+        if (selection.active() && !deletionInProgress) {
+            selection.clear();
+            updateSelectionUi();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override protected void onDestroy() {
-        io.shutdownNow();
+        // Allow an already-confirmed, durable deletion batch to finish if
+        // the activity is recreated. Do not interrupt a history write.
+        io.shutdown();
         super.onDestroy();
     }
 
@@ -88,11 +165,15 @@ public final class MainActivity extends Activity {
         });
 
         root.addView(buildHeader(), matchWrap());
-        Button newNote = button("＋  New Note", true);
-        newNote.setOnClickListener(view -> createNote());
+        selectionBar = buildSelectionBar();
+        LinearLayout.LayoutParams selectParams = matchWrap();
+        selectParams.topMargin = UiTokens.dp(this, UiTokens.SPACE_M);
+        root.addView(selectionBar, selectParams);
+        newNoteButton = button("＋  New Note", true);
+        newNoteButton.setOnClickListener(view -> createNote());
         LinearLayout.LayoutParams newParams = matchWrap();
         newParams.topMargin = UiTokens.dp(this, UiTokens.SPACE_M);
-        root.addView(newNote, newParams);
+        root.addView(newNoteButton, newParams);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -151,6 +232,140 @@ public final class MainActivity extends Activity {
         return header;
     }
 
+    private LinearLayout buildSelectionBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setVisibility(View.GONE);
+        selectionCount = text("0 selected", 15, UiTokens.TEXT);
+        selectionCount.setTypeface(UiTokens.medium());
+        bar.addView(selectionCount, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        selectionOptions = button("⋮", false);
+        selectionOptions.setContentDescription("Selection actions: Pin, Unpin, Select all visible");
+        selectionOptions.setOnClickListener(view -> showSelectionMenu(selectionOptions));
+        bar.addView(selectionOptions, new LinearLayout.LayoutParams(UiTokens.dp(this, 44),
+                UiTokens.dp(this, 48)));
+
+        selectionDelete = button("Delete", false);
+        selectionDelete.setTextColor(UiTokens.DANGER);
+        selectionDelete.setContentDescription("Delete selected notes");
+        selectionDelete.setOnClickListener(view -> confirmBulkDelete());
+        bar.addView(selectionDelete);
+
+        selectionCancel = button("Cancel", false);
+        selectionCancel.setOnClickListener(view -> {
+            selection.clear();
+            updateSelectionUi();
+        });
+        bar.addView(selectionCancel);
+        return bar;
+    }
+
+    private void updateSelectionUi() {
+        if (selectionBar == null) return;
+        boolean active = selection.active();
+        selectionBar.setVisibility(active ? View.VISIBLE : View.GONE);
+        newNoteButton.setVisibility(active ? View.GONE : View.VISIBLE);
+        selectionCount.setText(selection.count() + " selected");
+        selectionDelete.setEnabled(active && !deletionInProgress);
+        selectionOptions.setEnabled(active && !deletionInProgress);
+        selectionCancel.setEnabled(!deletionInProgress);
+        for (GridLayout grid : new GridLayout[]{pinnedGrid, otherGrid}) {
+            if (grid == null) continue;
+            for (int index = 0; index < grid.getChildCount(); index++) {
+                View child = grid.getChildAt(index);
+                if (child instanceof NoteCardView card) {
+                    card.setSelectionMode(active, selection.contains(card.note().noteId()));
+                }
+            }
+        }
+    }
+
+    private void toggleSelection(UUID noteId) {
+        if (deletionInProgress) return;
+        selection.toggle(noteId);
+        updateSelectionUi();
+    }
+
+    private void showSelectionMenu(View anchor) {
+        if (!selection.active() || deletionInProgress) return;
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Pin selected");
+        menu.getMenu().add("Unpin selected");
+        menu.getMenu().add("Select all visible");
+        menu.setOnMenuItemClickListener(item -> {
+            String action = item.getTitle().toString();
+            if (action.equals("Select all visible")) {
+                selection.addAll(visibleNotes);
+                updateSelectionUi();
+            } else {
+                boolean pin = action.equals("Pin selected");
+                for (UUID id : selection.snapshot()) pins.setPinned(id, pin);
+                renderNotes();
+            }
+            return true;
+        });
+        menu.show();
+    }
+
+    private void confirmBulkDelete() {
+        if (!selection.active() || deletionInProgress) return;
+        Set<UUID> selectedIds = selection.snapshot();
+        int count = selectedIds.size();
+        new AlertDialog.Builder(this)
+                .setTitle("Delete " + count + (count == 1 ? " note?" : " notes?"))
+                .setMessage("The selected notes will be removed from the list. "
+                        + "Their deletions remain recoverable in immutable history and can sync "
+                        + "to your other device. Conflicted notes must be resolved first.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    deletionInProgress = true;
+                    updateSelectionUi();
+                    io.execute(() -> {
+                        BulkNoteDeletion.Result result = BulkNoteDeletion.delete(
+                                service, repository, selectedIds);
+                        runOnUiThread(() -> finishBulkDelete(result, count));
+                    });
+                })
+                .show();
+    }
+
+    private void finishBulkDelete(BulkNoteDeletion.Result result, int requested) {
+        if (isFinishing() || isDestroyed()) return;
+        deletionInProgress = false;
+        if (!result.blocked().isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Cannot delete selected notes")
+                    .setMessage(result.blocked().size()
+                            + " selected note(s) have conflicts, are missing or are already deleted. "
+                            + "No notes were deleted. Resolve conflicts or refresh the selection first.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            updateSelectionUi();
+            renderNotes();
+            return;
+        }
+        for (UUID id : result.deleted()) pins.setPinned(id, false);
+        selection.removeAll(result.deleted());
+        if (result.successful()) {
+            selection.clear();
+            Toast.makeText(this, "Deleted " + requested + (requested == 1 ? " note" : " notes"),
+                    Toast.LENGTH_LONG).show();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("Some notes could not be deleted")
+                    .setMessage("Deleted " + result.deleted().size() + " of " + requested
+                            + " notes. " + result.failed().size()
+                            + " failed and remain selected. Nothing was silently discarded.")
+                    .setPositiveButton("OK", null)
+                    .show();
+        }
+        updateSelectionUi();
+        renderNotes();
+    }
+
     private void renderNotes() {
         if (service == null || pinnedGrid == null) return;
         String query = search == null ? "" : search.getText().toString();
@@ -168,18 +383,31 @@ public final class MainActivity extends Activity {
         otherGrid.removeAllViews();
         pinnedHeading.setVisibility(sections.pinned().isEmpty() ? View.GONE : View.VISIBLE);
         pinnedGrid.setVisibility(sections.pinned().isEmpty() ? View.GONE : View.VISIBLE);
+        visibleNotes.clear();
         sections.pinned().forEach(note -> addCard(pinnedGrid, note));
         sections.others().forEach(note -> addCard(otherGrid, note));
+        updateSelectionUi();
         emptyState.setVisibility(
                 sections.pinned().isEmpty() && sections.others().isEmpty() ? View.VISIBLE : View.GONE);
-        localStatus.setText((sections.pinned().size() + sections.others().size()) + " notes · local history ready");
+        localStatus.setText(incomingStatus != null
+                ? incomingStatus
+                : (sections.pinned().size() + sections.others().size())
+                        + " notes · local history ready");
     }
 
     private void addCard(GridLayout grid, NoteService.NoteSummary note) {
+        visibleNotes.add(note.noteId());
         NoteCardView card = new NoteCardView(this, note);
-        card.setOnClickListener(view -> openNote(note));
+        card.setOnClickListener(view -> {
+            if (selection.active()) toggleSelection(note.noteId());
+            else openNote(note);
+        });
         card.setOnLongClickListener(view -> {
-            showNoteMenu(card, note);
+            if (deletionInProgress) return true;
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            if (!selection.active()) selection.begin(note.noteId());
+            else selection.toggle(note.noteId());
+            updateSelectionUi();
             return true;
         });
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
@@ -214,42 +442,6 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> localStatus.setText("Could not create note: " + error.getMessage()));
             }
         });
-    }
-
-    private void showNoteMenu(View anchor, NoteService.NoteSummary note) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        boolean pinned = pins.isPinned(note.noteId());
-        menu.getMenu().add(pinned ? "Unpin" : "Pin");
-        menu.getMenu().add("Delete");
-        menu.setOnMenuItemClickListener(item -> {
-            if (item.getTitle().toString().equals("Delete")) confirmDelete(note);
-            else {
-                pins.setPinned(note.noteId(), !pinned);
-                renderNotes();
-            }
-            return true;
-        });
-        menu.show();
-    }
-
-    private void confirmDelete(NoteService.NoteSummary note) {
-        if (note.conflicted()) {
-            openNamedActivity("ConflictActivity", note.noteId());
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Delete note?")
-                .setMessage("The deletion is saved as recoverable immutable history.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Delete", (dialog, which) -> io.execute(() -> {
-                    try {
-                        service.deleteNote(note.noteId(), repository.headIds(note.noteId()));
-                        runOnUiThread(this::renderNotes);
-                    } catch (RuntimeException error) {
-                        runOnUiThread(() -> localStatus.setText("Delete failed: " + error.getMessage()));
-                    }
-                }))
-                .show();
     }
 
     private void openNamedActivity(String simpleName, UUID noteId) {
