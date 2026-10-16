@@ -1,17 +1,21 @@
 package org.reasonnotes.probe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.ArrayAdapter;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.graphics.Insets;
@@ -20,30 +24,41 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import java.util.List;
 
+/** Human-scale settings: everyday actions first, connection details on demand. */
 public final class SettingsActivity extends Activity {
     private static final int TREE_REQUEST = 41;
+    private static final String STATE_DEVICE_EDITOR = "device-editor-open";
+    private static final String STATE_DEVICE_DRAFT = "device-editor-draft";
+
     private AppPreferences preferences;
     private TextView exchangeState;
+    private LinearLayout folderRow;
+    private LinearLayout targetRow;
+    private LinearLayout sortRow;
+    private TextView targetState;
+    private TextView orderingState;
     private EditText deviceId;
+    private LinearLayout deviceEditor;
 
-    public static List<String> sectionTitles() { return List.of("Sync", "Behavior", "About"); }
+    public static List<String> sectionTitles() {
+        return List.of("Sync", "Connection", "Notes", "About");
+    }
+
     public static List<String> syncFoundationActions() {
         return List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device");
     }
+
     public static List<AppPreferences.NoteOrder> orderChoices() {
-        return List.of(
-                AppPreferences.NoteOrder.MODIFIED_DESCENDING,
+        return List.of(AppPreferences.NoteOrder.MODIFIED_DESCENDING,
                 AppPreferences.NoteOrder.TITLE_ASCENDING);
     }
+
     public static String exchangeStatus(String uri) {
-        return uri == null || uri.isBlank()
-                ? "Exchange directory not selected"
-                : "Exchange directory selected";
+        return uri == null || uri.isBlank() ? "Choose a folder" : "Folder ready";
     }
+
     public static String aboutText(String version) {
-        return "Version " + version
-                + "\nNotes use immutable local history. KDE Connect carries files; "
-                + "a transfer request is not receipt confirmation.";
+        return "Version " + version + "\nOffline-first notes with optional device sync.";
     }
 
     @Override protected void onCreate(Bundle state) {
@@ -52,6 +67,20 @@ public final class SettingsActivity extends Activity {
         preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         setContentView(buildContent());
+        if (state != null && state.getBoolean(STATE_DEVICE_EDITOR, false)) {
+            deviceEditor.setVisibility(View.VISIBLE);
+            deviceId.setText(state.getString(STATE_DEVICE_DRAFT,
+                    preferences.targetDeviceId()));
+        }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putBoolean(STATE_DEVICE_EDITOR,
+                deviceEditor != null && deviceEditor.getVisibility() == View.VISIBLE);
+        if (deviceId != null) {
+            state.putString(STATE_DEVICE_DRAFT, deviceId.getText().toString());
+        }
+        super.onSaveInstanceState(state);
     }
 
     @Override protected void onResume() {
@@ -63,114 +92,217 @@ public final class SettingsActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(UiTokens.BACKGROUND);
-        int base = UiTokens.dp(this, UiTokens.SPACE_M);
-        root.setPadding(base, base, base, base);
+        int horizontal = dp(UiTokens.SPACE_L);
+        int vertical = dp(UiTokens.SPACE_S);
+        root.setPadding(horizontal, vertical, horizontal, vertical);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            view.setPadding(base, base + bars.top, base, base + bars.bottom);
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            view.setPadding(horizontal, vertical + bars.top, horizontal,
+                    HomeLayout.bottomContentPadding(vertical, bars.bottom, ime.bottom));
             return insets;
         });
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = button("‹", false);
-        back.setContentDescription("Back");
+        ImageButton back = new ImageButton(this);
+        back.setImageResource(R.drawable.ic_note_back);
+        back.setContentDescription("Back to notes");
+        back.setScaleType(ImageView.ScaleType.CENTER);
+        setRipple(back);
         back.setOnClickListener(view -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(UiTokens.dp(this, 52), UiTokens.dp(this, 48)));
-        TextView title = text("Settings", 25, UiTokens.TEXT);
-        title.setTypeface(UiTokens.medium());
-        header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView heading = text("Settings", 27, UiTokens.TEXT);
+        heading.setTypeface(UiTokens.medium());
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        headingParams.leftMargin = dp(12);
+        header.addView(heading, headingParams);
         root.addView(header, matchWrap());
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.addView(sectionTitle("Sync"), matchWrap());
-        content.addView(syncCard(), matchWrapWithMargins());
-        content.addView(sectionTitle("Behavior"), matchWrap());
-        content.addView(behaviorCard(), matchWrapWithMargins());
-        content.addView(sectionTitle("About"), matchWrap());
-        content.addView(aboutCard(), matchWrapWithMargins());
+        content.setPadding(0, 0, 0, dp(32));
+
+        content.addView(sectionTitle("Sync"));
+        LinearLayout sync = card();
+        sync.addView(actionRow(R.drawable.ic_note_sync, "Sync all notes",
+                "Send your latest note changes", () -> openSync(SyncActivity.MODE_ALL)));
+        sync.addView(divider());
+        sync.addView(actionRow(R.drawable.ic_note_pick, "Choose notes",
+                "Pick which notes to send", () -> openSync(SyncActivity.MODE_CHOOSE)));
+        content.addView(sync, matchWrap());
+
+        content.addView(sectionTitle("Connection"));
+        LinearLayout connection = card();
+        folderRow = actionRow(R.drawable.ic_note_folder, "Exchange folder",
+                "Checking…", this::chooseTree);
+        exchangeState = (TextView) ((LinearLayout) folderRow.getChildAt(1)).getChildAt(1);
+        connection.addView(folderRow);
+        connection.addView(divider());
+        targetRow = actionRow(R.drawable.ic_note_monitor, "Computer",
+                "KDE Connect device configured", this::toggleDeviceEditor);
+        targetState = (TextView) ((LinearLayout) targetRow.getChildAt(1)).getChildAt(1);
+        connection.addView(targetRow);
+        deviceEditor = buildDeviceEditor();
+        deviceEditor.setVisibility(View.GONE);
+        connection.addView(deviceEditor);
+        content.addView(connection, matchWrap());
+
+        content.addView(sectionTitle("Notes"));
+        LinearLayout notes = card();
+        sortRow = actionRow(R.drawable.ic_note_sort, "Sort notes",
+                orderLabel(preferences.noteOrder()), this::chooseOrdering);
+        orderingState = (TextView) ((LinearLayout) sortRow.getChildAt(1)).getChildAt(1);
+        notes.addView(sortRow);
+        content.addView(notes, matchWrap());
+
+        content.addView(sectionTitle("About"));
+        LinearLayout about = card();
+        TextView name = text("ReasonNotes", 16, UiTokens.TEXT);
+        name.setTypeface(UiTokens.medium());
+        about.addView(name, matchWrap());
+        TextView description = text(aboutText(versionName()), 13, UiTokens.TEXT_SECONDARY);
+        description.setLineSpacing(0, 1.15f);
+        LinearLayout.LayoutParams detailParams = matchWrap();
+        detailParams.topMargin = dp(6);
+        about.addView(description, detailParams);
+        content.addView(about, matchWrap());
+
         scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
+        scrollParams.topMargin = dp(8);
+        root.addView(scroll, scrollParams);
         ViewCompat.requestApplyInsets(root);
         return root;
     }
 
-    private View syncCard() {
-        LinearLayout card = card();
-        Button syncAll = button("Sync all notes", true);
-        syncAll.setOnClickListener(view -> openSync(SyncActivity.MODE_ALL));
-        card.addView(syncAll, matchWrap());
-        Button chooseNotes = button("Choose notes to sync", false);
-        chooseNotes.setOnClickListener(view -> openSync(SyncActivity.MODE_CHOOSE));
-        card.addView(chooseNotes, matchWrapWithTopMargin());
-        exchangeState = text("", 14, UiTokens.TEXT_SECONDARY);
-        card.addView(exchangeState, matchWrapWithTopMargin());
-        Button choose = button("Choose exchange directory", true);
-        choose.setOnClickListener(view -> chooseTree());
-        card.addView(choose, matchWrapWithTopMargin());
+    private LinearLayout actionRow(int icon, String heading, String detail, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(12), dp(14), dp(12));
+        row.setMinimumHeight(dp(76));
+        setRipple(row);
+        row.setContentDescription(heading + ". " + detail);
+        row.setOnClickListener(view -> action.run());
 
-        TextView targetLabel = text("KDE Connect target device ID", 13, UiTokens.TEXT_SECONDARY);
-        card.addView(targetLabel, matchWrapWithTopMargin());
+        ImageView symbol = new ImageView(this);
+        symbol.setImageResource(icon);
+        symbol.setColorFilter(UiTokens.ACCENT);
+        row.addView(symbol, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        labelParams.leftMargin = dp(16);
+        labelParams.rightMargin = dp(8);
+        row.addView(labels, labelParams);
+        TextView title = text(heading, 16, UiTokens.TEXT);
+        title.setTypeface(UiTokens.medium());
+        labels.addView(title, matchWrap());
+        TextView subtitle = text(detail, 13, UiTokens.TEXT_SECONDARY);
+        LinearLayout.LayoutParams subtitleParams = matchWrap();
+        subtitleParams.topMargin = dp(3);
+        labels.addView(subtitle, subtitleParams);
+
+        ImageView chevron = new ImageView(this);
+        chevron.setImageResource(R.drawable.ic_note_chevron);
+        chevron.setColorFilter(UiTokens.TEXT_SECONDARY);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        return row;
+    }
+
+    private LinearLayout buildDeviceEditor() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(16), dp(6), dp(16), dp(16));
+        TextView explanation = text("KDE Connect device ID", 13, UiTokens.TEXT_SECONDARY);
+        container.addView(explanation, matchWrap());
+
         deviceId = new EditText(this);
         deviceId.setSingleLine(true);
         deviceId.setText(preferences.targetDeviceId());
         deviceId.setTextColor(UiTokens.TEXT);
         deviceId.setTextSize(14);
+        deviceId.setSelectAllOnFocus(true);
+        deviceId.setImeOptions(EditorInfo.IME_ACTION_DONE);
         deviceId.setBackground(UiTokens.surface(this, UiTokens.BACKGROUND));
-        int padding = UiTokens.dp(this, UiTokens.SPACE_S);
-        deviceId.setPadding(padding, 0, padding, 0);
-        deviceId.setMinHeight(UiTokens.dp(this, 48));
-        card.addView(deviceId, matchWrap());
-        Button saveTarget = button("Save target device", false);
-        saveTarget.setOnClickListener(view -> {
-            try {
-                preferences.setTargetDeviceId(deviceId.getText().toString());
-                Toast.makeText(this, "Target device saved", Toast.LENGTH_SHORT).show();
-            } catch (IllegalArgumentException error) {
-                deviceId.setError(error.getMessage());
-            }
+        deviceId.setMinHeight(dp(48));
+        deviceId.setPadding(dp(12), 0, dp(12), 0);
+        deviceId.setContentDescription("KDE Connect target device ID");
+        LinearLayout.LayoutParams inputParams = matchWrap();
+        inputParams.topMargin = dp(8);
+        container.addView(deviceId, inputParams);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        Button cancel = actionButton("Cancel", false);
+        cancel.setOnClickListener(view -> {
+            deviceId.setText(preferences.targetDeviceId());
+            deviceEditor.setVisibility(View.GONE);
         });
-        card.addView(saveTarget, matchWrapWithTopMargin());
-        return card;
+        actions.addView(cancel, new LinearLayout.LayoutParams(dp(96), dp(44)));
+        Button save = actionButton("Save", true);
+        save.setOnClickListener(view -> saveTarget());
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(dp(96), dp(44));
+        saveParams.leftMargin = dp(8);
+        actions.addView(save, saveParams);
+        LinearLayout.LayoutParams actionParams = matchWrap();
+        actionParams.topMargin = dp(12);
+        container.addView(actions, actionParams);
+        return container;
+    }
+
+    private void toggleDeviceEditor() {
+        if (deviceEditor.getVisibility() == View.VISIBLE) {
+            deviceId.setText(preferences.targetDeviceId());
+            deviceEditor.setVisibility(View.GONE);
+        } else {
+            deviceId.setText(preferences.targetDeviceId());
+            deviceEditor.setVisibility(View.VISIBLE);
+            deviceId.requestFocus();
+        }
+    }
+
+    private void saveTarget() {
+        try {
+            preferences.setTargetDeviceId(deviceId.getText().toString());
+            deviceEditor.setVisibility(View.GONE);
+            targetState.setText("KDE Connect device configured");
+            targetRow.setContentDescription("Computer. KDE Connect device configured");
+            Toast.makeText(this, "Computer updated", Toast.LENGTH_SHORT).show();
+        } catch (IllegalArgumentException error) {
+            deviceId.setError(error.getMessage());
+        }
+    }
+
+    private void chooseOrdering() {
+        List<AppPreferences.NoteOrder> choices = orderChoices();
+        String[] labels = choices.stream().map(this::orderLabel).toArray(String[]::new);
+        new AlertDialog.Builder(this)
+                .setTitle("Sort notes")
+                .setSingleChoiceItems(labels, choices.indexOf(preferences.noteOrder()),
+                        (dialog, which) -> {
+                            preferences.setNoteOrder(choices.get(which));
+                            orderingState.setText(orderLabel(choices.get(which)));
+                            sortRow.setContentDescription(
+                                    "Sort notes. " + orderLabel(choices.get(which)));
+                            dialog.dismiss();
+                        })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void openSync(String mode) {
-        Intent intent = new Intent().setClassName(this, getPackageName() + ".SyncActivity");
+        Intent intent = new Intent(this, SyncActivity.class);
         intent.putExtra(SyncActivity.EXTRA_MODE, mode);
         startActivity(intent);
-    }
-
-    private View behaviorCard() {
-        LinearLayout card = card();
-        card.addView(text("Note ordering", 14, UiTokens.TEXT), matchWrap());
-        Spinner order = new Spinner(this);
-        List<AppPreferences.NoteOrder> choices = orderChoices();
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this,
-                android.R.layout.simple_spinner_dropdown_item,
-                choices.stream().map(this::orderLabel).toList());
-        order.setAdapter(adapter);
-        order.setSelection(choices.indexOf(preferences.noteOrder()));
-        order.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(
-                    android.widget.AdapterView<?> parent, View view, int position, long id) {
-                preferences.setNoteOrder(choices.get(position));
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-        });
-        card.addView(order, matchWrapWithTopMargin());
-        return card;
-    }
-
-    private View aboutCard() {
-        LinearLayout card = card();
-        TextView about = text(aboutText(versionName()), 14, UiTokens.TEXT_SECONDARY);
-        about.setLineSpacing(0, 1.2f);
-        card.addView(about, matchWrap());
-        return card;
     }
 
     private void chooseTree() {
@@ -183,9 +315,7 @@ public final class SettingsActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == TREE_REQUEST
-                && resultCode == RESULT_OK
-                && data != null
+        if (requestCode == TREE_REQUEST && resultCode == RESULT_OK && data != null
                 && data.getData() != null) {
             ExchangeDirectory.persistGrant(this, data.getData());
             refreshExchangeState();
@@ -195,13 +325,16 @@ public final class SettingsActivity extends Activity {
     private void refreshExchangeState() {
         if (exchangeState == null) return;
         Uri value = ExchangeDirectory.savedTree(this);
-        exchangeState.setText(exchangeStatus(value == null ? null : value.toString()));
+        String status = exchangeStatus(value == null ? null : value.toString());
+        exchangeState.setText(status);
+        if (folderRow != null) {
+            folderRow.setContentDescription("Exchange folder. " + status);
+        }
     }
 
     private String orderLabel(AppPreferences.NoteOrder value) {
         return value == AppPreferences.NoteOrder.MODIFIED_DESCENDING
-                ? "Recently modified"
-                : "Title A–Z";
+                ? "Recently modified" : "Title A–Z";
     }
 
     private String versionName() {
@@ -217,25 +350,42 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
-        int padding = UiTokens.dp(this, UiTokens.SPACE_M);
-        card.setPadding(padding, padding, padding, padding);
         return card;
     }
 
+    private View divider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(UiTokens.BORDER);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        params.leftMargin = dp(56);
+        params.rightMargin = dp(16);
+        divider.setLayoutParams(params);
+        return divider;
+    }
+
     private TextView sectionTitle(String value) {
-        TextView title = text(value, 14, UiTokens.TEXT_SECONDARY);
+        TextView title = text(value, 15, UiTokens.TEXT_SECONDARY);
         title.setTypeface(UiTokens.medium());
-        title.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_L), 0, UiTokens.dp(this, UiTokens.SPACE_XS));
+        title.setPadding(0, dp(24), 0, dp(10));
         return title;
     }
 
-    private Button button(String value, boolean accent) {
+    private Button actionButton(String label, boolean accent) {
         Button button = new Button(this);
-        button.setText(value);
+        button.setAllCaps(false);
+        button.setText(label);
+        button.setTextSize(14);
         button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
-        button.setBackground(accent ? UiTokens.accent(this) : UiTokens.surface(this, UiTokens.SURFACE_RAISED));
-        button.setMinHeight(UiTokens.dp(this, 48));
+        button.setBackground(accent
+                ? UiTokens.accent(this) : UiTokens.surface(this, UiTokens.SURFACE_RAISED));
         return button;
+    }
+
+    private void setRipple(View view) {
+        TypedValue attr = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground,
+                attr, true)) view.setBackgroundResource(attr.resourceId);
     }
 
     private TextView text(String value, float size, int color) {
@@ -246,20 +396,10 @@ public final class SettingsActivity extends Activity {
         return view;
     }
 
+    private int dp(int value) { return UiTokens.dp(this, value); }
+
     private LinearLayout.LayoutParams matchWrap() {
         return new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams matchWrapWithMargins() {
-        LinearLayout.LayoutParams params = matchWrap();
-        params.bottomMargin = UiTokens.dp(this, UiTokens.SPACE_S);
-        return params;
-    }
-
-    private LinearLayout.LayoutParams matchWrapWithTopMargin() {
-        LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = UiTokens.dp(this, UiTokens.SPACE_S);
-        return params;
     }
 }

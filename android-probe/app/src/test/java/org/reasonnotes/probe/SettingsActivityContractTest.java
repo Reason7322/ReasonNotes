@@ -10,7 +10,7 @@ import org.junit.Test;
 public final class SettingsActivityContractTest {
     @Test
     public void settingsExposeOnlyImplementedGroupsAndActions() {
-        assertEquals(List.of("Sync", "Behavior", "About"), SettingsActivity.sectionTitles());
+        assertEquals(List.of("Sync", "Connection", "Notes", "About"), SettingsActivity.sectionTitles());
         assertEquals(
                 List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device"),
                 SettingsActivity.syncFoundationActions());
@@ -21,14 +21,14 @@ public final class SettingsActivityContractTest {
 
     @Test
     public void exchangeAndAboutCopyStateEvidencePrecisely() {
-        assertEquals("Exchange directory not selected", SettingsActivity.exchangeStatus(null));
+        assertEquals("Choose a folder", SettingsActivity.exchangeStatus(null));
         assertEquals(
-                "Exchange directory selected",
+                "Folder ready",
                 SettingsActivity.exchangeStatus("content://tree/reasonnotes"));
         String about = SettingsActivity.aboutText("0.1");
         assertTrue(about.contains("Version 0.1"));
-        assertTrue(about.contains("immutable local history"));
-        assertTrue(about.contains("transfer request is not receipt confirmation"));
+        assertTrue(about.contains("Offline-first notes"));
+        assertTrue(about.contains("optional device sync"));
     }
 
     @Test

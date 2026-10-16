@@ -10,6 +10,10 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.util.TypedValue;
+import android.graphics.Color;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -89,6 +93,10 @@ public final class SyncActivity extends Activity {
     private LinearLayout catalogueView;
     private EditText search;
     private Button syncSelected;
+    private Button syncAll;
+    private boolean syncInFlight;
+    private TextView selectAllAction;
+    private TextView clearAction;
     private TextView status;
     private boolean chooseMode;
     private SelectionSnapshot restored;
@@ -127,7 +135,6 @@ public final class SyncActivity extends Activity {
                     .collect(java.util.stream.Collectors.toSet());
             restored = new SelectionSnapshot(query, selectedIds);
         }
-        initializeSync();
         setContentView(buildContent());
         loadCatalogueAndMaybeSync();
     }
@@ -198,23 +205,34 @@ public final class SyncActivity extends Activity {
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = button("‹", false);
-        back.setContentDescription("Back");
+        ImageButton back = new ImageButton(this);
+        back.setImageResource(R.drawable.ic_note_back);
+        back.setScaleType(ImageView.ScaleType.CENTER);
+        back.setContentDescription("Back to settings");
+        TypedValue backRipple = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless,
+                backRipple, true)) back.setBackgroundResource(backRipple.resourceId);
+        else back.setBackgroundColor(Color.TRANSPARENT);
         back.setOnClickListener(view -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(UiTokens.dp(this, 52), UiTokens.dp(this, 48)));
-        TextView title = text(chooseMode ? "Choose notes to sync" : "Sync all notes", 25, UiTokens.TEXT);
+        header.addView(back, new LinearLayout.LayoutParams(
+                UiTokens.dp(this, 48), UiTokens.dp(this, 48)));
+        TextView title = text(chooseMode ? "Choose notes" : "Sync notes", 25, UiTokens.TEXT);
         title.setTypeface(UiTokens.medium());
-        header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleParams.leftMargin = UiTokens.dp(this, 12);
+        header.addView(title, titleParams);
         root.addView(header, matchWrap());
 
         if (chooseMode) {
             search = new EditText(this);
-            search.setHint("Search sync catalogue");
+            search.setHint("Find a note");
             search.setSingleLine(true);
             search.setTextColor(UiTokens.TEXT);
             search.setHintTextColor(UiTokens.TEXT_SECONDARY);
             search.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
             search.setMinHeight(UiTokens.dp(this, 48));
+            search.setPadding(UiTokens.dp(this, 14), 0, UiTokens.dp(this, 14), 0);
             search.addTextChangedListener(new SimpleTextWatcher() {
                 @Override public void afterTextChanged(Editable value) {
                     if (selection != null) { selection.setQuery(value.toString()); renderCatalogue(); }
@@ -223,17 +241,32 @@ public final class SyncActivity extends Activity {
             root.addView(search, withTopMargin(matchWrap()));
 
             LinearLayout actions = new LinearLayout(this);
-            Button all = button("Select All", false);
-            all.setOnClickListener(view -> { selection.selectAllVisible(); renderCatalogue(); });
-            Button clear = button("Clear Selection", false);
-            clear.setOnClickListener(view -> { selection.clearSelection(); renderCatalogue(); });
-            actions.addView(all, new LinearLayout.LayoutParams(0, UiTokens.dp(this, 48), 1f));
-            actions.addView(clear, new LinearLayout.LayoutParams(0, UiTokens.dp(this, 48), 1f));
+            selectAllAction = text("Select all", 14, UiTokens.ACCENT);
+            selectAllAction.setGravity(Gravity.CENTER);
+            selectAllAction.setEnabled(false);
+            selectAllAction.setOnClickListener(view -> {
+                selection.selectAllVisible();
+                renderCatalogue();
+            });
+            clearAction = text("Clear", 14, UiTokens.TEXT_SECONDARY);
+            clearAction.setGravity(Gravity.CENTER);
+            clearAction.setEnabled(false);
+            clearAction.setOnClickListener(view -> {
+                selection.clearSelection();
+                renderCatalogue();
+            });
+            actions.addView(selectAllAction,
+                    new LinearLayout.LayoutParams(0, UiTokens.dp(this, 48), 1f));
+            actions.addView(clearAction,
+                    new LinearLayout.LayoutParams(0, UiTokens.dp(this, 48), 1f));
             root.addView(actions, withTopMargin(matchWrap()));
 
             ScrollView scroll = new ScrollView(this);
             catalogueView = new LinearLayout(this);
             catalogueView.setOrientation(LinearLayout.VERTICAL);
+            catalogueView.setBackground(UiTokens.surface(this, UiTokens.SURFACE));
+            catalogueView.setPadding(UiTokens.dp(this, 12), UiTokens.dp(this, 8),
+                    UiTokens.dp(this, 12), UiTokens.dp(this, 8));
             scroll.addView(catalogueView);
             root.addView(scroll, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -244,16 +277,17 @@ public final class SyncActivity extends Activity {
             root.addView(syncSelected, matchWrap());
         } else {
             TextView explanation = text(
-                    "Incoming notes and receipts are scanned first. A requested transfer remains unconfirmed until a receipt returns.",
+                    "Review incoming changes, then send your latest notes to your computer.",
                     15, UiTokens.TEXT_SECONDARY);
             explanation.setLineSpacing(0, 1.2f);
             root.addView(explanation, withTopMargin(matchWrap()));
-            Button start = button("Sync all notes", true);
-            start.setOnClickListener(view -> startSync(OutgoingSelection.all()));
-            root.addView(start, withTopMargin(matchWrap()));
+            syncAll = button("Start sync", true);
+            syncAll.setEnabled(false);
+            syncAll.setOnClickListener(view -> startSync(OutgoingSelection.all()));
+            root.addView(syncAll, withTopMargin(matchWrap()));
         }
 
-        status = text("Ready", 14, UiTokens.TEXT_SECONDARY);
+        status = text("Loading notes…", 14, UiTokens.TEXT_SECONDARY);
         status.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, 0);
         root.addView(status, matchWrap());
         ViewCompat.requestApplyInsets(root);
@@ -262,16 +296,34 @@ public final class SyncActivity extends Activity {
 
     private void loadCatalogueAndMaybeSync() {
         io.execute(() -> {
-            List<SyncPlanner.CatalogueItem> items = planner.catalogue();
-            runOnUiThread(() -> {
-                selection = restored == null
-                        ? new SelectionModel(items)
-                        : new SelectionModel(items, restored);
-                if (chooseMode) {
-                    search.setText(selection.query());
-                    renderCatalogue();
-                }
-            });
+            try {
+                // Opening and reconciling the repository may require disk I/O.
+                // Build the visible UI first and initialize on the I/O worker.
+                initializeSync();
+                List<SyncPlanner.CatalogueItem> items = planner.catalogue();
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    selection = restored == null
+                            ? new SelectionModel(items)
+                            : new SelectionModel(items, restored);
+                    if (chooseMode) {
+                        selectAllAction.setEnabled(true);
+                        clearAction.setEnabled(true);
+                        search.setText(selection.query());
+                        renderCatalogue();
+                    } else {
+                        syncAll.setEnabled(true);
+                    }
+                    status.setVisibility(View.GONE);
+                });
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    status.setText("Cannot prepare sync: " + error.getMessage());
+                    status.setTextColor(UiTokens.DANGER);
+                    status.setVisibility(View.VISIBLE);
+                });
+            }
         });
     }
 
@@ -288,24 +340,46 @@ public final class SyncActivity extends Activity {
             row.setChecked(selection.selected().contains(item.noteId()));
             row.setOnCheckedChangeListener((button, checked) -> {
                 selection.setSelected(item.noteId(), checked);
-                syncSelected.setEnabled(selection.canSync());
+                syncSelected.setEnabled(selection.canSync() && !syncInFlight);
             });
             catalogueView.addView(row, matchWrap());
         }
-        syncSelected.setEnabled(selection.canSync());
+        syncSelected.setEnabled(selection.canSync() && !syncInFlight);
     }
 
     private void startSync(OutgoingSelection outgoing) {
-        status.setText("Scanning incoming notes and receipts…");
+        if (coordinator == null || syncInFlight) return;
+        syncInFlight = true;
+        status.setVisibility(View.VISIBLE);
+        status.setText("Checking incoming changes…");
         status.setTextColor(UiTokens.TEXT_SECONDARY);
         if (syncSelected != null) syncSelected.setEnabled(false);
+        if (syncAll != null) syncAll.setEnabled(false);
         io.execute(() -> {
-            SyncStatus result = coordinator.synchronize(outgoing, true);
+            SyncStatus result = null;
+            RuntimeException failure = null;
+            try {
+                result = coordinator.synchronize(outgoing, true);
+            } catch (RuntimeException error) {
+                failure = error;
+            }
+            SyncStatus finalResult = result;
+            RuntimeException finalFailure = failure;
             runOnUiThread(() -> {
-                status.setText(result.summary());
-                status.setTextColor(result.phase() == SyncStatus.Phase.ERROR
-                        ? UiTokens.DANGER : UiTokens.SUCCESS);
-                if (syncSelected != null) syncSelected.setEnabled(selection.canSync());
+                if (isFinishing() || isDestroyed()) return;
+                syncInFlight = false;
+                if (finalFailure != null) {
+                    status.setText("Sync could not complete: " + finalFailure.getMessage());
+                    status.setTextColor(UiTokens.DANGER);
+                } else {
+                    status.setText(finalResult.summary());
+                    status.setTextColor(finalResult.phase() == SyncStatus.Phase.ERROR
+                            ? UiTokens.DANGER : UiTokens.SUCCESS);
+                }
+                if (syncSelected != null && selection != null) {
+                    syncSelected.setEnabled(selection.canSync());
+                }
+                if (syncAll != null) syncAll.setEnabled(true);
             });
         });
     }
@@ -333,7 +407,9 @@ public final class SyncActivity extends Activity {
 
     private Button button(String value, boolean accent) {
         Button button = new Button(this);
+        button.setAllCaps(false);
         button.setText(value);
+        button.setTextSize(15);
         button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
         button.setBackground(accent ? UiTokens.accent(this) : UiTokens.surface(this, UiTokens.SURFACE_RAISED));
         button.setMinHeight(UiTokens.dp(this, 48));
