@@ -55,6 +55,10 @@ public final class SyncPlanner {
         Map<String, RevisionEnvelope> revisions = registerLocalHistory();
         Set<String> eligible = new HashSet<>(
                 ledger.eligible(targetDevice, retryUnconfirmed, List.of()));
+        Map<String, DeliveryLedger.Entry> entries = new HashMap<>();
+        for (DeliveryLedger.Entry entry : ledger.entries(targetDevice)) {
+            entries.put(entry.revisionId(), entry);
+        }
         TreeSet<String> send = new TreeSet<>();
         TreeSet<String> skipped = new TreeSet<>();
         TreeSet<String> missing = new TreeSet<>();
@@ -76,7 +80,7 @@ public final class SyncPlanner {
                     || !eligible.contains(candidate.revisionId())) {
                 continue;
             }
-            DependencyResult dependencies = dependencies(candidate, revisions, eligible);
+            DependencyResult dependencies = dependencies(candidate, revisions, eligible, entries);
             confirmed.addAll(dependencies.confirmed());
             if (dependencies.blocked()) blocked.add(candidate.revisionId());
             else send.addAll(dependencies.send());
@@ -84,7 +88,7 @@ public final class SyncPlanner {
 
         for (RevisionEnvelope revision : revisions.values()) {
             if (!selection.includes(revision.noteId()) || !revision.originDevice().equals(localDevice)) continue;
-            DeliveryLedger.Entry entry = ledger.entry(revision.revisionId(), targetDevice);
+            DeliveryLedger.Entry entry = entries.get(revision.revisionId());
             if (entry != null && entry.state().equals("confirmed")) confirmed.add(revision.revisionId());
         }
 
@@ -174,7 +178,8 @@ public final class SyncPlanner {
     private DependencyResult dependencies(
             RevisionEnvelope candidate,
             Map<String, RevisionEnvelope> revisions,
-            Set<String> eligible) {
+            Set<String> eligible,
+            Map<String, DeliveryLedger.Entry> entries) {
         ArrayDeque<String> remaining = new ArrayDeque<>();
         remaining.add(candidate.revisionId());
         HashSet<String> visited = new HashSet<>();
@@ -195,7 +200,7 @@ public final class SyncPlanner {
                 blocked = true;
                 continue;
             }
-            DeliveryLedger.Entry entry = ledger.entry(id, targetDevice);
+            DeliveryLedger.Entry entry = entries.get(id);
             if (entry != null && entry.state().equals("confirmed")) {
                 confirmed.add(id);
             } else if (eligible.contains(id)) {

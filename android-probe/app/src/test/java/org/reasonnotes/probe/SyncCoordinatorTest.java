@@ -38,6 +38,88 @@ public final class SyncCoordinatorTest {
     }
 
     @Test
+    public void ninetySixFileBatchPlansAndRecordsAcceptedShareWithoutRepeatedLedgerWrites()
+            throws Exception {
+        Fixture fixture = fixture();
+        java.util.HashSet<UUID> ids = new java.util.HashSet<>();
+        for (int i = 0; i < 86; i++) {
+            UUID note = UUID.nameUUIDFromBytes(("outgoing-" + i)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            ids.add(note);
+            fixture.repository().createRevision(note, Set.of(),
+                    "# Note " + i, "android", NOW.plusSeconds(i), false);
+        }
+        for (int i = 0; i < 10; i++) {
+            UUID note = UUID.nameUUIDFromBytes(("incoming-" + i)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            RevisionEnvelope remote = RevisionEnvelope.create(
+                    note, List.of(), "linux", NOW.plusSeconds(i), false,
+                    "# Incoming " + i);
+            fixture.repository().importEnvelope(remote.serialize(), "incoming.md");
+            fixture.receipts().queue(remote, "android", NOW.plusSeconds(i + 1));
+        }
+        ArrayList<SyncCoordinator.OutgoingFile> submitted = new ArrayList<>();
+        SyncCoordinator coordinator = coordinator(fixture,
+                SyncCoordinator.FlushEvidence::success,
+                () -> scan(0, 0, 0),
+                files -> {
+                    submitted.addAll(files);
+                    return new SyncCoordinator.RequestEvidence(true, "share activity launched");
+                });
+        long started = System.nanoTime();
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.all(), true);
+        long millis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - started);
+        System.out.println("ANDROID_SYNC_86_REVISIONS_10_RECEIPTS_JVM_MS=" + millis);
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, result.phase());
+        assertEquals(86, result.revisionsRequested());
+        assertEquals(10, result.receiptsRequested());
+        assertEquals(96, submitted.size());
+        assertEquals(86, fixture.ledger().events().stream()
+                .filter(e -> e.kind().equals("transfer-requested")).count());
+        assertEquals(86, fixture.ledger().entries("linux").stream()
+                .filter(e -> e.state().equals("transfer-requested")).count());
+        assertEquals(10, fixture.receipts().entries("linux").stream()
+                .filter(e -> e.state().equals("transfer-requested")).count());
+        assertTrue("96-file accepted share should not take " + millis + "ms on JVM",
+                millis < 5000);
+    }
+
+    @Test
+    public void normalSyncNeverResendsAwaitingConfirmationUnlessRetryIsExplicit()
+            throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope note = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# One new note", "android", NOW, false);
+        ArrayList<List<SyncCoordinator.OutgoingFile>> shares = new ArrayList<>();
+        SyncCoordinator coordinator = coordinator(
+                fixture, SyncCoordinator.FlushEvidence::success,
+                () -> scan(0, 0, 0),
+                files -> {
+                    shares.add(List.copyOf(files));
+                    return new SyncCoordinator.RequestEvidence(true, "share accepted");
+                });
+        SyncStatus first = coordinator.synchronize(OutgoingSelection.all(), false);
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, first.phase());
+        assertEquals(1, first.revisionsRequested());
+        assertEquals(1, shares.size());
+        SyncStatus repeated = coordinator.synchronize(OutgoingSelection.all(), false);
+        assertEquals(SyncStatus.Phase.COMPLETE, repeated.phase());
+        assertEquals(1, shares.size()); // no second share intent
+        assertEquals(1, fixture.ledger().entry(note.revisionId(), "linux").attempts());
+        assertEquals("transfer-requested",
+                fixture.ledger().entry(note.revisionId(), "linux").state());
+        SyncStatus retry = coordinator.synchronize(OutgoingSelection.all(), true);
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, retry.phase());
+        assertEquals(2, shares.size());
+        assertEquals(2, fixture.ledger().entry(note.revisionId(), "linux").attempts());
+        assertEquals("transfer-requested",
+                fixture.ledger().entry(note.revisionId(), "linux").state());
+        assertEquals(2, fixture.ledger().events().stream()
+                .filter(e -> e.kind().equals("transfer-requested")).count());
+    }
+
+    @Test
     public void flushFailureAbortsBeforeScanOrPlanning() throws Exception {
         Fixture fixture = fixture();
         ArrayList<String> order = new ArrayList<>();

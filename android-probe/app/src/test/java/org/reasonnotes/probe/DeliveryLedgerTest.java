@@ -47,6 +47,36 @@ public final class DeliveryLedgerTest {
     }
 
     @Test
+    public void oneBatchKeepsPerRevisionAuditsAndRejectsMixedInvalidTransfersAtomically() throws Exception {
+        File state = temporary.newFolder("batch-request");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        String a = "a".repeat(64);
+        String b = "b".repeat(64);
+        String confirmed = "c".repeat(64);
+        Instant when = Instant.parse("2026-10-15T14:00:00Z");
+        ledger.registerLocals(List.of(a, b, confirmed), "linux");
+        ledger.recordRequested(confirmed, "linux", when);
+        ledger.recordConfirmed(confirmed, "linux", RECEIPT, when.plusSeconds(1));
+        byte[] ledgerBefore = java.nio.file.Files.readAllBytes(new File(state, "delivery.tsv").toPath());
+        byte[] eventsBefore = java.nio.file.Files.readAllBytes(new File(state, "events.tsv").toPath());
+        assertThrows(IllegalArgumentException.class, () -> ledger.recordRequestedBatch(
+                List.of(a, confirmed), "linux", when));
+        assertThrows(IllegalArgumentException.class, () -> ledger.recordRequestedBatch(
+                List.of(a, a), "linux", when));
+        assertArrayEquals(ledgerBefore, java.nio.file.Files.readAllBytes(
+                new File(state, "delivery.tsv").toPath()));
+        assertArrayEquals(eventsBefore, java.nio.file.Files.readAllBytes(
+                new File(state, "events.tsv").toPath()));
+        ledger.recordRequestedBatch(List.of(a, b), "linux", when.plusSeconds(2));
+        assertEquals(1, ledger.entry(a, "linux").attempts());
+        assertEquals(1, ledger.entry(b, "linux").attempts());
+        assertEquals("confirmed", ledger.entry(confirmed, "linux").state());
+        assertEquals(2, ledger.events().stream().filter(event -> event.kind().equals(
+                "transfer-requested") && (event.revisionId().equals(a)
+                || event.revisionId().equals(b))).count());
+    }
+
+    @Test
     public void defaultOnceExplicitRetriesBoundAtThreeAndForceRemainsAvailable() throws Exception {
         DeliveryLedger ledger = new DeliveryLedger(temporary.newFolder("state"), 3);
         ledger.registerLocal(REVISION, "linux");

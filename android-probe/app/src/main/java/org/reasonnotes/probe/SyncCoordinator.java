@@ -4,6 +4,8 @@ import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -77,10 +79,16 @@ public final class SyncCoordinator {
             }
 
             SyncPlanner.Plan plan = planner.plan(selection, retryUnconfirmed);
+            // Reusing one history snapshot avoids re-reading every revision
+            // and rebuilding a graph for each outgoing file (86+ on real sync).
+            Map<String, RevisionEnvelope> revisions = new HashMap<>();
+            for (RevisionEnvelope revision : repository.revisions()) {
+                revisions.put(revision.revisionId(), revision);
+            }
             ArrayList<OutgoingFile> files = new ArrayList<>();
             ArrayList<String> errors = new ArrayList<>();
             for (String id : plan.revisionIds()) {
-                RevisionEnvelope revision = repository.revision(id);
+                RevisionEnvelope revision = revisions.get(id);
                 if (revision == null) {
                     errors.add("missing planned revision " + id);
                     continue;
@@ -116,17 +124,16 @@ public final class SyncCoordinator {
                         List.of(request.detail()), request.detail());
             }
             Instant observed = clock.get();
-            int revisionCount = 0;
-            int receiptCount = 0;
-            for (OutgoingFile file : files) {
-                if (file.kind() == FileKind.REVISION) {
-                    ledger.recordRequested(file.identity(), targetDevice, observed);
-                    revisionCount++;
-                } else {
-                    receipts.recordRequested(file.identity(), targetDevice, observed);
-                    receiptCount++;
-                }
-            }
+            List<String> revisionIds = files.stream()
+                    .filter(file -> file.kind() == FileKind.REVISION)
+                    .map(OutgoingFile::identity).toList();
+            List<String> receiptIds = files.stream()
+                    .filter(file -> file.kind() == FileKind.RECEIPT)
+                    .map(OutgoingFile::identity).toList();
+            ledger.recordRequestedBatch(revisionIds, targetDevice, observed);
+            receipts.recordRequestedBatch(receiptIds, targetDevice, observed);
+            int revisionCount = revisionIds.size();
+            int receiptCount = receiptIds.size();
             return new SyncStatus(SyncStatus.Phase.TRANSFER_REQUESTED,
                     revisionCount, receiptCount, scan.imported(), scan.confirmed(),
                     scan.receiptsQueued(), List.of(), request.detail());

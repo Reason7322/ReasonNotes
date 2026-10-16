@@ -30,6 +30,30 @@ public final class ReceiptStoreTest {
     }
 
     @Test
+    public void batchReceiptRequestsAdvanceEachRetryAndRejectInvalidBatchAtomically() throws Exception {
+        File root = temporary.newFolder("batch-receipts");
+        ReceiptStore store = new ReceiptStore(root, 3);
+        RevisionEnvelope remoteA = RevisionEnvelope.create(
+                NOTE, List.of(), "linux", T0, false, "# Original");
+        RevisionEnvelope remoteB = RevisionEnvelope.create(
+                UUID.fromString("22222222-2222-4222-8222-222222222222"),
+                List.of(), "linux", T0.plusSeconds(1), false, "# Second");
+        String a = store.queue(remoteA, "android", T0.plusSeconds(2)).receiptId();
+        String b = store.queue(remoteB, "android", T0.plusSeconds(3)).receiptId();
+        File state = new File(root, "state/receipt-delivery.tsv");
+        byte[] before = Files.readAllBytes(state.toPath());
+        assertThrows(IllegalArgumentException.class, () -> store.recordRequestedBatch(
+                List.of(a, "invalid"), "linux", T0.plusSeconds(4)));
+        assertArrayEquals(before, Files.readAllBytes(state.toPath()));
+        store.recordRequestedBatch(List.of(a, b), "linux", T0.plusSeconds(5));
+        assertEquals(1, store.entry(a, "linux").attempts());
+        assertEquals(1, store.entry(b, "linux").attempts());
+        store.recordRequestedBatch(List.of(a, b), "linux", T0.plusSeconds(6));
+        assertEquals(2, store.entry(a, "linux").attempts());
+        assertEquals(2, store.entry(b, "linux").attempts());
+    }
+
+    @Test
     public void validReceiptIsStoredBeforeConfirmationAndDuplicateIsIdempotent() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(root);

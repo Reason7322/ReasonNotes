@@ -79,6 +79,24 @@ class _SyncWorker(QRunnable):
         self.signals.completed.emit(report)
 
 
+class _IncomingWorker(QRunnable):
+    """Scan received files on a worker without touching Qt models off thread."""
+
+    def __init__(self, scanner):
+        super().__init__()
+        self.scanner = scanner
+        self.signals = _WorkerSignals()
+
+    @Slot()
+    def run(self):
+        try:
+            report = self.scanner()
+        except Exception as error:
+            self.signals.failed.emit(str(error))
+            return
+        self.signals.completed.emit(report)
+
+
 class QtNotePresenter(QObject):
     """Qt-facing adapter; all application decisions remain in NotePresenter."""
 
@@ -87,6 +105,8 @@ class QtNotePresenter(QObject):
     currentBodyChanged = Signal()
     conflictChanged = Signal()
     selectionChanged = Signal()
+    incomingScanFinished = Signal(object)
+    incomingScanFailed = Signal(str)
 
     def __init__(
         self,
@@ -101,6 +121,7 @@ class QtNotePresenter(QObject):
         self._selected_note_ids: set[str] = set()
         self._sync_query = ""
         self._workers: set[_SyncWorker] = set()
+        self._incoming_worker: _IncomingWorker | None = None
         self._notes_model = MappingListModel(
             (
                 "noteId",
@@ -382,6 +403,41 @@ class QtNotePresenter(QObject):
     def clearSyncSelection(self):
         self._selected_note_ids.clear()
         self._notify()
+
+    def start_incoming_scan(self, scanner) -> bool:
+        """Import incoming revisions after the first window has appeared.
+
+        The background scan updates only locked repository storage. The Qt
+        model and presenter refresh happen on the main event loop thread.
+        """
+        if self._incoming_worker is not None:
+            return False
+        worker = _IncomingWorker(scanner)
+        self._incoming_worker = worker
+        worker.signals.completed.connect(
+            lambda report, current=worker: self._incoming_completed(current, report)
+        )
+        worker.signals.failed.connect(
+            lambda reason, current=worker: self._incoming_failed(current, reason)
+        )
+        self._thread_pool.start(worker)
+        return True
+
+    @Slot(object)
+    def _incoming_completed(self, worker, report):
+        if self._incoming_worker is not worker:
+            return
+        self._incoming_worker = None
+        self.presenter.refresh()
+        self._notify(conflict=True)
+        self.incomingScanFinished.emit(report)
+
+    @Slot(str)
+    def _incoming_failed(self, worker, reason):
+        if self._incoming_worker is not worker:
+            return
+        self._incoming_worker = None
+        self.incomingScanFailed.emit(reason)
 
     def _start_sync(self, selection) -> bool:
         if self.presenter.sync_state == "Running":

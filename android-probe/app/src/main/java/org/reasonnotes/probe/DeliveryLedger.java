@@ -273,19 +273,60 @@ public final class DeliveryLedger {
     }
 
     public void recordRequested(String revisionId, String targetDevice, Instant observed) {
-        Map<String, Entry> entries = readEntries();
-        String key = key(revisionId, targetDevice);
-        Entry prior = entries.get(key);
-        if (prior == null) throw new IllegalArgumentException("unregistered revision");
-        if (prior.state().equals("confirmed")) {
-            throw new IllegalArgumentException("confirmed revision cannot be requested again");
+        recordRequestedBatch(List.of(revisionId), targetDevice, observed);
+    }
+
+    /** One durable state transition for a single accepted KDE Connect share.
+     * Validate the entire batch before changing evidence. Each revision's
+     * attempt count still advances exactly once and each event is retained. */
+    public void recordRequestedBatch(List<String> revisionIds, String targetDevice, Instant observed) {
+        Objects.requireNonNull(revisionIds, "revisionIds");
+        if (targetDevice == null || targetDevice.isBlank()) {
+            throw new IllegalArgumentException("target identity required");
         }
-        int attempts = prior.attempts() + 1;
-        entries.put(key, new Entry(revisionId, targetDevice,
-                attempts >= maxRequests ? "needs-attention" : "transfer-requested",
-                attempts, observed, null, null));
+        if (observed == null || observed.getNano() != 0) {
+            throw new IllegalArgumentException("whole-second request time required");
+        }
+        if (revisionIds.isEmpty()) return;
+        if (new java.util.HashSet<>(revisionIds).size() != revisionIds.size()) {
+            throw new IllegalArgumentException("duplicate requested revision");
+        }
+        Map<String, Entry> entries = readEntries();
+        for (String id : revisionIds) {
+            validateRevision(id);
+            Entry prior = entries.get(key(id, targetDevice));
+            if (prior == null) throw new IllegalArgumentException("unregistered revision");
+            if (prior.state().equals("confirmed")) {
+                throw new IllegalArgumentException("confirmed revision cannot be requested again");
+            }
+        }
+        for (String id : revisionIds) {
+            Entry prior = entries.get(key(id, targetDevice));
+            int attempts = prior.attempts() + 1;
+            entries.put(key(id, targetDevice), new Entry(
+                    id, targetDevice,
+                    attempts >= maxRequests ? "needs-attention" : "transfer-requested",
+                    attempts, observed, null, null));
+        }
         writeEntries(entries);
-        recordEvent("transfer-requested", revisionId, observed, "target=" + targetDevice);
+        // Batch event writes: one append + fsync, but each requested revision
+        // retains its independent audit event. The ledger is authoritative
+        // if the process exits between these two durability steps.
+        StringBuilder events = new StringBuilder();
+        String detail = Base64.getEncoder().encodeToString(
+                ("target=" + targetDevice).getBytes(StandardCharsets.UTF_8));
+        for (String id : revisionIds) {
+            events.append("transfer-requested").append('	').append(id)
+                    .append('	').append(observed).append('	')
+                    .append(detail).append('\n');
+        }
+        try (FileOutputStream output = new FileOutputStream(eventsFile, true)) {
+            output.write(events.toString().getBytes(StandardCharsets.UTF_8));
+            output.flush();
+            output.getFD().sync();
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot append transfer request events", error);
+        }
     }
 
     public boolean recordConfirmed(

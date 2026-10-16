@@ -322,21 +322,34 @@ public final class ReceiptStore {
     }
 
     public void recordRequested(String receiptId, String targetDevice, Instant observed) {
-        validateHash(receiptId);
+        recordRequestedBatch(List.of(receiptId), targetDevice, observed);
+    }
+
+    /** Record the requested receipts from one accepted share in a single
+     * atomic ledger replacement. No partial retries on validation failure. */
+    public void recordRequestedBatch(List<String> receiptIds, String targetDevice, Instant observed) {
+        if (receiptIds == null) throw new IllegalArgumentException("receipt list");
         validateDevice(targetDevice);
         validateInstant(observed);
+        if (receiptIds.isEmpty()) return;
+        if (new java.util.HashSet<>(receiptIds).size() != receiptIds.size()) {
+            throw new IllegalArgumentException("duplicate requested receipt");
+        }
         Map<String, DeliveryEntry> entries = readEntries();
-        String key = key(receiptId, targetDevice);
-        DeliveryEntry prior = entries.get(key);
-        if (prior == null) throw new IllegalArgumentException("unregistered receipt");
-        int attempts = prior.attempts() + 1;
-        entries.put(key, new DeliveryEntry(
-                receiptId,
-                prior.revisionId(),
-                targetDevice,
-                attempts >= maxRequests ? "needs-attention" : "transfer-requested",
-                attempts,
-                observed));
+        for (String id : receiptIds) {
+            validateHash(id);
+            if (!entries.containsKey(key(id, targetDevice))) {
+                throw new IllegalArgumentException("unregistered receipt");
+            }
+        }
+        for (String id : receiptIds) {
+            DeliveryEntry prior = entries.get(key(id, targetDevice));
+            int attempts = prior.attempts() + 1;
+            entries.put(key(id, targetDevice), new DeliveryEntry(
+                    id, prior.revisionId(), targetDevice,
+                    attempts >= maxRequests ? "needs-attention" : "transfer-requested",
+                    attempts, observed));
+        }
         writeEntries(entries);
     }
 

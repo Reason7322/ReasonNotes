@@ -95,6 +95,7 @@ public final class SyncActivity extends Activity {
     private EditText search;
     private Button syncSelected;
     private Button syncAll;
+    private TextView retryAction;
     private boolean syncInFlight;
     private TextView selectAllAction;
     private TextView clearAction;
@@ -291,6 +292,24 @@ public final class SyncActivity extends Activity {
             root.addView(syncAll, withTopMargin(matchWrap()));
         }
 
+        // A normal sync must NOT repeatedly resend every transfer that is
+        // awaiting confirmation. Retries remain explicitly available.
+        retryAction = text(chooseMode
+                ? "Retry unconfirmed selected notes" : "Retry unconfirmed transfers",
+                14, UiTokens.ACCENT);
+        retryAction.setGravity(Gravity.CENTER);
+        retryAction.setMinHeight(UiTokens.dp(this, 44));
+        retryAction.setEnabled(false);
+        retryAction.setContentDescription(
+                "Retry earlier transfer requests still waiting for confirmation");
+        retryAction.setOnClickListener(view -> {
+            OutgoingSelection outgoing = chooseMode
+                    ? OutgoingSelection.selected(selection.selected())
+                    : OutgoingSelection.all();
+            startSync(outgoing, true);
+        });
+        root.addView(retryAction, withTopMargin(matchWrap()));
+
         status = text("Loading notes…", 14, UiTokens.TEXT_SECONDARY);
         status.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, 0);
         root.addView(status, matchWrap());
@@ -313,10 +332,12 @@ public final class SyncActivity extends Activity {
                     if (chooseMode) {
                         selectAllAction.setEnabled(true);
                         clearAction.setEnabled(true);
+                        retryAction.setEnabled(selection.canSync());
                         search.setText(selection.query());
                         renderCatalogue();
                     } else {
                         syncAll.setEnabled(true);
+                        retryAction.setEnabled(true);
                     }
                     status.setVisibility(View.GONE);
                 });
@@ -349,9 +370,14 @@ public final class SyncActivity extends Activity {
             catalogueView.addView(row, matchWrap());
         }
         syncSelected.setEnabled(selection.canSync() && !syncInFlight);
+        if (retryAction != null) retryAction.setEnabled(selection.canSync() && !syncInFlight);
     }
 
     private void startSync(OutgoingSelection outgoing) {
+        startSync(outgoing, false);
+    }
+
+    private void startSync(OutgoingSelection outgoing, boolean retryUnconfirmed) {
         if (coordinator == null || syncInFlight) return;
         syncInFlight = true;
         status.setVisibility(View.VISIBLE);
@@ -359,6 +385,7 @@ public final class SyncActivity extends Activity {
         status.setTextColor(UiTokens.TEXT_SECONDARY);
         if (syncSelected != null) syncSelected.setEnabled(false);
         if (syncAll != null) syncAll.setEnabled(false);
+        if (retryAction != null) retryAction.setEnabled(false);
         io.execute(() -> {
             SyncStatus result = null;
             RuntimeException failure = null;
@@ -366,7 +393,7 @@ public final class SyncActivity extends Activity {
                 // Required durability/recovery step only when user starts a
                 // transfer, never while they are simply opening the picker.
                 repository.reconcile();
-                result = coordinator.synchronize(outgoing, true);
+                result = coordinator.synchronize(outgoing, retryUnconfirmed);
             } catch (RuntimeException error) {
                 failure = error;
             }
@@ -387,6 +414,8 @@ public final class SyncActivity extends Activity {
                     syncSelected.setEnabled(selection.canSync());
                 }
                 if (syncAll != null) syncAll.setEnabled(true);
+                if (retryAction != null) retryAction.setEnabled(
+                        !chooseMode || (selection != null && selection.canSync()));
             });
         });
     }

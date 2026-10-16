@@ -76,6 +76,61 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual(1, len(engine.rootObjects()))
         return engine, engine.rootObjects()[0], warnings
 
+    def test_foreground_receiving_does_not_block_first_window_and_refreshes_when_ready(self):
+        from threading import Event
+        from time import monotonic
+        from datetime import datetime, timezone
+        from uuid import UUID
+        from PySide6.QtTest import QTest
+        from reasonnotes_sync.envelope import Revision
+
+        repo = self.bridge.presenter.repository
+        remote_id = UUID("cbbb1111-1111-4111-8111-111111111111")
+        incoming = Revision.create(
+            remote_id, (), "android",
+            datetime(2026, 10, 16, 15, tzinfo=timezone.utc),
+            False, "# Arriving after window opens\n\nRemote body",
+        )
+        entered = Event()
+        release = Event()
+        completed = []
+        self.bridge.incomingScanFinished.connect(lambda result: completed.append(result))
+
+        def slow_receive():
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("test did not release incoming scan")
+            return repo.import_bytes(incoming.serialize(), "incoming.md")
+
+        try:
+            start = monotonic()
+            self.assertTrue(self.bridge.start_incoming_scan(slow_receive))
+            self.assertFalse(self.bridge.start_incoming_scan(slow_receive))
+            self.assertTrue(entered.wait(timeout=2))
+            engine, root, warnings = self.load_qml()
+            self.assertEqual(1, len(engine.rootObjects()))
+            QCoreApplication.processEvents()
+            self.assertLess(monotonic() - start, 3)
+            self.assertNotIn(
+                str(remote_id),
+                [self.bridge.notesModel.row(i)["noteId"]
+                 for i in range(self.bridge.notesModel.rowCount())],
+            )
+        finally:
+            release.set()
+
+        deadline = monotonic() + 5
+        while not completed and monotonic() < deadline:
+            QCoreApplication.processEvents()
+            QTest.qWait(10)
+        self.assertEqual(1, len(completed))
+        self.assertEqual("imported", completed[0].kind)
+        self.assertIn(
+            str(remote_id),
+            [self.bridge.notesModel.row(i)["noteId"]
+             for i in range(self.bridge.notesModel.rowCount())],
+        )
+
     def test_settings_page_changes_theme_language_and_keeps_note_content(self):
         from PySide6.QtCore import QObject
         from PySide6.QtTest import QTest

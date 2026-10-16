@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from threading import Lock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +117,16 @@ def main(arguments=None) -> int:
         local_device="linux",
         target_device=options.target_device,
     )
+    # Receiving files and explicit sync both change delivery / receipt
+    # ledgers. One scan at a time protects cross-file confirmation invariants.
+    receive_lock = Lock()
+
+    def scan_received():
+        with receive_lock:
+            inbox.mkdir(parents=True, exist_ok=True)
+            return scan_inbox(
+                repository, inbox, "linux", received_dir=options.received_dir
+            )
 
     def run_sync(selected):
         if device_id is None:
@@ -123,24 +134,24 @@ def main(arguments=None) -> int:
                 "No single reachable KDE Connect device found. Pair your phone "
                 "or launch ReasonNotes with --device-id."
             )
-        inbox.mkdir(parents=True, exist_ok=True)
-        return sync_linux(
-            repository, inbox, KdeConnectLinux(device_id),
-            selected_note_ids=selected, received_dir=options.received_dir,
-        )
+        with receive_lock:
+            inbox.mkdir(parents=True, exist_ok=True)
+            return sync_linux(
+                repository, inbox, KdeConnectLinux(device_id),
+                selected_note_ids=selected, received_dir=options.received_dir,
+            )
 
-    # Receive-only startup: validate and durably import KDE Connect payloads
-    # into this actual library. Never request a transfer or consume retries.
-    # The later Sync button uses the same receive folder, so new arrivals
-    # appear after the user requests a normal synchronization as well.
-    if not options.no_auto_receive:
-        inbox.mkdir(parents=True, exist_ok=True)
-        report = scan_inbox(
-            repository, inbox, "linux", received_dir=options.received_dir,
-        )
-        for error in report.errors:
-            print("ReasonNotes receive warning: " + error, file=sys.stderr)
+    # The headless --check-launch command is an isolated verification mode,
+    # not interactive startup. Preserve its full import/recovery assertions;
+    # ordinary user launches always defer this work behind the first window.
+    if options.check_launch and not options.no_auto_receive:
+        report = scan_received()
+        for issue in report.errors:
+            print("ReasonNotes receive warning: " + issue, file=sys.stderr)
 
+    # Render native Qt UI first. A large KDE Connect delivery must not stall
+    # app startup: incoming files will be checked on a worker after QML loads.
+    # Never request outgoing transfers or consume retries at startup.
     presenter = NotePresenter(
         NoteService(repository, origin_device="linux"), run_sync,
     )
@@ -191,6 +202,21 @@ def main(arguments=None) -> int:
     if options.check_launch:
         blur_controller.close()
         return 0
+
+    if not options.no_auto_receive:
+        def report_incoming(result):
+            for issue in result.errors:
+                print("ReasonNotes receive warning: " + issue, file=sys.stderr)
+
+        bridge.incomingScanFinished.connect(report_incoming)
+        bridge.incomingScanFailed.connect(
+            lambda issue: print(
+                "ReasonNotes receive check failed: " + issue, file=sys.stderr
+            )
+        )
+        # Only schedule after the QML window has been constructed; the scan
+        # itself and durable imports never run on the GUI thread.
+        QTimer.singleShot(0, lambda: bridge.start_incoming_scan(scan_received))
 
     relay = PurgeRelay(repository, key)
     try:
