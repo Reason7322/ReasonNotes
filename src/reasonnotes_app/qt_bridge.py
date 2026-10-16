@@ -107,6 +107,7 @@ class QtNotePresenter(QObject):
     selectionChanged = Signal()
     incomingScanFinished = Signal(object)
     incomingScanFailed = Signal(str)
+    incomingRefreshMessageChanged = Signal()
 
     def __init__(
         self,
@@ -122,6 +123,10 @@ class QtNotePresenter(QObject):
         self._sync_query = ""
         self._workers: set[_SyncWorker] = set()
         self._incoming_worker: _IncomingWorker | None = None
+        self._incoming_scanner = None
+        self._incoming_manual_worker: _IncomingWorker | None = None
+        self._incoming_refresh_queued = False
+        self._incoming_refresh_message = ""
         self._notes_model = MappingListModel(
             (
                 "noteId",
@@ -404,16 +409,40 @@ class QtNotePresenter(QObject):
         self._selected_note_ids.clear()
         self._notify()
 
-    def start_incoming_scan(self, scanner) -> bool:
-        """Import incoming revisions after the first window has appeared.
+    @Property(str, notify=incomingRefreshMessageChanged)
+    def incomingRefreshMessage(self) -> str:
+        return self._incoming_refresh_message
 
-        The background scan updates only locked repository storage. The Qt
-        model and presenter refresh happen on the main event loop thread.
-        """
+    def _set_incoming_message(self, message: str) -> None:
+        if message != self._incoming_refresh_message:
+            self._incoming_refresh_message = message
+            self.incomingRefreshMessageChanged.emit()
+
+    def configure_incoming_scan(self, scanner) -> None:
+        """Give the window the same validated scanner as startup."""
+        self._incoming_scanner = scanner
+
+    @Slot(result=bool)
+    def refreshIncoming(self) -> bool:
+        """Scan local received files on F5 without requesting a transfer."""
+        if self._incoming_scanner is None:
+            self._set_incoming_message("Incoming refresh unavailable")
+            return False
+        if self._incoming_worker is not None:
+            self._incoming_refresh_queued = True
+            self._set_incoming_message("Refresh queued…")
+            return True
+        return self.start_incoming_scan(self._incoming_scanner, manual=True)
+
+    def start_incoming_scan(self, scanner, *, manual: bool = False) -> bool:
+        """Import incoming revisions on worker; UI refresh on GUI thread."""
         if self._incoming_worker is not None:
             return False
         worker = _IncomingWorker(scanner)
         self._incoming_worker = worker
+        if manual:
+            self._incoming_manual_worker = worker
+            self._set_incoming_message("Checking incoming notes…")
         worker.signals.completed.connect(
             lambda report, current=worker: self._incoming_completed(current, report)
         )
@@ -431,6 +460,22 @@ class QtNotePresenter(QObject):
         self.presenter.refresh()
         self._notify(conflict=True)
         self.incomingScanFinished.emit(report)
+        if self._incoming_manual_worker is worker:
+            self._incoming_manual_worker = None
+            warnings = getattr(report, "errors", ())
+            imported = len(getattr(report, "imported", ()))
+            confirmed = len(getattr(report, "confirmed", ()))
+            if warnings:
+                self._set_incoming_message(
+                    f"Refresh completed with {len(warnings)} warning(s)"
+                )
+            elif imported or confirmed:
+                self._set_incoming_message(
+                    f"Received {imported} revision(s), confirmed {confirmed}"
+                )
+            else:
+                self._set_incoming_message("Notes are up to date")
+        self._start_queued_incoming_refresh()
 
     @Slot(str)
     def _incoming_failed(self, worker, reason):
@@ -438,6 +483,15 @@ class QtNotePresenter(QObject):
             return
         self._incoming_worker = None
         self.incomingScanFailed.emit(reason)
+        if self._incoming_manual_worker is worker:
+            self._incoming_manual_worker = None
+            self._set_incoming_message("Could not refresh incoming notes")
+        self._start_queued_incoming_refresh()
+
+    def _start_queued_incoming_refresh(self) -> None:
+        if self._incoming_refresh_queued:
+            self._incoming_refresh_queued = False
+            self.start_incoming_scan(self._incoming_scanner, manual=True)
 
     def _start_sync(self, selection) -> bool:
         if self.presenter.sync_state == "Running":

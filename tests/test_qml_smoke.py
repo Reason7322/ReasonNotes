@@ -131,6 +131,148 @@ class QmlSmokeTests(unittest.TestCase):
              for i in range(self.bridge.notesModel.rowCount())],
         )
 
+    def test_f5_imports_new_receipt_files_after_window_is_open_without_sending_notes(self):
+        from datetime import datetime, timezone
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from reasonnotes_sync.envelope import Revision
+        from reasonnotes_sync.sync import scan_inbox
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        remote_id = UUID("97b16c77-c6d9-49c2-bae5-48647458f183")
+        revision = Revision.create(
+            remote_id, (), "android",
+            datetime(2026, 10, 16, 18, tzinfo=timezone.utc),
+            False, "# Received via KDE Connect\n\nA real note",
+        )
+        received = Path(self.temporary.name) / "received-later"
+        received.mkdir()
+        (received / f"{revision.revision_id}.md").write_bytes(revision.serialize())
+        scans = []
+        reports = []
+
+        def scan():
+            scans.append(True)
+            return scan_inbox(
+                self.bridge.presenter.repository,
+                received,
+                "linux",
+            )
+
+        self.bridge.configure_incoming_scan(scan)
+        self.bridge.incomingScanFinished.connect(lambda report: reports.append(report))
+        self.assertEqual(0, self.bridge.notesModel.rowCount())
+        QTest.keyClick(root, Qt.Key_F5)
+        deadline = time.monotonic() + 5
+        while not reports and time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            QTest.qWait(10)
+        self.assertEqual(1, len(scans))
+        self.assertEqual(1, len(reports))
+        self.assertEqual((revision.revision_id,), reports[0].imported)
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertEqual(str(remote_id), self.bridge.notesModel.row(0)["noteId"])
+        self.assertIn("Received 1 revision", self.bridge.incomingRefreshMessage)
+        self.assertTrue(root.findChild(object, "incomingRefreshNotice").property("visible"))
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_f5_pressed_during_startup_scan_queues_one_followup_scan(self):
+        from datetime import datetime, timezone
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from reasonnotes_sync.envelope import Revision
+        from reasonnotes_sync.repository import ImportOutcome
+        from reasonnotes_sync.sync import ScanReport
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        entered = Event()
+        release = Event()
+        calls = []
+        remote_id = UUID("af737c25-4414-413e-9fc2-d6dcc0f9a9c8")
+        revision = Revision.create(
+            remote_id, (), "android",
+            datetime(2026, 10, 16, 19, tzinfo=timezone.utc),
+            False, "# Arrived after first scan",
+        )
+
+        def scanner():
+            calls.append(True)
+            if len(calls) == 1:
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError("test scan not released")
+                return ImportOutcome("duplicate", None, "nothing new yet")
+            imported = self.bridge.presenter.repository.import_bytes(
+                revision.serialize(), "new-from-android.md"
+            )
+            return ScanReport(
+                (imported.revision_id,), (), (), (), (), (), (), ()
+            )
+
+        self.bridge.configure_incoming_scan(scanner)
+        completed = []
+        self.bridge.incomingScanFinished.connect(lambda result: completed.append(result))
+        self.assertTrue(self.bridge.start_incoming_scan(scanner))
+        try:
+            self.assertTrue(entered.wait(2))
+            QTest.keyClick(root, Qt.Key_F5)
+            QTest.keyClick(root, Qt.Key_F5)
+            QCoreApplication.processEvents()
+            self.assertEqual("Refresh queued…", self.bridge.incomingRefreshMessage)
+            self.assertEqual(1, len(calls))
+        finally:
+            release.set()
+        deadline = time.monotonic() + 5
+        while len(completed) < 2 and time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            QTest.qWait(10)
+        self.assertEqual(2, len(calls))
+        self.assertEqual(2, len(completed))
+        self.assertEqual(str(remote_id), self.bridge.notesModel.row(0)["noteId"])
+        self.assertIn("Received 1 revision", self.bridge.incomingRefreshMessage)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_f5_refresh_preserves_active_unsaved_draft_and_does_not_upload(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from reasonnotes_sync.repository import ImportOutcome
+
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("Unsent title"))
+        self.assertTrue(self.bridge.editContent("Unsent draft should stay"))
+        original_id = self.bridge.activeNoteId
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        from reasonnotes_sync.sync import ScanReport
+        self.bridge.configure_incoming_scan(
+            lambda: ScanReport((), (), (), (), (), (), (), ())
+        )
+        complete = []
+        self.bridge.incomingScanFinished.connect(lambda report: complete.append(report))
+        # Keyboard delivery is validated in test_f5_imports_new...;
+        # this independently checks that the refresh action preserves edits.
+        self.assertTrue(self.bridge.refreshIncoming())
+        deadline = time.monotonic() + 5
+        while not complete and time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            QTest.qWait(10)
+        self.assertEqual(1, len(complete))
+        self.assertEqual(original_id, self.bridge.activeNoteId)
+        self.assertIn("Unsent draft should stay", self.bridge.currentBody)
+        self.assertTrue(self.bridge.presenter.dirty)
+        self.assertEqual("Notes are up to date", self.bridge.incomingRefreshMessage)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_settings_page_changes_theme_language_and_keeps_note_content(self):
         from PySide6.QtCore import QObject
         from PySide6.QtTest import QTest

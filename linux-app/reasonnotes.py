@@ -203,6 +203,10 @@ def main(arguments=None) -> int:
         blur_controller.close()
         return 0
 
+    # Explicit F5 refresh is always available, even when automatic
+    # startup receiving has been disabled. It never requests a transfer.
+    bridge.configure_incoming_scan(scan_received)
+
     if not options.no_auto_receive:
         def report_incoming(result):
             for issue in result.errors:

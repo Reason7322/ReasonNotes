@@ -177,6 +177,57 @@ ApplicationWindow {
     }
 
     Shortcut {
+        objectName: "incomingRefreshShortcut"
+        sequence: "F5"
+        onActivated: root.bridge.refreshIncoming()
+    }
+
+    // A small, temporary confirmation; refreshing never launches outgoing
+    // KDE Connect transfers or turns an unconfirmed transfer into delivery.
+    property string incomingRefreshNotice: ""
+
+    Connections {
+        target: root.bridge
+        function onIncomingRefreshMessageChanged() {
+            root.incomingRefreshNotice = root.bridge.incomingRefreshMessage
+            hideIncomingRefreshNotice.stop()
+            if (root.incomingRefreshNotice !== "Checking incoming notes…"
+                    && root.incomingRefreshNotice !== "Refresh queued…") {
+                hideIncomingRefreshNotice.start()
+            }
+        }
+    }
+
+    Timer {
+        id: hideIncomingRefreshNotice
+        interval: 3500
+        repeat: false
+        onTriggered: root.incomingRefreshNotice = ""
+    }
+
+    Rectangle {
+        objectName: "incomingRefreshNotice"
+        z: 200
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.margins: theme.spacingLarge
+        visible: root.incomingRefreshNotice !== ""
+        color: theme.surface
+        border.color: theme.border
+        radius: theme.radiusSmall
+        width: incomingRefreshText.implicitWidth + theme.spacingLarge * 2
+        height: incomingRefreshText.implicitHeight + theme.spacingMedium * 2
+
+        Label {
+            id: incomingRefreshText
+            anchors.centerIn: parent
+            text: root.incomingRefreshNotice
+            color: theme.textPrimary
+            font.pixelSize: theme.secondarySize
+        }
+    }
+
+    Shortcut {
         sequences: [StandardKey.Find]
         onActivated: sidebar.focusSearch()
     }
