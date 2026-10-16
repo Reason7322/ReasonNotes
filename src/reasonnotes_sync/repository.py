@@ -118,11 +118,23 @@ class Repository:
 
     def _write_history(self, revision: Revision) -> bool:
         path = self._history_path(revision)
+        data = revision.serialize()
+        # Received bundles may be scanned again at every startup. Existing
+        # immutable revisions must be checked byte-for-byte, but need no
+        # temporary file, fsync or repository reconciliation. Still handle
+        # a concurrent creator with the FileExistsError branch below.
+        try:
+            existing = path.read_bytes()
+        except FileNotFoundError:
+            pass
+        else:
+            if existing != data:
+                raise RuntimeError("existing history content disagrees with revision ID")
+            return False
         parent_existed = path.parent.exists()
         path.parent.mkdir(parents=True, exist_ok=True)
         if not parent_existed:
             self._fsync_directory(self.history_dir)
-        data = revision.serialize()
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{revision.revision_id}.", suffix=".tmp", dir=path.parent
         )
@@ -343,9 +355,12 @@ class Repository:
             return self._quarantine(data, source_name, str(error))
 
         created = self._write_history(revision)
-        self.reconcile()
         if not created:
+            # Repository.open() reconciles on startup. A verified duplicate
+            # cannot change history, so reconciling again merely rewrites
+            # every derived working note and the index for no reason.
             return ImportOutcome("duplicate", revision.revision_id, "revision already imported")
+        self.reconcile()
         if self.local_device is not None:
             safe_source = Path(source_name).name.replace("\n", "_").replace("\r", "_")
             DeliveryLedger(self.root).record_event(

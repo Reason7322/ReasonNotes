@@ -14,6 +14,7 @@ from .bundle import (
     read_bundle,
 )
 from .delivery import DeliveryLedger, DeliveryState
+from .envelope import Revision
 from .receipt import ReceiptEnvelope, ReceiptError, ReceiptStore
 from .repository import Repository
 
@@ -95,6 +96,18 @@ def scan_inbox(
     errors = []
     ledger = DeliveryLedger(repository.root)
     receipt_store = ReceiptStore(repository.root)
+    # Download bundles often contain many already imported notes and receipts.
+    # Snapshot known identities once instead of repeatedly re-reading every
+    # revision and ledger entry for each member of each archive. Fresh imports
+    # are added below so later entries in this same scan still see them.
+    known_revision_ids = {revision.revision_id for revision in repository.revisions()}
+    known_delivery_keys = {
+        (entry.revision_id, entry.target_device) for entry in ledger.entries()
+    }
+    queued_receipt_keys = {
+        (entry.revision_id, entry.target_device)
+        for entry in receipt_store.entries()
+    }
     reconciliation = receipt_store.reconcile_confirmations(
         repository,
         ledger,
@@ -145,8 +158,10 @@ def scan_inbox(
                 # canonical receipts for revisions not registered here.
                 if (
                     received_dir is not None
-                    and repository.revision(receipt.revision_id) is None
-                    and ledger.entry(receipt.revision_id, receipt.acknowledging_device) is None
+                    and receipt.revision_id not in known_revision_ids
+                    and (
+                        receipt.revision_id, receipt.acknowledging_device
+                    ) not in known_delivery_keys
                 ):
                     continue
                 outcome = receipt_store.accept(
@@ -176,17 +191,20 @@ def scan_inbox(
             errors.append(f"{source}: {outcome.detail}")
             continue
         if outcome.revision_id:
-            revision = repository.revision(outcome.revision_id)
-            if revision is not None and revision.origin_device != local_device:
-                already_queued = any(
-                    entry.revision_id == revision.revision_id
-                    for entry in receipt_store.entries(revision.origin_device)
-                )
+            # import_bytes validated the envelope and checked the persistent
+            # bytes on duplicates. Avoid re-reading all on-disk revisions to
+            # obtain a revision object already available in this payload.
+            revision = Revision.parse(data)
+            known_revision_ids.add(revision.revision_id)
+            if revision.origin_device != local_device:
+                key = (revision.revision_id, revision.origin_device)
+                already_queued = key in queued_receipt_keys
                 receipt = receipt_store.queue(
                     revision,
                     local_device,
                     datetime.now(timezone.utc).replace(microsecond=0),
                 )
+                queued_receipt_keys.add(key)
                 if not already_queued:
                     receipts_queued.append(receipt.receipt_id)
     graph = repository.graph()

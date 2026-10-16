@@ -116,6 +116,38 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(second.revision_id, revision.revision_id)
         self.assertEqual(tuple((self.root / "history" / str(NOTE_ID)).glob("*.md")), (self.history_path(revision),))
 
+    def test_verified_duplicate_does_not_write_or_reconcile(self):
+        revision = Revision.create(NOTE_ID, (), "android", T0, False, "unchanged")
+        self.assertEqual(
+            "imported", self.repository.import_bytes(revision.serialize(), "first.md").kind
+        )
+        path = self.history_path(revision)
+        index_before = (self.root / "state" / "index.json").read_bytes()
+        note_before = (self.root / "notes" / f"{NOTE_ID}.md").read_bytes()
+
+        with (
+            patch.object(self.repository, "reconcile", side_effect=AssertionError("duplicate reconciled")),
+            patch("reasonnotes_sync.repository.tempfile.mkstemp", side_effect=AssertionError("duplicate wrote temp file")),
+        ):
+            result = self.repository.import_bytes(revision.serialize(), "repeat.md")
+
+        self.assertEqual("duplicate", result.kind)
+        self.assertEqual(revision.serialize(), path.read_bytes())
+        self.assertEqual(index_before, (self.root / "state" / "index.json").read_bytes())
+        self.assertEqual(note_before, (self.root / "notes" / f"{NOTE_ID}.md").read_bytes())
+
+    def test_existing_history_disagreement_is_not_silently_accepted(self):
+        revision = Revision.create(NOTE_ID, (), "android", T0, False, "expected")
+        self.assertEqual(
+            "imported", self.repository.import_bytes(revision.serialize(), "first.md").kind
+        )
+        path = self.history_path(revision)
+        # Deliberately corrupt only a disposable fixture, not user data.
+        path.write_bytes(b"corrupt preexisting history")
+        with self.assertRaisesRegex(RuntimeError, "disagrees with revision ID"):
+            self.repository.import_bytes(revision.serialize(), "second.md")
+        self.assertEqual(b"corrupt preexisting history", path.read_bytes())
+
     def test_tombstone_removes_working_view_but_preserves_history(self):
         root = self.create_root("delete later")
 

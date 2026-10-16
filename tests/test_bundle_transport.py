@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from uuid import UUID
 import hashlib
 import unittest
+from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from reasonnotes_sync.bundle import BundleError, read_bundle
@@ -88,6 +89,31 @@ class BundleTests(unittest.TestCase):
             self.repository, self.inbox, "linux", received_dir=self.downloads
         )
         self.assertEqual(set(report2.duplicates), {r.revision_id for r in revisions})
+
+    def test_repeated_bundle_scan_uses_no_per_member_history_lookups(self):
+        remote = [
+            Revision.create(NOTE, (), "android", WHEN, False, "first"),
+            Revision.create(OTHER, (), "android", WHEN, False, "second"),
+        ]
+        name, data = carrier([
+            (f"{revision.revision_id}.md", revision.serialize())
+            for revision in remote
+        ])
+        (self.downloads / name).write_bytes(data)
+        first = scan_inbox(self.repository, self.inbox, "linux", received_dir=self.downloads)
+        self.assertEqual(set(first.imported), {revision.revision_id for revision in remote})
+        self.assertEqual(2, len(first.receipts_queued))
+
+        with (
+            patch.object(self.repository, "revision", side_effect=AssertionError("per-member history scan")),
+            patch.object(self.repository, "reconcile", side_effect=AssertionError("duplicate reconcile")),
+        ):
+            second = scan_inbox(
+                self.repository, self.inbox, "linux", received_dir=self.downloads
+            )
+        self.assertEqual(set(second.duplicates), {revision.revision_id for revision in remote})
+        self.assertEqual(second.receipts_queued, ())
+        self.assertEqual(second.errors, ())
 
     def test_invalid_member_rejects_entire_bundle_before_repository_mutation(self):
         good = Revision.create(NOTE, (), "android", WHEN, False, "# Good")
