@@ -588,6 +588,258 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
+    def test_shift_click_toggles_nonadjacent_notes_and_one_dialog_deletes_exact_targets(self):
+        from PySide6.QtCore import Qt, QPoint
+        from PySide6.QtTest import QTest
+
+        ids = []
+        for title in ("Alpha", "Beta", "Gamma", "Delta"):
+            self.assertTrue(self.bridge.createNote())
+            ids.append(self.bridge.activeNoteId)
+            self.assertTrue(self.bridge.editTitle(title))
+            self.assertTrue(self.bridge.saveNow())
+        repo = self.bridge.presenter.repository
+        original_active = self.bridge.activeNoteId
+        root_engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+
+        def click_note(note_id, *, shift):
+            delegates = root.findChild(object, "notesList").property("contentItem").childItems()
+            matching = [row for row in delegates if row.objectName() == "noteDelegate"
+                        and row.property("noteId") == note_id]
+            self.assertEqual(1, len(matching), (note_id, len(delegates)))
+            row = matching[0]
+            point = row.mapToItem(None, row.width() * 0.60, row.height() / 2)
+            QTest.mouseClick(root, Qt.LeftButton,
+                Qt.ShiftModifier if shift else Qt.NoModifier,
+                QPoint(round(point.x()), round(point.y())))
+            QCoreApplication.processEvents()
+
+        click_note(ids[0], shift=True)
+        click_note(ids[2], shift=True)
+        self.assertEqual(2, self.bridge.bulkSelectionCount)
+        self.assertEqual({ids[0], ids[2]}, set(self.bridge.bulkSelectedNoteIds))
+        self.assertEqual(original_active, self.bridge.activeNoteId)
+        # A second Shift-click toggles the individual note off and on.
+        click_note(ids[0], shift=True)
+        self.assertEqual({ids[2]}, set(self.bridge.bulkSelectedNoteIds))
+        click_note(ids[0], shift=True)
+        self.assertEqual({ids[0], ids[2]}, set(self.bridge.bulkSelectedNoteIds))
+        self.assertTrue(root.findChild(object, "bulkSelectionBar").property("visible"))
+        self.assertTrue(root.findChild(object, "deleteNoteButton").property("enabled"))
+        self.assertEqual(2, self.bridge.prepareDelete())
+        self.assertEqual(2, self.bridge.pendingDeleteCount)
+        # Cancel must preserve all notes and selection.
+        self.bridge.cancelDelete()
+        self.assertEqual(0, self.bridge.pendingDeleteCount)
+        self.assertEqual(4, len(self.bridge.presenter.service.list_notes()))
+        self.assertEqual(2, self.bridge.bulkSelectionCount)
+        # Click the actual Delete button, inspect count, then confirm.
+        button = root.findChild(object, "deleteNoteButton")
+        position = button.mapToItem(None, button.width() / 2, button.height() / 2)
+        QTest.mouseClick(root, Qt.LeftButton, Qt.NoModifier,
+            QPoint(round(position.x()), round(position.y())))
+        QCoreApplication.processEvents()
+        dialog = root.findChild(object, "deleteDialog")
+        self.assertTrue(dialog.property("visible"))
+        self.assertEqual(2, self.bridge.pendingDeleteCount)
+        self.assertIn("2 notes", dialog.property("title"))
+        dialog.accept()
+        QCoreApplication.processEvents()
+        self.assertEqual(0, self.bridge.pendingDeleteCount)
+        self.assertEqual(0, self.bridge.bulkSelectionCount)
+        self.assertEqual({ids[1], ids[3]}, {
+            str(row.note_id) for row in self.bridge.presenter.service.list_notes()
+        })
+        for deleted_id in (ids[0], ids[2]):
+            self.assertTrue(repo.is_purged(UUID(deleted_id)))
+            self.assertFalse((repo.history_dir / deleted_id).exists())
+        for kept_id in (ids[1], ids[3]):
+            self.assertFalse(repo.is_purged(UUID(kept_id)))
+            self.assertTrue((repo.history_dir / kept_id).is_dir())
+        self.assertEqual(original_active, self.bridge.activeNoteId)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del root_engine
+
+    def test_normal_click_opens_note_and_clears_bulk_selection(self):
+        from PySide6.QtCore import Qt, QPoint
+        from PySide6.QtTest import QTest
+
+        ids = []
+        for name in ("First", "Second", "Third"):
+            self.assertTrue(self.bridge.createNote())
+            ids.append(self.bridge.activeNoteId)
+            self.assertTrue(self.bridge.editTitle(name))
+            self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        def click(note_id, modifier):
+            row, = [x for x in root.findChild(object, "notesList").property(
+                    "contentItem").childItems()
+                    if x.objectName() == "noteDelegate"
+                    and x.property("noteId") == note_id]
+            point = row.mapToItem(None, row.width() / 2, row.height() / 2)
+            QTest.mouseClick(root, Qt.LeftButton, modifier,
+                QPoint(round(point.x()), round(point.y())))
+            QCoreApplication.processEvents()
+        click(ids[0], Qt.ShiftModifier)
+        click(ids[1], Qt.ShiftModifier)
+        self.assertEqual(2, self.bridge.bulkSelectionCount)
+        click(ids[0], Qt.NoModifier)
+        self.assertEqual(ids[0], self.bridge.activeNoteId)
+        self.assertEqual(0, self.bridge.bulkSelectionCount)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_bulk_delete_selection_survives_search_and_is_snapshotted_for_confirmation(self):
+        ids = []
+        for name in ("First", "Second", "Third"):
+            self.assertTrue(self.bridge.createNote())
+            ids.append(self.bridge.activeNoteId)
+            self.assertTrue(self.bridge.editTitle(name))
+            self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.toggleBulkNote(ids[0]))
+        self.assertTrue(self.bridge.toggleBulkNote(ids[1]))
+        self.bridge.search("Third")
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertEqual(2, self.bridge.bulkSelectionCount)
+        self.assertEqual(2, self.bridge.prepareDelete())
+        # Search doesn't accidentally expand the frozen delete batch.
+        self.assertTrue(self.bridge.toggleBulkNote(ids[2]))
+        self.assertEqual(3, self.bridge.bulkSelectionCount)
+        self.assertEqual(2, self.bridge.pendingDeleteCount)
+        self.assertTrue(self.bridge.confirmDelete())
+        repo = self.bridge.presenter.repository
+        for name in (ids[0], ids[1]):
+            self.assertTrue(repo.is_purged(UUID(name)))
+        self.assertFalse(repo.is_purged(UUID(ids[2])))
+        self.assertEqual({ids[2]}, set(self.bridge.bulkSelectedNoteIds))
+        self.bridge.clearBulkSelection()
+        self.assertEqual(0, self.bridge.bulkSelectionCount)
+
+    def test_bulk_delete_preserves_unselected_dirty_note_and_stops_on_failure(self):
+        ids = []
+        for name in ("Alpha", "Beta", "Gamma"):
+            self.assertTrue(self.bridge.createNote())
+            ids.append(self.bridge.activeNoteId)
+            self.assertTrue(self.bridge.editTitle(name))
+            self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.editContent("Unsent personal draft"))
+        self.assertTrue(self.bridge.presenter.dirty)
+        for note_id in ids[:2]:
+            self.assertTrue(self.bridge.toggleBulkNote(note_id))
+        self.assertEqual(2, self.bridge.prepareDelete())
+        original_delete = self.bridge.presenter.service.delete_note
+        calls = []
+        def fail_second(note_id):
+            calls.append(str(note_id))
+            if len(calls) == 2:
+                raise OSError("simulated persistent disk failure")
+            original_delete(note_id)
+        with patch.object(self.bridge.presenter.service, "delete_note", side_effect=fail_second):
+            self.assertFalse(self.bridge.confirmDelete())
+        self.assertEqual(2, len(calls))
+        repo = self.bridge.presenter.repository
+        self.assertTrue(repo.is_purged(UUID(calls[0])))
+        self.assertFalse(repo.is_purged(UUID(calls[1])))
+        self.assertFalse(repo.is_purged(UUID(ids[2])))
+        self.assertEqual(ids[2], self.bridge.activeNoteId)
+        self.assertIn("Unsent personal draft", self.bridge.currentBody)
+        self.assertTrue(self.bridge.presenter.dirty)
+        self.assertIn("Deleted 1 of 2", self.bridge.saveError)
+        self.assertEqual({calls[1]}, set(self.bridge.bulkSelectedNoteIds))
+
+    def test_selected_dirty_note_is_purged_without_saving_draft(self):
+        self.assertTrue(self.bridge.createNote())
+        target = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Will be deleted"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.editContent("Unsent draft must not be saved"))
+        repo = self.bridge.presenter.repository
+        self.assertTrue(self.bridge.toggleBulkNote(target))
+        self.assertEqual(1, self.bridge.prepareDelete())
+        self.assertTrue(self.bridge.confirmDelete())
+        self.assertTrue(repo.is_purged(UUID(target)))
+        self.assertFalse((repo.history_dir / target).exists())
+        self.assertEqual("", self.bridge.activeNoteId)
+        self.assertEqual("", self.bridge.currentBody)
+        self.assertEqual(0, self.bridge.bulkSelectionCount)
+        self.assertEqual(0, len(self.bridge.presenter.service.list_notes()))
+
+    def test_stale_selection_never_purges_an_extra_note(self):
+        ids = []
+        for title in ("Gone remotely", "Still here"):
+            self.assertTrue(self.bridge.createNote())
+            ids.append(self.bridge.activeNoteId)
+            self.assertTrue(self.bridge.editTitle(title))
+            self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.toggleBulkNote(ids[0]))
+        self.assertTrue(self.bridge.toggleBulkNote(ids[1]))
+        self.assertEqual(2, self.bridge.prepareDelete())
+        repo = self.bridge.presenter.repository
+        repo.purge_note(UUID(ids[0]))
+        # Confirmation must fail closed; no extra notes are deleted.
+        self.assertFalse(self.bridge.confirmDelete())
+        self.assertTrue(repo.is_purged(UUID(ids[0])))
+        self.assertFalse(repo.is_purged(UUID(ids[1])))
+        self.assertEqual(1, len(self.bridge.presenter.service.list_notes()))
+        self.assertIn("Selection changed", self.bridge.saveError)
+        self.assertEqual({ids[1]}, set(self.bridge.bulkSelectedNoteIds))
+
+    def test_interrupted_cleanup_after_fence_is_not_reported_as_success(self):
+        self.assertTrue(self.bridge.createNote())
+        target = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Fence-first"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.toggleBulkNote(target))
+        self.assertEqual(1, self.bridge.prepareDelete())
+        original = self.bridge.presenter.service.delete_note
+        def interrupted(note_id):
+            original(note_id)
+            raise OSError("simulated failure after commit")
+        with patch.object(self.bridge.presenter.service, "delete_note", side_effect=interrupted):
+            self.assertFalse(self.bridge.confirmDelete())
+        self.assertTrue(self.bridge.presenter.repository.is_purged(UUID(target)))
+        self.assertEqual("", self.bridge.activeNoteId)
+        self.assertEqual(0, self.bridge.bulkSelectionCount)
+        self.assertIn("remaining deletion failed", self.bridge.saveError)
+
+    def test_dialog_cancel_preserves_selected_notes_and_does_not_purge(self):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        self.assertTrue(self.bridge.createNote())
+        selected = self.bridge.activeNoteId
+        self.assertTrue(self.bridge.editTitle("Keep me"))
+        self.assertTrue(self.bridge.saveNow())
+        self.assertTrue(self.bridge.toggleBulkNote(selected))
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        button = root.findChild(object, "deleteNoteButton")
+        point = button.mapToItem(None, button.width()/2, button.height()/2)
+        QTest.mouseClick(root, Qt.LeftButton, Qt.NoModifier,
+            QPoint(round(point.x()), round(point.y())))
+        QCoreApplication.processEvents()
+        dialog = root.findChild(object, "deleteDialog")
+        self.assertTrue(dialog.property("visible"))
+        self.assertEqual(1, self.bridge.pendingDeleteCount)
+        self.assertTrue(self.bridge.pendingDeleteIsBulk)
+        self.assertIn("1 selected note", dialog.property("title"))
+        dialog.reject()
+        QCoreApplication.processEvents()
+        self.assertEqual(0, self.bridge.pendingDeleteCount)
+        self.assertFalse(self.bridge.pendingDeleteIsBulk)
+        self.assertEqual(1, self.bridge.bulkSelectionCount)
+        self.assertFalse(self.bridge.presenter.repository.is_purged(UUID(selected)))
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
     def test_selected_sidebar_note_has_no_gold_selection_bar(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()

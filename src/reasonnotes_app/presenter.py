@@ -298,6 +298,52 @@ class NotePresenter:
         self.refresh()
         return True
 
+    def delete_notes(self, note_ids: Iterable[str]) -> tuple[str, ...]:
+        """Purge each explicitly selected live note through the existing fence.
+
+        Each successful deletion is committed independently by the repository.
+        On partial failure, report an error and leave other notes untouched.
+        Never silently save a draft from a note being permanently deleted.
+        """
+        ids = tuple(dict.fromkeys(note_ids))
+        if not ids:
+            return ()
+        live = {str(note.note_id) for note in self.service.list_notes("")}
+        if any(note_id not in live for note_id in ids):
+            self._set_save_error("Selection changed; select the notes again before deleting")
+            return ()
+        deleted: list[str] = []
+        failed = None
+        for note_id in ids:
+            try:
+                self.service.delete_note(UUID(note_id))
+            except Exception as error:
+                # A durable deletion fence may already have been committed
+                # before a later cleanup step failed. Never keep a fenced
+                # note in the editor or the selected list, and never report
+                # the interrupted cleanup as a successful batch.
+                if self.repository.is_purged(UUID(note_id)):
+                    deleted.append(note_id)
+                failed = error
+                break
+            deleted.append(note_id)
+        if self.active_note_id in deleted:
+            self.active_note_id = None
+            self._active_head_ids = ()
+            self.draft = ""
+            self.dirty = False
+            self.conflict_view = None
+            self._skipped_conflict_draft = False
+        if failed is not None:
+            self._set_save_error(
+                f"Deleted {len(deleted)} of {len(ids)} notes; remaining deletion failed: {failed}"
+            )
+        elif deleted and self.active_note_id is None and not self.dirty:
+            self.save_state = "Idle"
+            self.save_error = ""
+        self.refresh()
+        return tuple(deleted)
+
     @staticmethod
     def _selection(
         selected_note_ids: Iterable[str | UUID] | None,

@@ -8,6 +8,8 @@ Rectangle {
     required property var theme
     required property var i18n
     property bool settingsOpen: false
+    readonly property int selectedCount: root.presenter
+        ? root.presenter.bulkSelectionCount : 0
     signal settingsRequested()
     signal notesRequested()
     signal syncRequested()
@@ -145,7 +147,7 @@ Rectangle {
             objectName: "deleteNoteButton"
             Layout.fillWidth: true
             implicitHeight: root.theme.actionButtonHeight
-            enabled: root.presenter.activeNoteId !== ""
+            enabled: root.presenter.activeNoteId !== "" || root.selectedCount > 0
             hoverEnabled: true
             onClicked: root.deleteRequested()
 
@@ -161,9 +163,37 @@ Rectangle {
                     visualState: !deleteNoteButton.enabled ? "disabled"
                         : (deleteNoteButton.hovered ? "hover" : "normal")
                 }
-                Label { text: root.i18n.t("Delete"); color: deleteNoteButton.enabled ? root.theme.textPrimary : root.theme.textSecondary; font.pixelSize: root.theme.secondarySize; Layout.fillWidth: true }
+                Label {
+                    text: root.selectedCount > 0
+                        ? root.i18n.t("Delete (%1)").arg(root.selectedCount)
+                        : root.i18n.t("Delete")
+                    color: deleteNoteButton.enabled ? root.theme.textPrimary : root.theme.textSecondary
+                    font.pixelSize: root.theme.secondarySize
+                    Layout.fillWidth: true
+                }
             }
             background: Rectangle { color: deleteNoteButton.hovered ? root.theme.surfaceHover : "transparent"; border.color: deleteNoteButton.activeFocus ? root.theme.accent : "transparent"; radius: root.theme.radiusSmall }
+        }
+
+        RowLayout {
+            objectName: "bulkSelectionBar"
+            Layout.fillWidth: true
+            visible: root.selectedCount > 0
+            Layout.preferredHeight: visible ? 28 : 0
+            Label {
+                objectName: "bulkSelectionLabel"
+                text: root.i18n.t("%1 selected").arg(root.selectedCount)
+                color: root.theme.textSecondary
+                font.pixelSize: root.theme.smallSize
+                Layout.fillWidth: true
+            }
+            Button {
+                objectName: "clearBulkSelectionButton"
+                text: root.i18n.t("Clear")
+                flat: true
+                hoverEnabled: true
+                onClicked: root.presenter.clearBulkSelection()
+            }
         }
 
         TextField {
@@ -220,19 +250,23 @@ Rectangle {
                 padding: 0
                 leftPadding: saveButton.leftPadding
                 rightPadding: saveButton.rightPadding
+                readonly property bool bulkSelected:
+                    root.presenter.bulkSelectedNoteIds.indexOf(noteId) !== -1
                 highlighted: noteId === root.presenter.activeNoteId
                 hoverEnabled: true
+                // Preserve keyboard activation (Enter/Space) for accessibility.
                 onClicked: {
                     root.notesRequested()
                     root.presenter.selectNote(noteId)
                 }
 
                 background: Rectangle {
-                    color: noteDelegate.highlighted
+                    color: noteDelegate.bulkSelected || noteDelegate.highlighted
                         ? root.theme.selectedNote
-                        : (noteDelegate.hovered ? root.theme.surfaceHover : "transparent")
+                        : (noteClickArea.containsMouse ? root.theme.surfaceHover : "transparent")
                     radius: root.theme.radiusSmall
-                    border.color: noteDelegate.activeFocus ? root.theme.accent : "transparent"
+                    border.color: noteDelegate.bulkSelected || noteDelegate.activeFocus
+                        ? root.theme.accent : "transparent"
                 }
 
                 contentItem: RowLayout {
@@ -244,7 +278,18 @@ Rectangle {
                         Layout.preferredHeight: 24
                         Layout.alignment: Qt.AlignVCenter
 
+                        Label {
+                            objectName: "bulkSelectedCheckmark"
+                            anchors.centerIn: parent
+                            visible: noteDelegate.bulkSelected
+                            text: "✓"
+                            color: root.theme.accent
+                            font.pixelSize: 19
+                            font.weight: Font.Bold
+                        }
+
                         Image {
+                            visible: !noteDelegate.bulkSelected
                             objectName: "noteRowIcon"
                             anchors.centerIn: parent
                             width: 20
@@ -285,6 +330,24 @@ Rectangle {
                         color: root.theme.error
                         font.pixelSize: root.theme.sidebarTitleSize
                         font.weight: Font.Bold
+                    }
+                }
+
+                // AbstractButton.clicked does not carry mouse modifiers.
+                // An overlay MouseArea lets a normal click open a note and
+                // Shift+left-click toggle exactly that row without opening it.
+                MouseArea {
+                    id: noteClickArea
+                    objectName: "noteClickArea"
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    hoverEnabled: true
+                    onClicked: function(mouse) {
+                        root.notesRequested()
+                        if (mouse.modifiers & Qt.ShiftModifier)
+                            root.presenter.toggleBulkNote(noteDelegate.noteId)
+                        else
+                            root.presenter.selectNote(noteDelegate.noteId)
                     }
                 }
             }

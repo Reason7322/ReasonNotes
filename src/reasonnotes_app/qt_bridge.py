@@ -120,6 +120,9 @@ class QtNotePresenter(QObject):
         self.presenter = presenter
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
         self._selected_note_ids: set[str] = set()
+        self._bulk_selected_ids: set[str] = set()
+        self._pending_delete_ids: tuple[str, ...] = ()
+        self._pending_delete_bulk = False
         self._sync_query = ""
         self._workers: set[_SyncWorker] = set()
         self._incoming_worker: _IncomingWorker | None = None
@@ -175,6 +178,13 @@ class QtNotePresenter(QObject):
         }
 
     def _refresh_models(self) -> None:
+        # Selection is independent from search visibility but cannot outlive
+        # remote permanent deletion. Do not ever reselect purged notes.
+        if self._bulk_selected_ids:
+            live = {
+                str(row.note_id) for row in self.presenter.service.list_notes("")
+            }
+            self._bulk_selected_ids.intersection_update(live)
         note_rows = [self._note_mapping(row) for row in self.presenter.notes]
         self._notes_model.replace(note_rows)
         sync_rows = []
@@ -290,6 +300,77 @@ class QtNotePresenter(QObject):
     def syncSelectionCount(self):
         return len(self._selected_note_ids)
 
+    @Property(int, notify=selectionChanged)
+    def bulkSelectionCount(self):
+        return len(self._bulk_selected_ids)
+
+    @Property("QVariantList", notify=selectionChanged)
+    def bulkSelectedNoteIds(self):
+        return sorted(self._bulk_selected_ids)
+
+    @Property(int, notify=selectionChanged)
+    def pendingDeleteCount(self):
+        return len(self._pending_delete_ids)
+
+    @Property(bool, notify=selectionChanged)
+    def pendingDeleteIsBulk(self):
+        return self._pending_delete_bulk
+
+    @Slot(str, result=bool)
+    def toggleBulkNote(self, note_id: str):
+        if note_id not in {row.note_id for row in self.presenter.notes}:
+            return False
+        if note_id in self._bulk_selected_ids:
+            self._bulk_selected_ids.remove(note_id)
+        else:
+            self._bulk_selected_ids.add(note_id)
+        self.selectionChanged.emit()
+        return True
+
+    @Slot()
+    def clearBulkSelection(self):
+        if self._bulk_selected_ids:
+            self._bulk_selected_ids.clear()
+            self.selectionChanged.emit()
+
+    @Slot(result=int)
+    def prepareDelete(self):
+        # Freeze exact identities BEFORE opening a destructive dialog.
+        # Selecting another note while the dialog is open cannot expand it.
+        self._pending_delete_bulk = bool(self._bulk_selected_ids)
+        if self._bulk_selected_ids:
+            self._pending_delete_ids = tuple(sorted(self._bulk_selected_ids))
+        elif self.presenter.active_note_id is not None:
+            self._pending_delete_ids = (self.presenter.active_note_id,)
+        else:
+            self._pending_delete_ids = ()
+        self.selectionChanged.emit()
+        return len(self._pending_delete_ids)
+
+    @Slot()
+    def cancelDelete(self):
+        if self._pending_delete_ids or self._pending_delete_bulk:
+            self._pending_delete_ids = ()
+            self._pending_delete_bulk = False
+            self.selectionChanged.emit()
+
+    @Slot(result=bool)
+    def confirmDelete(self):
+        ids = self._pending_delete_ids
+        was_bulk = self._pending_delete_bulk
+        self._pending_delete_ids = ()
+        self._pending_delete_bulk = False
+        if not ids:
+            self.selectionChanged.emit()
+            return False
+        if len(ids) == 1 and self.presenter.active_note_id == ids[0] and not was_bulk:
+            deleted = (ids[0],) if self.presenter.delete_active() else ()
+        else:
+            deleted = self.presenter.delete_notes(ids)
+        self._bulk_selected_ids.difference_update(deleted)
+        self._notify(body=bool(deleted), conflict=True)
+        return len(deleted) == len(ids) and self.presenter.save_state != "Error"
+
     @Slot(result=bool)
     def createNote(self):
         changed = self.presenter.create_note()
@@ -301,6 +382,8 @@ class QtNotePresenter(QObject):
         before = self.presenter.notes
         was_dirty = self.presenter.dirty
         changed = self.presenter.select_note(note_id)
+        if changed:
+            self._bulk_selected_ids.clear()
         # Selecting an already saved note never changes either catalogue.
         # A dirty-note switch may flush a revision and change sidebar order,
         # title and delivery status, so update lists only in that case.
@@ -359,7 +442,10 @@ class QtNotePresenter(QObject):
 
     @Slot(result=bool)
     def deleteCurrent(self):
+        original = self.presenter.active_note_id
         deleted = self.presenter.delete_active()
+        if deleted and original is not None:
+            self._bulk_selected_ids.discard(original)
         self._notify(body=deleted, conflict=True)
         return deleted
 
