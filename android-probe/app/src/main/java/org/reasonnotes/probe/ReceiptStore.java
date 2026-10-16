@@ -312,11 +312,19 @@ public final class ReceiptStore {
             ProbeRepository repository,
             DeliveryLedger ledger,
             String localDevice) {
+        validateConfirmation(receipt, repository.revision(receipt.revisionId()),
+                ledger, localDevice);
+    }
+
+    private static void validateConfirmation(
+            ReceiptEnvelope receipt,
+            RevisionEnvelope revision,
+            DeliveryLedger ledger,
+            String localDevice) {
         validateDevice(localDevice);
         if (!receipt.destinationDevice().equals(localDevice)) {
             throw new IllegalArgumentException("receipt is addressed to another device");
         }
-        RevisionEnvelope revision = repository.revision(receipt.revisionId());
         if (revision == null) throw new IllegalArgumentException("receipt names an unknown revision");
         if (!revision.noteId().equals(receipt.noteId())) {
             throw new IllegalArgumentException("receipt note and revision identities disagree");
@@ -364,12 +372,19 @@ public final class ReceiptStore {
         ArrayList<String> confirmed = new ArrayList<>();
         ArrayList<String> errors = new ArrayList<>();
         File[] files = inbox.listFiles(file -> file.isFile() && file.getName().endsWith(".receipt.md"));
-        if (files != null) {
+        if (files != null && files.length > 0) {
+            // Recovery must validate every receipt, but it should not re-read
+            // the entire revision history for each stored confirmation.
+            Map<String, RevisionEnvelope> revisionById = new LinkedHashMap<>();
+            for (RevisionEnvelope revision : repository.revisions()) {
+                revisionById.put(revision.revisionId(), revision);
+            }
             Arrays.sort(files, Comparator.comparing(File::getName));
             for (File file : files) {
                 try {
                     ReceiptEnvelope receipt = ReceiptEnvelope.parse(Files.readAllBytes(file.toPath()));
-                    validateConfirmation(receipt, repository, ledger, localDevice);
+                    validateConfirmation(receipt, revisionById.get(receipt.revisionId()),
+                            ledger, localDevice);
                     if (ledger.recordConfirmed(
                             receipt.revisionId(),
                             receipt.acknowledgingDevice(),

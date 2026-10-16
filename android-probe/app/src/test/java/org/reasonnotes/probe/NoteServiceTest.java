@@ -124,6 +124,36 @@ public final class NoteServiceTest {
     }
 
     @Test
+    public void listingManyRevisionsAndNotesPreservesSearchSortingAndConflicts() throws Exception {
+        ProbeRepository repository = ProbeRepository.open(temporary.newFolder("many-notes"));
+        NoteService service = new NoteService(repository, "android", new AdvancingClock(),
+                UUID::randomUUID);
+        java.util.HashSet<UUID> created = new java.util.HashSet<>();
+        for (int i = 0; i < 28; i++) {
+            NoteService.OpenNote note = service.createNote("Note " + i, "body original");
+            created.add(note.noteId());
+            for (int j = 0; j < 3; j++) {
+                note = service.saveNote(note.noteId(), note.baseHeadIds(),
+                        "Note " + i, "body revision " + j);
+            }
+        }
+        long before = System.nanoTime();
+        List<NoteService.NoteSummary> all = service.listNotes("");
+        long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - before);
+        System.out.println("ANDROID_28_NOTE_LIST_JVM_MS=" + elapsedMs);
+        assertEquals(28, all.size());
+        assertEquals(created, new java.util.HashSet<>(
+                all.stream().map(NoteService.NoteSummary::noteId).toList()));
+        assertEquals(28, service.listNotes("body revision 2").size());
+        assertEquals(0, service.listNotes("nonsense search phrase").size());
+        for (int i = 1; i < all.size(); i++) {
+            assertFalse(all.get(i).modifiedUtc().isAfter(all.get(i - 1).modifiedUtc()));
+        }
+        assertTrue("Home listing regressed: " + elapsedMs + "ms", elapsedMs < 3000);
+    }
+
+    @Test
     public void restartReconcilesHistoryOnlyRevision() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(root);

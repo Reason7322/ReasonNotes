@@ -37,6 +37,9 @@ public final class MainActivity extends Activity {
     public static final String EXTRA_NOTE_ID = "note-id";
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService incomingIo = Executors.newSingleThreadExecutor();
+    private boolean incomingCheckPending;
+    private boolean incomingCheckInFlight;
     private ProbeRepository repository;
     private NoteService service;
     private PinStore pins;
@@ -61,12 +64,9 @@ public final class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        repository = ProbeRepository.open(new File(getFilesDir(), "probe-repository"));
-        service = new NoteService(
-                repository,
-                "android",
-                () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
-                UUID::randomUUID);
+        // Construct the UI before opening or reconciling the repository.
+        // Reconciliation performs disk I/O and belongs on the worker thread,
+        // not in Activity.onCreate on the main UI thread.
         LocalPreferences preferences = new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE));
         pins = new PinStore(preferences);
@@ -81,12 +81,39 @@ public final class MainActivity extends Activity {
         }
         setContentView(buildContent());
         updateSelectionUi();
-        renderNotes();
+        emptyState.setText("Loading notes…");
+        localStatus.setText("Loading local history…");
+        io.execute(() -> {
+            try {
+                ProbeRepository opened = ProbeRepository.open(
+                        new File(getFilesDir(), "probe-repository"));
+                NoteService openedService = new NoteService(
+                        opened, "android",
+                        () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
+                        UUID::randomUUID);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    repository = opened;
+                    service = openedService;
+                    updateSelectionUi();
+                    renderNotes();
+                });
+            } catch (RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    emptyState.setText("Could not load notes. Your history has not been removed.");
+                    localStatus.setText("Repository error: " + error.getMessage());
+                });
+            }
+        });
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (service != null) checkIncomingOnResume();
+        // Show local notes first, before even starting the SAF provider scan.
+        // A slow or broken incoming receipt must never gate the home list.
+        incomingCheckPending = true;
+        if (service != null) renderNotes();
     }
 
     /**
@@ -94,25 +121,28 @@ public final class MainActivity extends Activity {
      * Use the existing SAF exchange grant; never start outgoing sync here.
      */
     private void checkIncomingOnResume() {
+        if (incomingCheckInFlight) return;
         if (ExchangeDirectory.savedTree(this) == null) {
-            // No configured incoming directory. Ordinary offline editing
-            // must still open without an error or transport request.
             incomingStatus = null;
-            renderNotes();
             return;
         }
-        io.execute(() -> {
+        incomingCheckInFlight = true;
+        // SAF can be very slow and may report repeat receipt conflicts. Keep
+        // it off the foreground note-operation queue as well as off the UI.
+        incomingIo.execute(() -> {
             try {
                 ExchangeDirectory.ScanReport report = IncomingReceive.scanPhone(
                         this, repository);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
+                    incomingCheckInFlight = false;
                     incomingStatus = IncomingReceive.status(report);
                     renderNotes();
                 });
             } catch (RuntimeException error) {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
+                    incomingCheckInFlight = false;
                     incomingStatus = "Incoming check failed: " + error.getMessage();
                     renderNotes();
                 });
@@ -140,9 +170,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        // Allow an already-confirmed, durable deletion batch to finish if
-        // the activity is recreated. Do not interrupt a history write.
+        // Allow any already-confirmed, durable note operation to complete.
         io.shutdown();
+        incomingIo.shutdown();
         super.onDestroy();
     }
 
@@ -268,9 +298,10 @@ public final class MainActivity extends Activity {
         boolean active = selection.active();
         selectionBar.setVisibility(active ? View.VISIBLE : View.GONE);
         newNoteButton.setVisibility(active ? View.GONE : View.VISIBLE);
+        newNoteButton.setEnabled(service != null && !deletionInProgress);
         selectionCount.setText(selection.count() + " selected");
-        selectionDelete.setEnabled(active && !deletionInProgress);
-        selectionOptions.setEnabled(active && !deletionInProgress);
+        selectionDelete.setEnabled(active && service != null && !deletionInProgress);
+        selectionOptions.setEnabled(active && service != null && !deletionInProgress);
         selectionCancel.setEnabled(!deletionInProgress);
         for (GridLayout grid : new GridLayout[]{pinnedGrid, otherGrid}) {
             if (grid == null) continue;
@@ -311,7 +342,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmBulkDelete() {
-        if (!selection.active() || deletionInProgress) return;
+        if (!selection.active() || deletionInProgress || service == null) return;
         Set<UUID> selectedIds = selection.snapshot();
         int count = selectedIds.size();
         new AlertDialog.Builder(this)
@@ -405,6 +436,11 @@ public final class MainActivity extends Activity {
         sections.pinned().forEach(note -> addCard(pinnedGrid, note));
         sections.others().forEach(note -> addCard(otherGrid, note));
         updateSelectionUi();
+        emptyState.setText("No notes yet. Create one to start writing.");
+        if (incomingCheckPending) {
+            incomingCheckPending = false;
+            checkIncomingOnResume();
+        }
         emptyState.setVisibility(
                 sections.pinned().isEmpty() && sections.others().isEmpty() ? View.VISIBLE : View.GONE);
         localStatus.setText(incomingStatus != null
@@ -447,6 +483,7 @@ public final class MainActivity extends Activity {
     }
 
     private void createNote() {
+        if (service == null || deletionInProgress) return;
         localStatus.setText("Creating note…");
         io.execute(() -> {
             try {

@@ -110,9 +110,12 @@ public final class ExchangeDirectory {
                     rejectedRevisions++;
                     continue;
                 }
+                // We already have the validated bytes from this transfer.
+                // Don't load every repository revision again for this one.
+                RevisionEnvelope revision = RevisionEnvelope.parse(data);
                 if (finishRevisionImport(
                         outcome,
-                        repository,
+                        revision,
                         ledger,
                         receiptStore,
                         localDevice,
@@ -142,13 +145,29 @@ public final class ExchangeDirectory {
             String localDevice,
             String sourceName,
             Instant observed) {
+        // Compatibility for callers with only an import outcome.
+        return finishRevisionImport(outcome,
+                outcome.revisionId() == null ? null : repository.revision(outcome.revisionId()),
+                ledger, receiptStore, localDevice, sourceName, observed);
+    }
+
+    static boolean finishRevisionImport(
+            ProbeRepository.ImportOutcome outcome,
+            RevisionEnvelope revision,
+            DeliveryLedger ledger,
+            ReceiptStore receiptStore,
+            String localDevice,
+            String sourceName,
+            Instant observed) {
         if (!outcome.kind().equals("imported") && !outcome.kind().equals("duplicate")) {
             return false;
         }
+        if (revision == null || !revision.revisionId().equals(outcome.revisionId())) {
+            throw new IllegalStateException("imported revision identity changed");
+        }
         ledger.recordImported(
                 outcome.revisionId(), observed, "source=" + sourceName);
-        RevisionEnvelope revision = repository.revision(outcome.revisionId());
-        if (revision == null || revision.originDevice().equals(localDevice)) return false;
+        if (revision.originDevice().equals(localDevice)) return false;
         boolean alreadyQueued = receiptStore.entries(revision.originDevice()).stream()
                 .anyMatch(entry -> entry.revisionId().equals(revision.revisionId()));
         receiptStore.queue(revision, localDevice, observed);

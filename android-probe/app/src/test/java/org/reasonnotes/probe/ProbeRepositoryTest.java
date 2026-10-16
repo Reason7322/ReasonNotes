@@ -37,6 +37,36 @@ public final class ProbeRepositoryTest {
     }
 
     @Test
+    public void duplicateImportOnlyChecksExistingHistoryWithoutRewritingViews() throws Exception {
+        File rootDirectory = temporary.newFolder("duplicate-safe");
+        ProbeRepository repository = ProbeRepository.open(rootDirectory);
+        RevisionEnvelope original = revision("preserve", List.of(), "linux", 0, false);
+        assertEquals("imported", repository.importEnvelope(original.serialize(), "first.md").kind());
+        var index = new File(rootDirectory, "state/index.txt").toPath();
+        var current = new File(rootDirectory, "current/" + NOTE + ".md").toPath();
+        var history = new File(rootDirectory,
+                "history/" + NOTE + "/" + original.revisionId() + ".md").toPath();
+        var previous = java.nio.file.attribute.FileTime.from(
+                Instant.parse("2001-01-01T00:00:00Z"));
+        for (var path : List.of(index, current, history)) {
+            Files.setLastModifiedTime(path, previous);
+        }
+        assertEquals("duplicate", repository.importEnvelope(original.serialize(), "second.md").kind());
+        for (var path : List.of(index, current, history)) {
+            assertEquals(previous, Files.getLastModifiedTime(path));
+        }
+        Files.write(history, "corrupt immutable history".getBytes(StandardCharsets.UTF_8));
+        try {
+            repository.importEnvelope(original.serialize(), "third.md");
+            org.junit.Assert.fail("Corrupted duplicate must be rejected");
+        } catch (IllegalStateException error) {
+            assertTrue(error.getMessage().contains("disagrees with revision ID"));
+        }
+        assertEquals("corrupt immutable history", new String(
+                Files.readAllBytes(history), StandardCharsets.UTF_8));
+    }
+
+    @Test
     public void conflictPreservesHistoryAndResolutionConverges() throws Exception {
         File rootDirectory = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(rootDirectory);

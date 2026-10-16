@@ -4,7 +4,9 @@ import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -82,8 +84,16 @@ public final class NoteService {
     public List<NoteSummary> listNotes(String query) {
         String queryKey = searchKey(query == null ? "" : query);
         ArrayList<NoteSummary> summaries = new ArrayList<>();
-        for (UUID noteId : repository.noteIds()) {
-            List<RevisionEnvelope> heads = repository.heads(noteId);
+        // Reconstruct the full revision graph once. The old code reloaded and
+        // reparsed every immutable history file separately for every note;
+        // on a phone this made even a dozen notes take seconds to appear.
+        Map<UUID, List<RevisionEnvelope>> byNote = new LinkedHashMap<>();
+        for (RevisionEnvelope head : repository.heads()) {
+            byNote.computeIfAbsent(head.noteId(), ignored -> new ArrayList<>()).add(head);
+        }
+        for (var entry : byNote.entrySet()) {
+            UUID noteId = entry.getKey();
+            List<RevisionEnvelope> heads = entry.getValue();
             if (heads.isEmpty()) continue;
             if (heads.size() == 1 && heads.get(0).deleted()) continue;
 

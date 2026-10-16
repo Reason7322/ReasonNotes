@@ -277,15 +277,25 @@ public final class ProbeRepository {
 
     private ImportOutcome persistImportedLocked(RevisionEnvelope revision, byte[] data) {
         File path = new File(new File(history, revision.noteId().toString()), revision.revisionId() + ".md");
-        boolean duplicate = path.exists();
+        // Incoming documents are scanned repeatedly on foreground/resume.
+        // A verified duplicate must not create/fsync a temporary history file
+        // or reconcile the entire repository. Startup already repairs any
+        // interrupted working-view changes from the immutable history.
         try {
+            if (path.isFile()) {
+                if (!java.util.Arrays.equals(Files.readAllBytes(path.toPath()), data)) {
+                    throw new IllegalStateException("existing history disagrees with revision ID");
+                }
+                return new ImportOutcome("duplicate", revision.revisionId(),
+                        "revision already imported");
+            }
             durableWrite(path, data, false);
         } catch (IOException error) {
             throw new IllegalStateException("cannot persist immutable history", error);
         }
         reconcileLocked();
-        return new ImportOutcome(duplicate ? "duplicate" : "imported", revision.revisionId(),
-                duplicate ? "revision already imported" : "revision imported durably");
+        return new ImportOutcome("imported", revision.revisionId(),
+                "revision imported durably");
     }
 
     public RevisionEnvelope createRevision(
