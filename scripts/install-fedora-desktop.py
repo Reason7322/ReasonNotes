@@ -49,11 +49,22 @@ def install_release(version: str, home: Path) -> tuple[Path, Path]:
     stage = Path(tempfile.mkdtemp(prefix=".reasonnotes-stage-", dir=base))
     try:
         shutil.copytree(SOURCE / "linux-app", stage / "linux-app",
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.so"))
         for package in ("reasonnotes_app", "reasonnotes_sync"):
             shutil.copytree(SOURCE / "src" / package, stage / "src" / package,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         (stage / "VERSION").write_text(version + "\n", encoding="utf-8")
+        # Native Wayland blur is optional: compile in the private release stage
+        # from the system protocol file. Missing build tools leave the app
+        # fully functional with its opaque Liquid Glass fallback.
+        try:
+            subprocess.run(
+                [sys.executable, str(SOURCE / "scripts" / "build-wayland-blur.py"),
+                 "--target", str(stage / "linux-app" / "native")],
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            print("WARNING: native Wayland blur unavailable; using solid fallback:", error)
         stage.rename(release)
     finally:
         if stage.exists():

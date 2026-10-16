@@ -13,6 +13,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem
 
 from reasonnotes_app.liquid_glass_palette import LiquidGlassPalette
+from reasonnotes_app.wayland_blur import WaylandBlurController
 from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
@@ -56,6 +57,7 @@ class QmlSmokeTests(unittest.TestCase):
         presenter = NotePresenter(NoteService(repository, origin_device="linux"))
         self.bridge = QtNotePresenter(presenter)
         self.preferences = AppPreferences()
+        self.blur_state = WaylandBlurController(self.preferences)
         self.liquid_palette = LiquidGlassPalette()
 
     def load_qml(self):
@@ -63,6 +65,7 @@ class QmlSmokeTests(unittest.TestCase):
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
         engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
+        engine.rootContext().setContextProperty("blurState", self.blur_state)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -215,9 +218,18 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual(255, theme.property("mainBackground").alpha())
         self.assertEqual(255, root.property("color").alpha())
         self.assertEqual(255, theme.property("sidebar").alpha())
-        self.assertLess(
-            theme.property("surface").alpha(), 255,
-        )
+        self.assertEqual(255, theme.property("surface").alpha())
+        # Simulate the protocol capability notification. A successful native
+        # blur request unlocks translucent glass; turning it off restores
+        # a solid, readable Qt window without changing note contents.
+        self.blur_state._set_active(True)
+        QCoreApplication.processEvents()
+        self.assertLess(theme.property("mainBackground").alpha(), 255)
+        self.assertLess(theme.property("sidebar").alpha(), 255)
+        self.assertEqual(0, root.property("color").alpha())
+        self.blur_state._set_active(False)
+        QCoreApplication.processEvents()
+        self.assertEqual(255, root.property("color").alpha())
         edges = root.findChildren(QObject, "glassEdgeReflection")
         self.assertEqual(3, len(edges))
         self.assertTrue(all(edge.property("height") == 28 for edge in edges))
@@ -742,6 +754,7 @@ class QmlSmokeTests(unittest.TestCase):
         warnings = []
         engine.warnings.connect(lambda values: warnings.extend(values))
         engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
+        engine.rootContext().setContextProperty("blurState", self.blur_state)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -785,6 +798,7 @@ class QmlSmokeTests(unittest.TestCase):
     def test_editor_is_read_only_until_a_note_exists(self):
         engine = QQmlApplicationEngine()
         engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
+        engine.rootContext().setContextProperty("blurState", self.blur_state)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)
@@ -805,6 +819,7 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertTrue(self.bridge.saveNow())
         engine = QQmlApplicationEngine()
         engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
+        engine.rootContext().setContextProperty("blurState", self.blur_state)
         engine.rootContext().setContextProperty("appPreferences", self.preferences)
         engine.rootContext().setContextProperty("presenter", self.bridge)
         engine.rootContext().setContextProperty("smokeTest", True)

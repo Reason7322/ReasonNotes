@@ -27,6 +27,7 @@ from reasonnotes_app.preferences import AppPreferences
 from reasonnotes_app.presenter import NotePresenter
 from reasonnotes_app.qt_bridge import QtNotePresenter
 from reasonnotes_app.service import NoteService
+from reasonnotes_app.wayland_blur import WaylandBlurController
 from reasonnotes_sync.kdeconnect_linux import KdeConnectLinux
 from reasonnotes_sync.repository import Repository
 from reasonnotes_sync.sync import scan_inbox, sync_linux
@@ -145,7 +146,9 @@ def main(arguments=None) -> int:
     bridge = QtNotePresenter(presenter)
     preferences = AppPreferences()
     liquid_palette = LiquidGlassPalette()
+    blur_controller = WaylandBlurController(preferences)
     engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("blurState", blur_controller)
     engine.rootContext().setContextProperty("glassPalette", liquid_palette)
     engine.rootContext().setContextProperty("appPreferences", preferences)
     engine.rootContext().setContextProperty("presenter", bridge)
@@ -154,8 +157,11 @@ def main(arguments=None) -> int:
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
         return 1
+    blur_controller.attach(engine.rootObjects()[0])
     if options.check_launch:
+        blur_controller.close()
         return 0
+    application.aboutToQuit.connect(blur_controller.close)
     # Hold the bridge/engine alive for the full native Qt event loop.
     return application.exec()
 

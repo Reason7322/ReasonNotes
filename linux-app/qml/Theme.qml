@@ -5,6 +5,7 @@ QtObject {
     property string mode: "dark"
     readonly property bool isLight: mode === "light"
     readonly property bool isGlass: mode === "glass"
+    readonly property bool isBlurredGlass: isGlass && blurState.active
 
     // Read-only live Kvantum colors via the Noctalia-generated palette.
     // Qt Quick does not render QWidget/Kvantum SVG assets directly.
@@ -17,9 +18,9 @@ QtObject {
     readonly property color glassBottom: frosted(glassPalette.textColor, 0.0)
     readonly property color glassHighlight: frosted(glassPalette.accentColor, 0.14)
 
-    readonly property color mainBackground: isGlass ? glassPalette.windowColor : (isLight ? "#FAFAFC" : "#15171C")
-    readonly property color sidebar: isGlass ? frosted(glassPalette.buttonColor, 1.0) : (isLight ? "#EFF1F5" : "#1D2026")
-    readonly property color surface: isGlass ? glassPalette.baseColor : (isLight ? "#FFFFFF" : "#262931")
+    readonly property color mainBackground: isGlass ? (isBlurredGlass ? frosted(glassPalette.windowColor, 0.82) : glassPalette.windowColor) : (isLight ? "#FAFAFC" : "#15171C")
+    readonly property color sidebar: isGlass ? frosted(glassPalette.buttonColor, isBlurredGlass ? 0.84 : 1.0) : (isLight ? "#EFF1F5" : "#1D2026")
+    readonly property color surface: isGlass ? frosted(glassPalette.baseColor, isBlurredGlass ? 0.89 : 1.0) : (isLight ? "#FFFFFF" : "#262931")
     readonly property color surfaceHover: isGlass ? frosted(glassPalette.lightColor, 0.95) : (isLight ? "#E3E8EF" : "#2C3038")
     readonly property color textPrimary: isGlass ? glassPalette.textColor : (isLight ? "#1D2430" : "#ECEEF3")
     readonly property color textSecondary: isGlass ? frosted(glassPalette.textColor, 0.72) : (isLight ? "#596476" : "#A2A7B2")

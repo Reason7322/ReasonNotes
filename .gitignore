@@ -4,3 +4,4 @@ __pycache__/
 android-probe/.gradle/
 android-probe/**/build/
 android-probe/local.properties
+linux-app/native/*.so
