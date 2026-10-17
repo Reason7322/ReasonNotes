@@ -285,33 +285,49 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout buildSelectionBar() {
+        // A dedicated selection-summary line keeps actions readable on
+        // narrow phones and at increased accessibility font scales.
         LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setOrientation(LinearLayout.VERTICAL);
         bar.setVisibility(View.GONE);
-        selectionCount = text("0 selected", 15, UiTokens.TEXT);
+
+        selectionCount = text("0 selected", 16, UiTokens.TEXT);
         selectionCount.setTypeface(UiTokens.medium());
-        bar.addView(selectionCount, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        selectionCount.setGravity(Gravity.CENTER_VERTICAL);
+        bar.addView(selectionCount, matchWrap());
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionsParams = matchWrap();
+        actionsParams.topMargin = UiTokens.dp(this, UiTokens.SPACE_M);
+        bar.addView(actions, actionsParams);
 
         selectionOptions = button("⋮", false);
-        selectionOptions.setContentDescription("Selection actions: Pin, Unpin, Select all visible");
+        selectionOptions.setContentDescription(
+                "Selection actions: Pin, Unpin, Select all visible");
         selectionOptions.setOnClickListener(view -> showSelectionMenu(selectionOptions));
-        bar.addView(selectionOptions, new LinearLayout.LayoutParams(UiTokens.dp(this, 44),
-                UiTokens.dp(this, 48)));
+        actions.addView(selectionOptions, new LinearLayout.LayoutParams(
+                UiTokens.dp(this, 48), UiTokens.dp(this, 48)));
 
         selectionDelete = button("Delete", false);
         selectionDelete.setTextColor(UiTokens.DANGER);
         selectionDelete.setContentDescription("Delete selected notes");
         selectionDelete.setOnClickListener(view -> confirmBulkDelete());
-        bar.addView(selectionDelete);
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(
+                0, UiTokens.dp(this, 48), 1f);
+        deleteParams.leftMargin = UiTokens.dp(this, UiTokens.SPACE_M);
+        actions.addView(selectionDelete, deleteParams);
 
         selectionCancel = button("Cancel", false);
         selectionCancel.setOnClickListener(view -> {
             selection.clear();
             updateSelectionUi();
         });
-        bar.addView(selectionCancel);
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(
+                0, UiTokens.dp(this, 48), 1f);
+        cancelParams.leftMargin = UiTokens.dp(this, UiTokens.SPACE_S);
+        actions.addView(selectionCancel, cancelParams);
         return bar;
     }
 
