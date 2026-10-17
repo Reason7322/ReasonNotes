@@ -27,6 +27,29 @@ public final class EditorActivityContractTest {
     }
 
     @Test
+    public void openingSavedNotePlacesCursorAfterFullContentIncludingUnicodeAndNewlines() {
+        assertEquals(0, EditorActivity.initialBodyCursorOffset(""));
+        assertEquals(5, EditorActivity.initialBodyCursorOffset("Hello"));
+        String longNote = "First line\nSecond line\nLast line";
+        assertEquals(longNote.length(), EditorActivity.initialBodyCursorOffset(longNote));
+        String unicode = "Później 🤓\nOstatni wiersz";
+        assertEquals(unicode.length(), EditorActivity.initialBodyCursorOffset(unicode));
+    }
+
+    @Test
+    public void editorInitialBindingSetsCaretOnlyBeforeEditingListeners() throws Exception {
+        String source = new String(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(
+                "src/main/java/org/reasonnotes/probe/EditorActivity.java")),
+                java.nio.charset.StandardCharsets.UTF_8);
+        int bind = source.indexOf("private void bindEditor(");
+        int cursor = source.indexOf("body.setSelection(initialBodyCursorOffset(body.getText()))", bind);
+        int watcher = source.indexOf("body.addTextChangedListener(watcher)", bind);
+        int focus = source.indexOf("body.requestFocus()", bind);
+        org.junit.Assert.assertTrue(bind >= 0 && cursor > focus && watcher > cursor);
+        org.junit.Assert.assertTrue(source.contains("ime.showSoftInput(body, InputMethodManager.SHOW_IMPLICIT)"));
+    }
+
+    @Test
     public void editorCanRenderDirtySavingAndSavedWithoutClaimingEarlySuccess() throws Exception {
         File root = temporary.newFolder("drafts");
         DraftStore drafts = new DraftStore(root);

@@ -116,6 +116,14 @@ public final class EditorActivity extends Activity {
         return headIds.size() == 1 ? headIds.iterator().next() : CONFLICT_MARKER;
     }
 
+    /** A reopened note starts at the end; Java text offsets are UTF-16 and
+     * match EditText.setSelection offsets, including Unicode notes.
+     * Only used once during initial binding, never while the user edits.
+     */
+    static int initialBodyCursorOffset(CharSequence loadedBody) {
+        return loadedBody.length();
+    }
+
     private View buildContent() {
         // The editor is a writing surface, not a form inside another card.
         LinearLayout root = new LinearLayout(this);
@@ -254,17 +262,17 @@ public final class EditorActivity extends Activity {
         binding = false;
         title.setEnabled(true);
         body.setEnabled(true);
-        // A newly created note should be ready for immediate typing, without
-        // requiring a second tap. Existing populated notes stay undisturbed.
-        if (initialBody.isEmpty()) {
-            body.requestFocus();
-            body.post(() -> {
-                if (isFinishing() || isDestroyed() || !body.hasFocus()) return;
-                InputMethodManager ime = (InputMethodManager)
-                        getSystemService(INPUT_METHOD_SERVICE);
-                if (ime != null) ime.showSoftInput(body, InputMethodManager.SHOW_IMPLICIT);
-            });
-        }
+        // Opening a saved note should be as ready for writing as a new one.
+        // Apply the cursor only once to the just-loaded text, before listeners
+        // and without changing the note or triggering an autosave.
+        body.requestFocus();
+        body.setSelection(initialBodyCursorOffset(body.getText()));
+        body.post(() -> {
+            if (isFinishing() || isDestroyed() || !body.hasFocus()) return;
+            InputMethodManager ime = (InputMethodManager)
+                    getSystemService(INPUT_METHOD_SERVICE);
+            if (ime != null) ime.showSoftInput(body, InputMethodManager.SHOW_IMPLICIT);
+        });
         TextWatcher watcher = new SimpleTextWatcher() {
             @Override public void afterTextChanged(Editable value) {
                 if (binding || autosave == null) return;
