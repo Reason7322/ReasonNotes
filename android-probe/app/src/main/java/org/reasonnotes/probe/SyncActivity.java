@@ -1,6 +1,7 @@
 package org.reasonnotes.probe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -29,6 +30,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -96,7 +99,7 @@ public final class SyncActivity extends Activity {
     private EditText search;
     private Button syncSelected;
     private Button syncAll;
-    private TextView retryAction;
+    private DeliveryLedger deliveryLedger;
     private boolean syncInFlight;
     private TextView selectAllAction;
     private TextView clearAction;
@@ -117,6 +120,47 @@ public final class SyncActivity extends Activity {
             case "incoming-only" -> "Received from Linux";
             default -> "Unknown";
         };
+    }
+
+    /** User-facing status deliberately omits internal revision/receipt counts.
+     * A transfer *request* is not a destination-confirmed synchronization.
+     */
+    public enum CompletionEvidence { CONFIRMED, AWAITING_RECEIPT, NEEDS_ATTENTION }
+
+    static String conciseStatus(SyncStatus.Phase phase, CompletionEvidence evidence) {
+        return switch (phase) {
+            case IDLE -> "";
+            case SCANNING -> "Syncing…";
+            case ERROR -> "Error: Sync failed ❌";
+            case TRANSFER_REQUESTED -> "Sync requested ✅";
+            case COMPLETE -> switch (evidence) {
+                case CONFIRMED -> "All selected notes synced ✅";
+                case AWAITING_RECEIPT -> "Sync requested ✅";
+                case NEEDS_ATTENTION -> "Error: Some notes need attention ❌";
+            };
+        };
+    }
+
+    static CompletionEvidence deliveryEvidence(
+            List<RevisionEnvelope> history, List<DeliveryLedger.Entry> entries,
+            OutgoingSelection outgoing) {
+        Map<String, DeliveryLedger.Entry> byRevision = new HashMap<>();
+        for (DeliveryLedger.Entry entry : entries) {
+            byRevision.put(entry.revisionId(), entry);
+        }
+        boolean waiting = false;
+        for (RevisionEnvelope revision : history) {
+            if (!revision.originDevice().equals("android")
+                    || !outgoing.includes(revision.noteId())) continue;
+            DeliveryLedger.Entry state = byRevision.get(revision.revisionId());
+            if (state == null || state.state().equals("pending")
+                    || state.state().equals("needs-attention")) {
+                return CompletionEvidence.NEEDS_ATTENTION;
+            }
+            if (state.state().equals("transfer-requested")) waiting = true;
+        }
+        return waiting ? CompletionEvidence.AWAITING_RECEIPT
+                : CompletionEvidence.CONFIRMED;
     }
 
     public static int bottomContentPadding(int base, int systemBottom, int imeBottom) {
@@ -178,6 +222,7 @@ public final class SyncActivity extends Activity {
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         String target = preferences.targetDeviceId();
         String peer = preparePeerLedger(ledger, target);
+        deliveryLedger = ledger;
         planner = new SyncPlanner(opened, ledger, receipts, "android", peer);
         coordinator = new SyncCoordinator(
                 opened,
@@ -282,6 +327,12 @@ public final class SyncActivity extends Activity {
             syncSelected.setEnabled(false);
             syncSelected.setOnClickListener(view -> startSync(
                     OutgoingSelection.selected(selection.selected())));
+            syncSelected.setOnLongClickListener(view -> {
+                if (selection != null && selection.canSync()) {
+                    offerRetry(OutgoingSelection.selected(selection.selected()));
+                }
+                return true;
+            });
             root.addView(syncSelected, matchWrap());
         } else {
             TextView explanation = text(
@@ -292,29 +343,19 @@ public final class SyncActivity extends Activity {
             syncAll = button("Start sync", true);
             syncAll.setEnabled(false);
             syncAll.setOnClickListener(view -> startSync(OutgoingSelection.all()));
+            syncAll.setOnLongClickListener(view -> {
+                offerRetry(OutgoingSelection.all());
+                return true;
+            });
             root.addView(syncAll, withTopMargin(matchWrap()));
         }
 
-        // A normal sync must NOT repeatedly resend every transfer that is
-        // awaiting confirmation. Retries remain explicitly available.
-        retryAction = text(chooseMode
-                ? "Retry unconfirmed selected notes" : "Retry unconfirmed transfers",
-                14, UiTokens.ACCENT);
-        retryAction.setGravity(Gravity.CENTER);
-        retryAction.setMinHeight(UiTokens.dp(this, 44));
-        retryAction.setEnabled(false);
-        retryAction.setContentDescription(
-                "Retry earlier transfer requests still waiting for confirmation");
-        retryAction.setOnClickListener(view -> {
-            OutgoingSelection outgoing = chooseMode
-                    ? OutgoingSelection.selected(selection.selected())
-                    : OutgoingSelection.all();
-            startSync(outgoing, true);
-        });
-        root.addView(retryAction, withTopMargin(matchWrap()));
-
-        status = text("Loading notes…", 14, UiTokens.TEXT_SECONDARY);
-        status.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_M), 0, 0);
+        // The only visible feedback region. Never display import/receipt
+        // counters, raw transfer details or a permanently visible retry link.
+        status = text("", 16, UiTokens.TEXT_SECONDARY);
+        status.setPadding(0, UiTokens.dp(this, UiTokens.SPACE_L), 0, 0);
+        status.setVisibility(View.GONE);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         root.addView(status, matchWrap());
         ViewCompat.requestApplyInsets(root);
         return root;
@@ -335,19 +376,17 @@ public final class SyncActivity extends Activity {
                     if (chooseMode) {
                         selectAllAction.setEnabled(true);
                         clearAction.setEnabled(true);
-                        retryAction.setEnabled(selection.canSync());
                         search.setText(selection.query());
                         renderCatalogue();
                     } else {
                         syncAll.setEnabled(true);
-                        retryAction.setEnabled(true);
                     }
                     status.setVisibility(View.GONE);
                 });
             } catch (RuntimeException error) {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    status.setText("Cannot prepare sync: " + error.getMessage());
+                    status.setText("Error: Unable to prepare sync ❌");
                     status.setTextColor(UiTokens.DANGER);
                     status.setVisibility(View.VISIBLE);
                 });
@@ -373,7 +412,20 @@ public final class SyncActivity extends Activity {
             catalogueView.addView(row, matchWrap());
         }
         syncSelected.setEnabled(selection.canSync() && !syncInFlight);
-        if (retryAction != null) retryAction.setEnabled(selection.canSync() && !syncInFlight);
+    }
+
+    /**
+     * Retry is still accessible via a confirmed long-press on Start sync.
+     * Ordinary short presses never silently resend pending requests.
+     */
+    private void offerRetry(OutgoingSelection outgoing) {
+        if (syncInFlight || coordinator == null) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Retry previous transfers?")
+                .setMessage("Resend notes still waiting for confirmation from your computer?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Retry", (dialog, which) -> startSync(outgoing, true))
+                .show();
     }
 
     private void startSync(OutgoingSelection outgoing) {
@@ -384,41 +436,45 @@ public final class SyncActivity extends Activity {
         if (coordinator == null || syncInFlight) return;
         syncInFlight = true;
         status.setVisibility(View.VISIBLE);
-        status.setText("Checking incoming changes…");
+        status.setText(conciseStatus(SyncStatus.Phase.SCANNING, CompletionEvidence.CONFIRMED));
         status.setTextColor(UiTokens.TEXT_SECONDARY);
         if (syncSelected != null) syncSelected.setEnabled(false);
         if (syncAll != null) syncAll.setEnabled(false);
-        if (retryAction != null) retryAction.setEnabled(false);
         io.execute(() -> {
             SyncStatus result = null;
             RuntimeException failure = null;
+            CompletionEvidence completion = CompletionEvidence.NEEDS_ATTENTION;
             try {
-                // Required durability/recovery step only when user starts a
-                // transfer, never while they are simply opening the picker.
                 repository.reconcile();
                 result = coordinator.synchronize(outgoing, retryUnconfirmed);
+                if (result.phase() == SyncStatus.Phase.COMPLETE) {
+                    completion = deliveryEvidence(repository.revisions(),
+                            deliveryLedger.entries(LINUX_PEER), outgoing);
+                }
             } catch (RuntimeException error) {
                 failure = error;
             }
             SyncStatus finalResult = result;
             RuntimeException finalFailure = failure;
+            CompletionEvidence finalCompletion = completion;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 syncInFlight = false;
                 if (finalFailure != null) {
-                    status.setText("Sync could not complete: " + finalFailure.getMessage());
+                    status.setText("Error: Sync failed ❌");
                     status.setTextColor(UiTokens.DANGER);
                 } else {
-                    status.setText(finalResult.summary());
-                    status.setTextColor(finalResult.phase() == SyncStatus.Phase.ERROR
-                            ? UiTokens.DANGER : UiTokens.SUCCESS);
+                    status.setText(conciseStatus(finalResult.phase(), finalCompletion));
+                    status.setTextColor(
+                            finalResult.phase() == SyncStatus.Phase.ERROR
+                            || (finalResult.phase() == SyncStatus.Phase.COMPLETE
+                                && finalCompletion == CompletionEvidence.NEEDS_ATTENTION)
+                                    ? UiTokens.DANGER : UiTokens.SUCCESS);
                 }
                 if (syncSelected != null && selection != null) {
                     syncSelected.setEnabled(selection.canSync());
                 }
                 if (syncAll != null) syncAll.setEnabled(true);
-                if (retryAction != null) retryAction.setEnabled(
-                        !chooseMode || (selection != null && selection.canSync()));
             });
         });
     }

@@ -3,6 +3,7 @@ package org.reasonnotes.probe;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotEquals;
 
 import java.io.File;
 import java.time.Instant;
@@ -64,6 +65,80 @@ public final class SyncActivityContractTest {
         assertTrue(requested.summary().contains("imported 3"));
         assertTrue(requested.summary().contains("confirmed 4"));
         assertFalse(requested.summary().contains("fully synchronized"));
+    }
+
+    @Test
+    public void simpleSyncUiNeverExposesTechnicalCountsOrClaimsRequestedIsConfirmed() {
+        assertEquals("", SyncActivity.conciseStatus(
+                SyncStatus.Phase.IDLE, SyncActivity.CompletionEvidence.CONFIRMED));
+        assertEquals("Syncing…", SyncActivity.conciseStatus(
+                SyncStatus.Phase.SCANNING, SyncActivity.CompletionEvidence.CONFIRMED));
+        assertEquals("All selected notes synced ✅", SyncActivity.conciseStatus(
+                SyncStatus.Phase.COMPLETE, SyncActivity.CompletionEvidence.CONFIRMED));
+        assertEquals("Sync requested ✅", SyncActivity.conciseStatus(
+                SyncStatus.Phase.TRANSFER_REQUESTED, SyncActivity.CompletionEvidence.CONFIRMED));
+        assertEquals("Sync requested ✅", SyncActivity.conciseStatus(
+                SyncStatus.Phase.COMPLETE, SyncActivity.CompletionEvidence.AWAITING_RECEIPT));
+        assertEquals("Error: Some notes need attention ❌", SyncActivity.conciseStatus(
+                SyncStatus.Phase.COMPLETE, SyncActivity.CompletionEvidence.NEEDS_ATTENTION));
+        assertEquals("Error: Sync failed ❌", SyncActivity.conciseStatus(
+                SyncStatus.Phase.ERROR, SyncActivity.CompletionEvidence.CONFIRMED));
+        for (SyncStatus.Phase phase : SyncStatus.Phase.values()) {
+            for (SyncActivity.CompletionEvidence proof : SyncActivity.CompletionEvidence.values()) {
+                String text = SyncActivity.conciseStatus(phase, proof);
+                assertFalse(text.contains("receipt"));
+                assertFalse(text.contains("revisions"));
+                assertFalse(text.contains("queued"));
+                assertFalse(text.contains("imported "));
+                assertFalse(text.contains("confirmed "));
+            }
+        }
+    }
+
+    @Test
+    public void completedSyncOnlyClaimsFullySyncedWhenOutgoingRevisionsAreConfirmed() {
+        RevisionEnvelope outgoing = RevisionEnvelope.create(
+                ALPHA, List.of(), "android", Instant.parse("2026-10-15T12:00:00Z"),
+                false, "# Note");
+        RevisionEnvelope incoming = RevisionEnvelope.create(
+                BETA, List.of(), "linux", Instant.parse("2026-10-15T12:00:00Z"),
+                false, "# Incoming");
+        String id = outgoing.revisionId();
+        OutgoingSelection chosen = OutgoingSelection.selected(Set.of(ALPHA));
+        assertEquals(SyncActivity.CompletionEvidence.NEEDS_ATTENTION,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(), chosen));
+        DeliveryLedger.Entry pending = new DeliveryLedger.Entry(
+                id, "linux", "pending", 0, null, null, null);
+        DeliveryLedger.Entry awaiting = new DeliveryLedger.Entry(
+                id, "linux", "transfer-requested", 1, Instant.EPOCH, null, null);
+        DeliveryLedger.Entry attention = new DeliveryLedger.Entry(
+                id, "linux", "needs-attention", 3, Instant.EPOCH, null, null);
+        DeliveryLedger.Entry confirmed = new DeliveryLedger.Entry(
+                id, "linux", "confirmed", 1, Instant.EPOCH, "c".repeat(64), Instant.EPOCH);
+        assertEquals(SyncActivity.CompletionEvidence.NEEDS_ATTENTION,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(pending), chosen));
+        assertEquals(SyncActivity.CompletionEvidence.AWAITING_RECEIPT,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(awaiting), chosen));
+        assertEquals(SyncActivity.CompletionEvidence.NEEDS_ATTENTION,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(attention), chosen));
+        assertEquals(SyncActivity.CompletionEvidence.CONFIRMED,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(confirmed), chosen));
+        assertEquals(SyncActivity.CompletionEvidence.CONFIRMED,
+                SyncActivity.deliveryEvidence(List.of(outgoing, incoming), List.of(),
+                        OutgoingSelection.selected(Set.of(BETA))));
+    }
+
+    @Test
+    public void actualVisibleSyncScreenContainsNoEverPresentRetryOrInternalStatusWords()
+            throws Exception {
+        String source = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/main/java/org/reasonnotes/probe/SyncActivity.java")),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertFalse(source.contains("Retry unconfirmed transfers"));
+        assertFalse(source.contains("Retry unconfirmed selected notes"));
+        assertFalse(source.contains("status.setText(finalResult.summary())"));
+        assertTrue(source.contains("status.setVisibility(View.GONE)"));
+        assertTrue(source.contains("offerRetry(OutgoingSelection.all())"));
     }
 
     @Test
