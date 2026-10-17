@@ -50,9 +50,28 @@ public final class SyncPlanner {
         this.targetDevice = Objects.requireNonNull(targetDevice, "targetDevice");
     }
 
+    /** Current live notes only. Tombstone ancestry is preserved in the
+     * repository, but user-facing outgoing sync never offers deleted notes.
+     * The permanent-purge protocol is separate and unaffected.
+     */
+    static Set<UUID> activeNotes(List<RevisionEnvelope> revisions) {
+        RevisionGraph graph = new RevisionGraph();
+        HashSet<UUID> ids = new HashSet<>();
+        for (RevisionEnvelope revision : revisions) {
+            graph.add(revision);
+            ids.add(revision.noteId());
+        }
+        ids.removeIf(id -> {
+            List<RevisionEnvelope> heads = graph.heads(id);
+            return heads.isEmpty() || heads.stream().allMatch(RevisionEnvelope::deleted);
+        });
+        return Set.copyOf(ids);
+    }
+
     public Plan plan(OutgoingSelection selection, boolean retryUnconfirmed) {
         Objects.requireNonNull(selection, "selection");
         Map<String, RevisionEnvelope> revisions = registerLocalHistory();
+        Set<UUID> live = activeNotes(List.copyOf(revisions.values()));
         Set<String> eligible = new HashSet<>(
                 ledger.eligible(targetDevice, retryUnconfirmed, List.of()));
         Map<String, DeliveryLedger.Entry> entries = new HashMap<>();
@@ -69,13 +88,15 @@ public final class SyncPlanner {
             RevisionEnvelope revision = revisions.get(id);
             if (revision == null) {
                 missing.add(id);
-            } else if (!selection.includes(revision.noteId())) {
+            } else if (!live.contains(revision.noteId())
+                    || !selection.includes(revision.noteId())) {
                 skipped.add(id);
             }
         }
 
         for (RevisionEnvelope candidate : revisions.values()) {
             if (!candidate.originDevice().equals(localDevice)
+                    || !live.contains(candidate.noteId())
                     || !selection.includes(candidate.noteId())
                     || !eligible.contains(candidate.revisionId())) {
                 continue;
@@ -87,7 +108,8 @@ public final class SyncPlanner {
         }
 
         for (RevisionEnvelope revision : revisions.values()) {
-            if (!selection.includes(revision.noteId()) || !revision.originDevice().equals(localDevice)) continue;
+            if (!live.contains(revision.noteId()) || !selection.includes(revision.noteId())
+                    || !revision.originDevice().equals(localDevice)) continue;
             DeliveryLedger.Entry entry = entries.get(revision.revisionId());
             if (entry != null && entry.state().equals("confirmed")) confirmed.add(revision.revisionId());
         }
@@ -140,9 +162,9 @@ public final class SyncPlanner {
             UUID noteId = note.getKey();
             List<RevisionEnvelope> heads = graph.heads(noteId);
             if (heads.isEmpty()) continue;
-            boolean deleted = heads.size() == 1 && heads.get(0).deleted();
+            boolean deleted = heads.stream().allMatch(RevisionEnvelope::deleted);
             String state = deliveryState(note.getValue(), deliveryEntries);
-            if (deleted && state.equals("confirmed")) continue;
+            if (deleted) continue;
             RevisionEnvelope titleSource = note.getValue().stream()
                     .filter(revision -> !revision.deleted())
                     .max(Comparator.comparing(RevisionEnvelope::modifiedUtc)

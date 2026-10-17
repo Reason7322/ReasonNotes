@@ -15,11 +15,13 @@ import org.junit.Test;
 public final class SyncActivityContractTest {
     private static final UUID ALPHA = UUID.fromString("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
     private static final UUID BETA = UUID.fromString("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb");
+    private static final UUID DELETED = UUID.fromString("cccccccc-3333-4333-8333-cccccccccccc");
 
     private static List<SyncPlanner.CatalogueItem> catalogue() {
         return List.of(
                 new SyncPlanner.CatalogueItem(ALPHA, "Żółty plan", false, false, Instant.EPOCH, "pending"),
-                new SyncPlanner.CatalogueItem(BETA, "Beta", true, true, Instant.EPOCH.plusSeconds(1), "confirmed"));
+                new SyncPlanner.CatalogueItem(BETA, "Beta", false, true, Instant.EPOCH.plusSeconds(1), "confirmed"),
+                new SyncPlanner.CatalogueItem(DELETED, "Old deleted", true, false, Instant.EPOCH.plusSeconds(2), "pending"));
     }
 
     @Test
@@ -51,6 +53,24 @@ public final class SyncActivityContractTest {
         assertEquals("beta", restored.query());
         assertEquals(Set.of(BETA), restored.selected());
         assertTrue(restored.canSync());
+    }
+
+    @Test
+    public void deletedNotesCannotBeSelectedByTapRestoreSearchOrSelectAll() {
+        SyncActivity.SelectionModel model = new SyncActivity.SelectionModel(catalogue());
+        assertFalse(model.visible().stream().anyMatch(item -> item.deleted()));
+        model.setSelected(DELETED, true);
+        assertFalse(model.canSync());
+        model.selectAllVisible();
+        assertEquals(Set.of(ALPHA, BETA), model.selected());
+        SyncActivity.SelectionSnapshot forged = new SyncActivity.SelectionSnapshot(
+                "deleted", Set.of(DELETED, BETA));
+        SyncActivity.SelectionModel resumed = new SyncActivity.SelectionModel(
+                catalogue(), forged);
+        assertEquals(Set.of(BETA), resumed.selected());
+        assertTrue(resumed.visible().isEmpty());
+        resumed.setQuery("");
+        assertEquals(2, resumed.visible().size());
     }
 
     @Test

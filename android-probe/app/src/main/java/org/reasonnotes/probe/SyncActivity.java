@@ -7,7 +7,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -52,10 +51,8 @@ public final class SyncActivity extends Activity {
     private static final String LINUX_PEER = "linux";
     private static final String STATE_QUERY = "query";
     private static final String STATE_SELECTED = "selected";
-    private static final String STATE_AWAITED_REVISIONS = "awaited-revisions";
-    private static final String STATE_CONFIRMATION_DEADLINE = "confirmation-deadline";
-    private static final long CONFIRMATION_POLL_MS = 6000L;
-    private static final long CONFIRMATION_TIMEOUT_MS = 120000L;
+    private static final long CONFIRMATION_POLL_MS = 15000L;
+    private static final String CONFIRMATION_PREFS = "reasonnotes-sync-confirmation";
 
     public record SelectionSnapshot(String query, Set<UUID> selected) {}
 
@@ -65,13 +62,13 @@ public final class SyncActivity extends Activity {
         private String query = "";
 
         public SelectionModel(List<SyncPlanner.CatalogueItem> catalogue) {
-            this.catalogue = List.copyOf(catalogue);
+            this.catalogue = catalogue.stream().filter(item -> !item.deleted()).toList();
         }
 
         public SelectionModel(List<SyncPlanner.CatalogueItem> catalogue, SelectionSnapshot snapshot) {
             this(catalogue);
             query = snapshot.query();
-            Set<UUID> valid = catalogue.stream().map(SyncPlanner.CatalogueItem::noteId)
+            Set<UUID> valid = this.catalogue.stream().map(SyncPlanner.CatalogueItem::noteId)
                     .collect(java.util.stream.Collectors.toSet());
             snapshot.selected().stream().filter(valid::contains).forEach(selected::add);
         }
@@ -84,7 +81,11 @@ public final class SyncActivity extends Activity {
             return catalogue.stream().filter(item -> normalize(item.title()).contains(needle)).toList();
         }
         public void setSelected(UUID noteId, boolean value) {
-            if (value) selected.add(noteId); else selected.remove(noteId);
+            if (value && catalogue.stream().anyMatch(item -> item.noteId().equals(noteId))) {
+                selected.add(noteId);
+            } else if (!value) {
+                selected.remove(noteId);
+            }
         }
         public void selectAllVisible() { visible().forEach(item -> selected.add(item.noteId())); }
         public void clearSelection() { selected.clear(); }
@@ -117,7 +118,7 @@ public final class SyncActivity extends Activity {
     private final Runnable confirmationTask = this::pollIncomingConfirmations;
     private Set<String> awaitingRevisionIds = Set.of();
     private OutgoingSelection awaitingSelection;
-    private long confirmationDeadline;
+    private SyncConfirmationRecord confirmationRecord;
     private long confirmationGeneration;
     private boolean confirmationPollInFlight;
     private boolean activityVisible;
@@ -164,8 +165,10 @@ public final class SyncActivity extends Activity {
             byRevision.put(entry.revisionId(), entry);
         }
         boolean waiting = false;
+        Set<UUID> live = SyncPlanner.activeNotes(history);
         for (RevisionEnvelope revision : history) {
             if (!revision.originDevice().equals("android")
+                    || !live.contains(revision.noteId())
                     || !outgoing.includes(revision.noteId())) continue;
             DeliveryLedger.Entry state = byRevision.get(revision.revisionId());
             if (state == null || state.state().equals("pending")
@@ -234,11 +237,13 @@ public final class SyncActivity extends Activity {
             Set<UUID> selectedIds = ids == null ? Set.of() : ids.stream().map(UUID::fromString)
                     .collect(java.util.stream.Collectors.toSet());
             restored = new SelectionSnapshot(query, selectedIds);
-            ArrayList<String> awaiting = state.getStringArrayList(STATE_AWAITED_REVISIONS);
-            if (awaiting != null && !awaiting.isEmpty()) {
-                awaitingRevisionIds = Set.copyOf(awaiting);
-                confirmationDeadline = state.getLong(STATE_CONFIRMATION_DEADLINE, 0L);
-            }
+        }
+        confirmationRecord = new SyncConfirmationRecord(new AndroidLocalPreferences(
+                getSharedPreferences(CONFIRMATION_PREFS, MODE_PRIVATE)));
+        SyncConfirmationRecord.Pending previous = confirmationRecord.load();
+        if (previous != null) {
+            awaitingRevisionIds = previous.revisionIds();
+            awaitingSelection = previous.selection();
         }
         setContentView(buildContent());
         loadCatalogueAndMaybeSync();
@@ -251,9 +256,6 @@ public final class SyncActivity extends Activity {
             state.putStringArrayList(STATE_SELECTED,
                     new ArrayList<>(snapshot.selected().stream().map(UUID::toString).toList()));
         }
-        state.putStringArrayList(STATE_AWAITED_REVISIONS,
-                new ArrayList<>(awaitingRevisionIds));
-        state.putLong(STATE_CONFIRMATION_DEADLINE, confirmationDeadline);
         super.onSaveInstanceState(state);
     }
 
@@ -456,9 +458,8 @@ public final class SyncActivity extends Activity {
                     if (awaitingRevisionIds.isEmpty()) {
                         status.setVisibility(View.GONE);
                     } else {
-                        awaitingSelection = chooseMode
-                                ? OutgoingSelection.selected(selection.selected())
-                                : OutgoingSelection.all();
+                        // Restored from the durable last-sync checkpoint.
+                        // Never use a new screen selection to reinterpret it.
                         status.setText("Waiting for computer confirmation…");
                         status.setTextColor(UiTokens.TEXT_SECONDARY);
                         status.setVisibility(View.VISIBLE);
@@ -539,6 +540,8 @@ public final class SyncActivity extends Activity {
                 if (finalEvidence == CompletionEvidence.CONFIRMED) {
                     awaitingRevisionIds = Set.of();
                     confirmationHandler.removeCallbacks(confirmationTask);
+                    // A durable receipt can arrive hours after the original
+                    // Android session ended; never expire a pending checkpoint.
                     // Do not claim all historical notes are confirmed when
                     // other, older outgoing revisions remain pending.
                     boolean allSelected = awaitingSelection != null
@@ -548,10 +551,13 @@ public final class SyncActivity extends Activity {
                     status.setText(allSelected
                             ? "All selected notes synced ✅" : "Sent notes synced ✅");
                     status.setTextColor(UiTokens.SUCCESS);
-                } else if (SystemClock.elapsedRealtime() >= confirmationDeadline) {
-                    awaitingRevisionIds = Set.of();
-                    status.setText("Error: Computer confirmation not received ❌");
+                } else if (finalFailure == null
+                        && finalEvidence == CompletionEvidence.NEEDS_ATTENTION) {
+                    status.setText("Error: Some notes need attention ❌");
                     status.setTextColor(UiTokens.DANGER);
+                    // Keep the checkpoint: a later valid receipt or explicit
+                    // retry may still settle the transfer.
+                    scheduleConfirmationPoll(CONFIRMATION_POLL_MS);
                 } else {
                     status.setText(finalFailure == null
                             ? "Waiting for computer confirmation…"
@@ -585,8 +591,9 @@ public final class SyncActivity extends Activity {
         if (coordinator == null || syncInFlight) return;
         syncInFlight = true;
         confirmationGeneration++;
-        awaitingRevisionIds = Set.of();
         confirmationHandler.removeCallbacks(confirmationTask);
+        // Keep the previous durable checkpoint until another request is
+        // actually registered. An ordinary sync may have no new payload.
         status.setVisibility(View.VISIBLE);
         status.setText(conciseStatus(SyncStatus.Phase.SCANNING, CompletionEvidence.CONFIRMED));
         status.setTextColor(UiTokens.TEXT_SECONDARY);
@@ -630,13 +637,17 @@ public final class SyncActivity extends Activity {
                 if (finalFailure == null
                         && finalResult.phase() == SyncStatus.Phase.TRANSFER_REQUESTED
                         && !requestedIds.isEmpty()) {
+                    confirmationRecord.save(requestedIds, outgoing);
                     awaitingRevisionIds = requestedIds;
                     awaitingSelection = outgoing;
-                    confirmationDeadline = SystemClock.elapsedRealtime()
-                            + CONFIRMATION_TIMEOUT_MS;
                     status.setText("Waiting for computer confirmation…");
                     status.setTextColor(UiTokens.TEXT_SECONDARY);
                     scheduleConfirmationPoll(CONFIRMATION_POLL_MS);
+                } else if (finalFailure == null && !awaitingRevisionIds.isEmpty()) {
+                    // No new files were sent; keep checking the last request.
+                    status.setText("Waiting for computer confirmation…");
+                    status.setTextColor(UiTokens.TEXT_SECONDARY);
+                    scheduleConfirmationPoll(500L);
                 }
                 if (syncSelected != null && selection != null) {
                     syncSelected.setEnabled(selection.canSync());

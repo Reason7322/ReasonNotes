@@ -63,7 +63,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void selectedTombstoneIncludesEligibleAncestryButNeverOtherNotes() throws Exception {
+    public void selectedDeletedNoteSendsNeitherTombstoneNorOriginalHistory() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Shared", "android", at(0), false);
@@ -75,8 +75,15 @@ public final class SyncPlannerTest {
         SyncPlanner.Plan plan = fixture.planner().plan(
                 OutgoingSelection.selected(Set.of(NOTE_A)), false);
 
-        assertEquals(Set.of(ancestor.revisionId(), tombstone.revisionId()), Set.copyOf(plan.revisionIds()));
+        assertEquals(List.of(), plan.revisionIds());
         assertFalse(plan.revisionIds().contains(other.revisionId()));
+        assertEquals(List.of(), fixture.planner().plan(
+                OutgoingSelection.all(), true).revisionIds().stream()
+                .filter(id -> id.equals(ancestor.revisionId()) || id.equals(tombstone.revisionId()))
+                .toList());
+        // The original tombstone history remains stored as evidence; this
+        // change affects selection/outgoing note files, not stored history.
+        assertTrue(fixture.repository().revisions().contains(tombstone));
     }
 
     @Test
@@ -100,7 +107,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void confirmedAncestorIsNotResentWithPendingTombstone() throws Exception {
+    public void deletedNoteIsNeverResentEvenWithConfirmedAncestor() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Shared", "android", at(0), false);
@@ -113,8 +120,8 @@ public final class SyncPlannerTest {
         SyncPlanner.Plan plan = fixture.planner().plan(
                 OutgoingSelection.selected(Set.of(NOTE_A)), false);
 
-        assertEquals(List.of(tombstone.revisionId()), plan.revisionIds());
-        assertTrue(plan.confirmedRevisionIds().contains(ancestor.revisionId()));
+        assertEquals(List.of(), plan.revisionIds());
+        assertTrue(fixture.repository().revisions().contains(tombstone));
     }
 
     @Test
@@ -190,7 +197,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void catalogueIncludesConflictAndEligibleDeletedTombstoneWithoutResurrection() throws Exception {
+    public void catalogueHidesDeletedTombstonesEvenWhenTheirDeliveryIsPending() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope a = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Original title\n\nbody", "android", at(0), false);
@@ -207,12 +214,11 @@ public final class SyncPlannerTest {
 
         List<SyncPlanner.CatalogueItem> items = fixture.planner().catalogue();
 
-        SyncPlanner.CatalogueItem deletedItem = items.stream()
-                .filter(item -> item.noteId().equals(NOTE_A)).findFirst().orElseThrow();
-        assertTrue(deletedItem.deleted());
-        assertEquals("Original title", deletedItem.title());
-        assertEquals("pending", deletedItem.deliveryState());
-        assertTrue(items.stream().filter(item -> item.noteId().equals(NOTE_B)).findFirst().orElseThrow().conflicted());
+        assertFalse(items.stream().anyMatch(item -> item.noteId().equals(NOTE_A)));
+        assertEquals(1, items.size());
+        assertTrue(items.get(0).conflicted());
+        assertFalse(items.get(0).deleted());
         assertTrue(fixture.ledger().entry(deleted.revisionId(), "linux") != null);
+        assertTrue(fixture.repository().revisions().contains(deleted));
     }
 }
