@@ -10,25 +10,30 @@ import org.junit.Test;
 public final class SettingsActivityContractTest {
     @Test
     public void settingsExposeOnlyImplementedGroupsAndActions() {
-        assertEquals(List.of("Sync", "Connection", "Notes", "About"), SettingsActivity.sectionTitles());
+        assertEquals(List.of("Appearance", "Sync", "Connection", "Notes"), SettingsActivity.sectionTitles());
         assertEquals(
                 List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device"),
                 SettingsActivity.syncFoundationActions());
-        assertFalse(SettingsActivity.sectionTitles().contains("Appearance"));
+        assertFalse(SettingsActivity.sectionTitles().contains("About"));
         assertFalse(SettingsActivity.sectionTitles().contains("Privacy"));
         assertFalse(SettingsActivity.sectionTitles().contains("Sync pinned status across devices"));
     }
 
     @Test
-    public void exchangeAndAboutCopyStateEvidencePrecisely() {
+    public void exchangeStatusAndAppearanceOptionsAreExplicit() {
         assertEquals("Choose a folder", SettingsActivity.exchangeStatus(null));
         assertEquals(
                 "Folder ready",
                 SettingsActivity.exchangeStatus("content://tree/reasonnotes"));
-        String about = SettingsActivity.aboutText("0.1");
-        assertTrue(about.contains("Version 0.1"));
-        assertTrue(about.contains("Offline-first notes"));
-        assertTrue(about.contains("optional device sync"));
+        assertEquals(List.of(
+                AppPreferences.ThemeMode.DARK,
+                AppPreferences.ThemeMode.LIGHT,
+                AppPreferences.ThemeMode.LIQUID_GLASS),
+                SettingsActivity.themeChoices());
+        assertEquals("Dark", SettingsActivity.themeLabel(AppPreferences.ThemeMode.DARK));
+        assertEquals("Light", SettingsActivity.themeLabel(AppPreferences.ThemeMode.LIGHT));
+        assertEquals("Liquid Glass",
+                SettingsActivity.themeLabel(AppPreferences.ThemeMode.LIQUID_GLASS));
     }
 
     @Test

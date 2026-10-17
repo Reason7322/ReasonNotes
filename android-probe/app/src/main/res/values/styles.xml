@@ -9,4 +9,14 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowNoTitle">true</item>
     </style>
+    <style name="ReasonNotesThemeLight" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#DCAF48</item>
+        <item name="android:statusBarColor">#FAFAFC</item>
+        <item name="android:navigationBarColor">#FAFAFC</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

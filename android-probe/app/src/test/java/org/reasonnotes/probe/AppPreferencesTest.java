@@ -16,6 +16,31 @@ public final class AppPreferencesTest {
     }
 
     @Test
+    public void themeDefaultsDarkAndPersistsAllThreeModesIndependentlyOfConnection() {
+        PinStoreTest.FakePreferences values = new PinStoreTest.FakePreferences();
+        AppPreferences initial = new AppPreferences(values);
+        assertEquals(AppPreferences.ThemeMode.DARK, initial.themeMode());
+        initial.setTargetDeviceId("linux-laptop");
+        for (AppPreferences.ThemeMode mode : AppPreferences.ThemeMode.values()) {
+            initial.setThemeMode(mode);
+            AppPreferences reopened = new AppPreferences(values);
+            assertEquals(mode, reopened.themeMode());
+            assertEquals("linux-laptop", reopened.targetDeviceId());
+        }
+    }
+
+    @Test
+    public void unknownOrOldThemeNameSafelyFallsBackToDark() {
+        PinStoreTest.FakePreferences values = new PinStoreTest.FakePreferences();
+        values.putString("theme-mode", "future-unknown-theme");
+        assertEquals(AppPreferences.ThemeMode.DARK,
+                new AppPreferences(values).themeMode());
+        values.putString("theme-mode", "light");
+        assertEquals(AppPreferences.ThemeMode.LIGHT,
+                new AppPreferences(values).themeMode());
+    }
+
+    @Test
     public void implementedOrderingPreferencePersistsAcrossInstances() {
         PinStoreTest.FakePreferences values = new PinStoreTest.FakePreferences();
         AppPreferences preferences = new AppPreferences(values);

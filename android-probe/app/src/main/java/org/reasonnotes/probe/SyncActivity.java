@@ -38,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class SyncActivity extends Activity {
+    private AppPreferences.ThemeMode displayedTheme;
     public static final String EXTRA_MODE = "sync-mode";
     public static final String MODE_ALL = "all";
     public static final String MODE_CHOOSE = "choose";
@@ -127,8 +128,10 @@ public final class SyncActivity extends Activity {
     }
 
     @Override protected void onCreate(Bundle state) {
+        displayedTheme = UiTokens.prepare(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        UiTokens.configureSystemBars(this);
         chooseMode = MODE_CHOOSE.equals(getIntent().getStringExtra(EXTRA_MODE));
         if (state != null) {
             String query = state.getString(STATE_QUERY, "");
@@ -197,7 +200,7 @@ public final class SyncActivity extends Activity {
     private View buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(UiTokens.BACKGROUND);
+        root.setBackground(UiTokens.background(this));
         int base = UiTokens.dp(this, UiTokens.SPACE_M);
         root.setPadding(base, base, base, base);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
@@ -446,7 +449,7 @@ public final class SyncActivity extends Activity {
         button.setAllCaps(false);
         button.setText(value);
         button.setTextSize(15);
-        button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
+        button.setTextColor(accent ? UiTokens.ACCENT_TEXT : UiTokens.TEXT);
         button.setBackground(accent ? UiTokens.accent(this) : UiTokens.surface(this, UiTokens.SURFACE_RAISED));
         button.setMinHeight(UiTokens.dp(this, 48));
         return button;

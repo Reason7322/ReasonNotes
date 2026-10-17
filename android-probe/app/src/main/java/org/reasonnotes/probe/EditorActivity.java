@@ -33,6 +33,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public final class EditorActivity extends Activity {
+    private AppPreferences.ThemeMode displayedTheme;
     public static final String EXTRA_NOTE_ID = MainActivity.EXTRA_NOTE_ID;
     private static final String CONFLICT_MARKER = "0".repeat(64);
 
@@ -51,8 +52,10 @@ public final class EditorActivity extends Activity {
     private boolean closing;
 
     @Override protected void onCreate(Bundle state) {
+        displayedTheme = UiTokens.prepare(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        UiTokens.configureSystemBars(this);
         String noteValue = getIntent().getStringExtra(EXTRA_NOTE_ID);
         try {
             noteId = UUID.fromString(noteValue);
@@ -117,7 +120,7 @@ public final class EditorActivity extends Activity {
         // The editor is a writing surface, not a form inside another card.
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(UiTokens.BACKGROUND);
+        root.setBackground(UiTokens.background(this));
         int horizontal = UiTokens.dp(this, UiTokens.SPACE_L);
         int vertical = UiTokens.dp(this, UiTokens.SPACE_S);
         root.setPadding(horizontal, vertical, horizontal, vertical);

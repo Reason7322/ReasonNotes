@@ -8,8 +8,10 @@ public final class AppPreferences {
     public static final String DEFAULT_TARGET_DEVICE_ID = "254997f28f11499d80928fe8a109749e";
     private static final String TARGET_DEVICE = "target-device-id";
     private static final String NOTE_ORDER = "note-order";
+    private static final String THEME_MODE = "theme-mode";
 
     public enum NoteOrder { MODIFIED_DESCENDING, TITLE_ASCENDING }
+    public enum ThemeMode { DARK, LIGHT, LIQUID_GLASS }
 
     private final LocalPreferences preferences;
 
@@ -39,5 +41,18 @@ public final class AppPreferences {
 
     public void setNoteOrder(NoteOrder value) {
         preferences.putString(NOTE_ORDER, Objects.requireNonNull(value, "value").name());
+    }
+
+    public ThemeMode themeMode() {
+        String value = preferences.getString(THEME_MODE, ThemeMode.DARK.name());
+        try {
+            return ThemeMode.valueOf(value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            return ThemeMode.DARK;
+        }
+    }
+
+    public void setThemeMode(ThemeMode mode) {
+        preferences.putString(THEME_MODE, Objects.requireNonNull(mode, "mode").name());
     }
 }

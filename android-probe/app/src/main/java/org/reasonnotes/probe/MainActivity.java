@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    private AppPreferences.ThemeMode displayedTheme;
     public static final String EXTRA_NOTE_ID = "note-id";
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -63,8 +64,10 @@ public final class MainActivity extends Activity {
     private static final String STATE_SELECTED = "selected-note-ids";
 
     @Override protected void onCreate(Bundle state) {
+        displayedTheme = UiTokens.prepare(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        UiTokens.configureSystemBars(this);
         // Construct the UI before opening or reconciling the repository.
         // Reconciliation performs disk I/O and belongs on the worker thread,
         // not in Activity.onCreate on the main UI thread.
@@ -111,6 +114,10 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (displayedTheme != UiTokens.selected(this)) {
+            recreate();
+            return;
+        }
         // Show local notes first, before even starting the SAF provider scan.
         // A slow or broken incoming receipt must never gate the home list.
         incomingCheckPending = true;
@@ -194,7 +201,7 @@ public final class MainActivity extends Activity {
     private View buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(UiTokens.BACKGROUND);
+        root.setBackground(UiTokens.background(this));
         int base = UiTokens.dp(this, UiTokens.SPACE_M);
         int actionBar = actionBarHeight();
         root.setPadding(base, HomeLayout.topContentPadding(base, 0, actionBar), base, base);
@@ -564,7 +571,7 @@ public final class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(value);
         button.setTextSize(15);
-        button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
+        button.setTextColor(accent ? UiTokens.ACCENT_TEXT : UiTokens.TEXT);
         button.setTypeface(UiTokens.medium());
         button.setMinHeight(UiTokens.dp(this, HomeLayout.minimumTouchTargetDp()));
         button.setBackground(accent

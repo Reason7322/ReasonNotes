@@ -27,6 +27,7 @@ import java.util.List;
 
 /** Human-scale settings: everyday actions first, connection details on demand. */
 public final class SettingsActivity extends Activity {
+    private AppPreferences.ThemeMode displayedTheme;
     private static final int TREE_REQUEST = 41;
     private static final String STATE_DEVICE_EDITOR = "device-editor-open";
     private static final String STATE_DEVICE_DRAFT = "device-editor-draft";
@@ -39,6 +40,8 @@ public final class SettingsActivity extends Activity {
     private LinearLayout folderRow;
     private LinearLayout targetRow;
     private LinearLayout sortRow;
+    private LinearLayout themeRow;
+    private TextView themeState;
     private TextView targetState;
     private TextView orderingState;
     private EditText deviceId;
@@ -49,7 +52,7 @@ public final class SettingsActivity extends Activity {
     private TextView purgeState;
 
     public static List<String> sectionTitles() {
-        return List.of("Sync", "Connection", "Notes", "About");
+        return List.of("Appearance", "Sync", "Connection", "Notes");
     }
 
     public static List<String> syncFoundationActions() {
@@ -65,13 +68,24 @@ public final class SettingsActivity extends Activity {
         return uri == null || uri.isBlank() ? "Choose a folder" : "Folder ready";
     }
 
-    public static String aboutText(String version) {
-        return "Version " + version + "\nOffline-first notes with optional device sync.";
+    public static List<AppPreferences.ThemeMode> themeChoices() {
+        return List.of(AppPreferences.ThemeMode.DARK,
+                AppPreferences.ThemeMode.LIGHT, AppPreferences.ThemeMode.LIQUID_GLASS);
+    }
+
+    public static String themeLabel(AppPreferences.ThemeMode mode) {
+        return switch (mode) {
+            case DARK -> "Dark";
+            case LIGHT -> "Light";
+            case LIQUID_GLASS -> "Liquid Glass";
+        };
     }
 
     @Override protected void onCreate(Bundle state) {
+        displayedTheme = UiTokens.prepare(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        UiTokens.configureSystemBars(this);
         preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         setContentView(buildContent());
@@ -104,13 +118,17 @@ public final class SettingsActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (displayedTheme != UiTokens.selected(this)) {
+            recreate();
+            return;
+        }
         refreshExchangeState();
     }
 
     private View buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(UiTokens.BACKGROUND);
+        root.setBackground(UiTokens.background(this));
         int horizontal = dp(UiTokens.SPACE_L);
         int vertical = dp(UiTokens.SPACE_S);
         root.setPadding(horizontal, vertical, horizontal, vertical);
@@ -145,6 +163,14 @@ public final class SettingsActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(0, 0, 0, dp(32));
+
+        content.addView(sectionTitle("Appearance"));
+        LinearLayout appearance = card();
+        themeRow = actionRow(R.drawable.ic_note_sort, "Theme",
+                themeLabel(preferences.themeMode()), this::chooseTheme);
+        themeState = (TextView) ((LinearLayout) themeRow.getChildAt(1)).getChildAt(1);
+        appearance.addView(themeRow);
+        content.addView(appearance, matchWrap());
 
         content.addView(sectionTitle("Sync"));
         LinearLayout sync = card();
@@ -191,18 +217,6 @@ public final class SettingsActivity extends Activity {
         orderingState = (TextView) ((LinearLayout) sortRow.getChildAt(1)).getChildAt(1);
         notes.addView(sortRow);
         content.addView(notes, matchWrap());
-
-        content.addView(sectionTitle("About"));
-        LinearLayout about = card();
-        TextView name = text("ReasonNotes", 16, UiTokens.TEXT);
-        name.setTypeface(UiTokens.medium());
-        about.addView(name, matchWrap());
-        TextView description = text(aboutText(versionName()), 13, UiTokens.TEXT_SECONDARY);
-        description.setLineSpacing(0, 1.15f);
-        LinearLayout.LayoutParams detailParams = matchWrap();
-        detailParams.topMargin = dp(6);
-        about.addView(description, detailParams);
-        content.addView(about, matchWrap());
 
         scroll.addView(content);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
@@ -406,6 +420,27 @@ public final class SettingsActivity extends Activity {
         }
     }
 
+    private void chooseTheme() {
+        List<AppPreferences.ThemeMode> choices = themeChoices();
+        String[] labels = choices.stream().map(SettingsActivity::themeLabel)
+                .toArray(String[]::new);
+        new AlertDialog.Builder(this)
+                .setTitle("Choose theme")
+                .setSingleChoiceItems(labels, choices.indexOf(preferences.themeMode()),
+                        (dialog, which) -> {
+                            AppPreferences.ThemeMode selected = choices.get(which);
+                            if (selected != preferences.themeMode()) {
+                                preferences.setThemeMode(selected);
+                                dialog.dismiss();
+                                recreate();
+                            } else {
+                                dialog.dismiss();
+                            }
+                        })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void chooseOrdering() {
         List<AppPreferences.NoteOrder> choices = orderChoices();
         String[] labels = choices.stream().map(this::orderLabel).toArray(String[]::new);
@@ -461,15 +496,6 @@ public final class SettingsActivity extends Activity {
                 ? "Recently modified" : "Title A–Z";
     }
 
-    private String versionName() {
-        try {
-            String value = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-            return value == null ? "unknown" : value;
-        } catch (android.content.pm.PackageManager.NameNotFoundException impossible) {
-            return "unknown";
-        }
-    }
-
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -500,7 +526,7 @@ public final class SettingsActivity extends Activity {
         button.setAllCaps(false);
         button.setText(label);
         button.setTextSize(14);
-        button.setTextColor(accent ? UiTokens.BACKGROUND : UiTokens.TEXT);
+        button.setTextColor(accent ? UiTokens.ACCENT_TEXT : UiTokens.TEXT);
         button.setBackground(accent
                 ? UiTokens.accent(this) : UiTokens.surface(this, UiTokens.SURFACE_RAISED));
         return button;
