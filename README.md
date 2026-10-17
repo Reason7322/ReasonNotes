@@ -1,12 +1,17 @@
 # ReasonNotes
 
-Shared Forge/Qwen engineering project.
+Cross-device notes project built around a native Linux desktop experience, an Android client, and controlled synchronization between them.
 
-## Workspace ownership
+The repository includes note storage/editing, Android UI work, selective sync, delivery/receipt tracking, conflict-safe receive behavior, performance work, branding/icons, and the desktop Liquid Glass material.
 
-- Forge: /home/reason/Codex-Projects/ReasonNotes
-- Qwen: /home/reason/Temporary/QwenProjects/ReasonNotes
-- Neutral exchange: /home/reason/Temporary/AgentHandoff/ReasonNotes.git
+## Branch structure
 
-Use the handoff Git remote for agent-to-agent transfer.
-Do not copy working directories between Forge and Qwen.
+Implementation is intentionally preserved across several namespaces:
+
+- `forge/*` — larger Forge milestones;
+- `qwen/*` — Qwen validation/acceptance work;
+- `sol/*` — focused desktop/Android fixes and polish checkpoints.
+
+`main` is the collaboration baseline; substantial feature work remains on the engineering branches rather than being flattened into synthetic history.
+
+Active engineering project, not a packaged public release.
