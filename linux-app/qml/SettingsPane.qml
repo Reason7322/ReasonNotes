@@ -30,9 +30,16 @@ Rectangle {
     }
 
     ScrollView {
+        objectName: "settingsScrollView"
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        // Qt's thin vertical scroll thumb is visible on top of the glass
+        // sidebar seam. Hide the ornament but retain wheel/touchpad scrolling.
+        ScrollBar.vertical: ScrollBar {
+            objectName: "settingsVerticalScrollBar"
+            policy: ScrollBar.AlwaysOff
+        }
 
         Item {
             width: Math.max(0, root.width)
@@ -318,21 +325,6 @@ Rectangle {
                     }
                 }
 
-                Label {
-                    Layout.fillWidth: true
-                    Layout.topMargin: root.theme.spacing
-                    text: root.i18n.t("Settings are saved automatically.")
-                    color: root.theme.textSecondary
-                    font.pixelSize: root.theme.smallSize
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: root.i18n.t("Your notes stay in their original language.")
-                    color: root.theme.textSecondary
-                    font.pixelSize: root.theme.smallSize
-                    wrapMode: Text.Wrap
-                }
             }
         }
     }

@@ -75,8 +75,28 @@ Rectangle {
 
             contentItem: RowLayout {
                 spacing: root.theme.spacing
-                Label { text: "+"; color: root.theme.accentText; font.pixelSize: 24 }
-                Label { text: root.i18n.t("New Note"); color: root.theme.accentText; font.pixelSize: root.theme.secondarySize; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                // Reserve the same exact 24px icon slot as Save, Sync,
+                // Delete, Settings and every note-list delegate.
+                Item {
+                    id: newNoteIconSlot
+                    objectName: "newNoteIconSlot"
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    Label {
+                        anchors.centerIn: parent
+                        text: "+"
+                        color: root.theme.accentText
+                        font.pixelSize: 24
+                    }
+                }
+                Label {
+                    objectName: "newNoteText"
+                    text: root.i18n.t("New Note")
+                    color: root.theme.accentText
+                    font.pixelSize: root.theme.secondarySize
+                    font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                }
             }
 
             background: Rectangle {
@@ -202,7 +222,9 @@ Rectangle {
             Layout.fillWidth: true
             Layout.topMargin: root.theme.spacing
             implicitHeight: root.theme.fieldHeight
-            leftPadding: 42
+            // x = 4px button inset + 24px icon slot + 12px gap.
+            // Match all action labels and note titles at the same x.
+            leftPadding: 40
             rightPadding: root.theme.spacing
             placeholderText: root.i18n.t("Search notes…")
             color: root.theme.textPrimary
@@ -214,13 +236,20 @@ Rectangle {
                 color: root.theme.surface
                 border.color: searchField.activeFocus ? root.theme.accent : root.theme.border
                 radius: root.theme.radius
-                Label {
+                Item {
+                    id: searchIconSlot
+                    objectName: "searchIconSlot"
                     anchors.left: parent.left
-                    anchors.leftMargin: 14
+                    anchors.leftMargin: 4
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "⌕"
-                    color: root.theme.textSecondary
-                    font.pixelSize: 20
+                    width: 24
+                    height: 24
+                    Label {
+                        anchors.centerIn: parent
+                        text: "⌕"
+                        color: root.theme.textSecondary
+                        font.pixelSize: 20
+                    }
                 }
             }
         }

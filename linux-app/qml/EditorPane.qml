@@ -120,7 +120,13 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                    // Keep wheel, touchpad and keyboard scrolling for long
+                    // Markdown documents without the distracting bright
+                    // native scrollbar thumb at the viewport edge.
+                    ScrollBar.vertical: ScrollBar {
+                        objectName: "editorVerticalScrollBar"
+                        policy: ScrollBar.AlwaysOff
+                    }
 
                     // A wrapped TextArea can finish calculating height after
                     // the note-selection signal. Only honor pending loads.

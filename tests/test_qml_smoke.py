@@ -840,6 +840,112 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
+    def test_sidebar_actions_search_and_note_rows_share_exact_icon_and_text_grid(self):
+        from PySide6.QtCore import QObject, QPointF
+
+        for name in ("Suplementy", "Sen"):
+            self.assertTrue(self.bridge.createNote())
+            self.assertTrue(self.bridge.editTitle(name))
+            self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+
+        def global_x(item):
+            return item.mapToItem(None, QPointF(0, 0)).x()
+
+        new_button = root.findChild(QObject, "newNoteButton")
+        save = root.findChild(QObject, "saveButton")
+        sync = root.findChild(QObject, "syncButton")
+        delete = root.findChild(QObject, "deleteNoteButton")
+        settings = root.findChild(QObject, "settingsButton")
+        search = root.findChild(QObject, "searchField")
+        notes = root.findChild(QObject, "notesList")
+        # The colored button, action buttons, search field and note rows all
+        # occupy exactly the same outer x-aligned rectangle.
+        for item in (save, sync, delete, settings, search, notes):
+            self.assertAlmostEqual(global_x(new_button), global_x(item), delta=0.01)
+            self.assertAlmostEqual(new_button.width(), item.width(), delta=0.01)
+
+        content = notes.property("contentItem")
+        row = next(c for c in content.childItems()
+                   if c.objectName() == "noteDelegate")
+        note_icon = next(c for c in row.property("contentItem").childItems()
+                         if c.objectName() == "noteIconSlot")
+        note_text = next(c for c in row.property("contentItem").childItems()
+                         if c.property("text") == "Sen" or c.property("text") == "Suplementy")
+        icon_slots = [
+            root.findChild(QObject, name)
+            for name in ("newNoteIconSlot", "saveActionIcon",
+                         "syncActionIcon", "deleteActionIcon",
+                         "settingsActionIcon", "searchIconSlot")
+        ] + [note_icon]
+        for icon in icon_slots:
+            self.assertIsNotNone(icon)
+            self.assertAlmostEqual(global_x(icon), global_x(note_icon), delta=0.01)
+            self.assertAlmostEqual(icon.width(), 24, delta=0.01)
+
+        labels = [
+            root.findChild(QObject, "newNoteText"),
+            note_text,
+        ]
+        for action in (save, sync, delete, settings):
+            labels.append(next(c for c in action.property("contentItem").childItems()
+                               if c.property("text") in ("Save", "Sync", "Delete", "Settings")))
+        text_x = global_x(note_text)
+        for label in labels:
+            self.assertAlmostEqual(global_x(label), text_x, delta=0.01)
+        self.assertAlmostEqual(global_x(search) + search.property("leftPadding"),
+                               text_x, delta=0.01)
+        self.assertAlmostEqual(text_x - global_x(note_icon), 36, delta=0.01)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
+    def test_settings_footer_captions_and_bright_settings_scrollbar_are_absent(self):
+        from PySide6.QtCore import QObject
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("settingsVisible", True)
+        root.setProperty("height", 560)
+        QCoreApplication.processEvents()
+        settings_view = root.findChild(QObject, "settingsScrollView")
+        scrollbar = root.findChild(QObject, "settingsVerticalScrollBar")
+        self.assertIsNotNone(settings_view)
+        self.assertIsNotNone(scrollbar)
+        self.assertFalse(scrollbar.property("visible"))
+        source = (QML_MAIN.parent / "SettingsPane.qml").read_text(encoding="utf-8")
+        self.assertNotIn('root.i18n.t("Settings are saved automatically.")', source)
+        self.assertNotIn('root.i18n.t("Your notes stay in their original language.")', source)
+        # The content remains physically scrollable with the indicator hidden.
+        self.assertGreater(settings_view.property("contentHeight"),
+                           settings_view.height() - 5)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
+    def test_long_markdown_scrollbar_indicator_hidden_but_content_still_scrolls(self):
+        from PySide6.QtCore import QObject
+        self.assertTrue(self.bridge.createNote())
+        self.assertTrue(self.bridge.editTitle("Scrollable"))
+        self.assertTrue(self.bridge.editContent(
+            "\n".join("Long line " + str(i) for i in range(200))))
+        self.assertTrue(self.bridge.saveNow())
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("height", 560)
+        QCoreApplication.processEvents()
+        scroll_view = root.findChild(QObject, "editorScrollView")
+        scrollbar = root.findChild(QObject, "editorVerticalScrollBar")
+        self.assertIsNotNone(scrollbar)
+        self.assertFalse(scrollbar.property("visible"))
+        flickable = scroll_view.property("contentItem")
+        self.assertGreater(flickable.property("contentHeight"), flickable.height() + 100)
+        flickable.setProperty("contentY", 150)
+        QCoreApplication.processEvents()
+        self.assertAlmostEqual(flickable.property("contentY"), 150, delta=1)
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
     def test_selected_sidebar_note_has_no_gold_selection_bar(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()
