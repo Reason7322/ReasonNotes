@@ -423,19 +423,19 @@ class QmlSmokeTests(unittest.TestCase):
         # a solid, readable Qt window without changing note contents.
         self.blur_state._set_active(True)
         QCoreApplication.processEvents()
-        # Floating above a bright, detailed wallpaper must remain legible:
-        # only a tiny fraction of background contrast can pass through the
-        # reading pane, while glass retains some compositor translucency.
+        # Dolphin's native Kvantum window-normal material uses 72% alpha.
+        # This matters for real frosted blur: 98% opacity was only a dark
+        # faux-glass gradient. Keep the 72% alpha only when compositor blur
+        # was successfully requested, and otherwise stay opaque.
         background = theme.property("mainBackground")
         sidebar_color = theme.property("sidebar")
         surface = theme.property("surface")
         hover = theme.property("surfaceHover")
-        self.assertGreaterEqual(background.alpha(), 248)
-        self.assertGreaterEqual(sidebar_color.alpha(), 246)
-        self.assertGreaterEqual(surface.alpha(), 250)
-        self.assertGreaterEqual(hover.alpha(), 251)
-        self.assertLess(background.alpha(), 255)
-        self.assertLess(sidebar_color.alpha(), 255)
+        self.assertAlmostEqual(0.72, theme.property("dolphinGlassOpacity"), delta=0.001)
+        self.assertTrue(180 <= background.alpha() <= 187)
+        self.assertTrue(180 <= sidebar_color.alpha() <= 187)
+        self.assertTrue(180 <= surface.alpha() <= 187)
+        self.assertTrue(210 <= hover.alpha() <= 220)
         self.assertEqual(0, root.property("color").alpha())
         self.assertEqual(background, theme.property("editor"))
         # The material is calibrated to Dolphin's real sidebar screenshot,
@@ -454,7 +454,7 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual("#334049", theme.property("dolphinEditorTop").name())
         self.assertEqual("#313a3e", theme.property("dolphinEditorMiddle").name())
         self.assertEqual("#293035", theme.property("dolphinEditorBottom").name())
-        self.assertLessEqual(255 - background.alpha(), 5)
+        self.assertEqual(background.alpha(), sidebar_color.alpha())
         # Every main content page shares the SAME surface material, including
         # Settings and conflict resolution, not just the note editor.
         sidebar_mat = root.findChild(QObject, "dolphinSidebarMaterial")
