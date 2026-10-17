@@ -10,7 +10,7 @@ import ctypes
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, qVersion
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, qVersion
 from PySide6.QtGui import QGuiApplication
 
 _LOG = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ class WaylandBlurController(QObject):
         self._window = None
         self._active = False
         self._last_error = ""
+        self._first_frame_ready = False
         self.preferences.themeModeChanged.connect(self.refresh)
 
     @Property(bool, notify=activeChanged)
@@ -49,14 +50,38 @@ class WaylandBlurController(QObject):
         if self._window is not None:
             raise RuntimeError("Wayland blur may be attached to one window only")
         self._window = window
+        # A blur effect registered before the first wl_surface commit may not
+        # appear until a window resize causes another commit. Wait for Qt to
+        # have actually presented its first opaque frame, then install the
+        # extension and schedule a new Qt Quick render/Wayland commit.
+        window.frameSwapped.connect(self._on_first_frame_swapped)
+        window.update()
         self.refresh()
+
+    @Slot()
+    def _on_first_frame_swapped(self) -> None:
+        if self._first_frame_ready or self._window is None:
+            return
+        self._first_frame_ready = True
+        self._window.frameSwapped.disconnect(self._on_first_frame_swapped)
+        # The first Qt-presented frame is complete. Install blur on the next
+        # GUI event turn, so it is followed by a genuine surface commit.
+        QTimer.singleShot(0, self.refresh)
+
+    def _commit_blur_surface(self) -> None:
+        if self._window is None:
+            return
+        # QQuickWindow.update() schedules a real render/Wayland buffer commit.
+        # QWindow.requestUpdate() only posts an UpdateRequest and can leave
+        # compositor background-effect state unapplied until a manual resize.
+        self._window.update()
 
     def _set_active(self, active: bool) -> None:
         if active != self._active:
             self._active = active
             self.activeChanged.emit()
             if self._window is not None:
-                self._window.requestUpdate()
+                self._commit_blur_surface()
 
     def _load_native(self) -> bool:
         if self._library:
@@ -94,6 +119,10 @@ class WaylandBlurController(QObject):
         if major_minor < (6, 9):
             self._last_error = "Qt Wayland surface pointers require Qt 6.9+"
             return
+        # Never expose 72%-alpha glass before Qt has committed one opaque
+        # frame and a valid surface has been mapped by the compositor.
+        if not self._first_frame_ready:
+            return
         if self._handle or not self._load_native():
             return
         try:
@@ -120,6 +149,11 @@ class WaylandBlurController(QObject):
         self._handle = handle
         self._last_error = ""
         self._set_active(True)
+        # The effect and alpha switch must be committed *after* registering
+        # the effect. A second bounded render covers delayed compositor
+        # application without changing the window size or moving the cursor.
+        QTimer.singleShot(0, self._commit_blur_surface)
+        QTimer.singleShot(40, self._commit_blur_surface)
 
     def disable(self) -> None:
         if self._handle is not None:
@@ -132,4 +166,9 @@ class WaylandBlurController(QObject):
     def close(self) -> None:
         # Called before QQuickWindow and Wayland display are destroyed.
         self.disable()
+        if self._window is not None and not self._first_frame_ready:
+            try:
+                self._window.frameSwapped.disconnect(self._on_first_frame_swapped)
+            except (RuntimeError, TypeError):
+                pass
         self._window = None
