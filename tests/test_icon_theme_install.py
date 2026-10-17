@@ -40,6 +40,11 @@ class IconThemeInstallTests(unittest.TestCase):
             themed = yamis / "apps/scalable" / (DESKTOP_ID + ".svg")
             self.assertEqual(themed.read_bytes(), (ROOT / "linux-app/icons/reasonnotes-yamis.svg").read_bytes())
             self.assertIn(b"currentColor", themed.read_bytes())
+            # Unqualified currentColor resolves to black in a generic SVG
+            # renderer. YAMIS application icons supply ColorScheme-Text so
+            # the dock renders the same light neutral stroke as other icons.
+            self.assertIn(b'.ColorScheme-Text {color:#d8dee9}', themed.read_bytes())
+            self.assertIn(b'class="ColorScheme-Text"', themed.read_bytes())
             self.assertFalse(original.exists(), "outdated fallback scalable icon masks the new PNG")
 
     def test_customized_existing_fallback_icon_is_not_deleted(self):

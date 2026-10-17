@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <title>ReasonNotes: notes and synchronization</title>
-  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <style type="text/css">.ColorScheme-Text {color:#d8dee9} .ColorScheme-Highlight {color:#3b4252}</style>
+  </defs>
+  <g class="ColorScheme-Text" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
     <path stroke-width="3.5" d="M25 11 46 15c3 .5 5 3 5 6v15M25 11c-2-.4-4 .8-5 2"/>
     <path stroke-width="3.5" d="M14 19 34 15c3-.6 5 1 6 4l3 22c.5 3-1 5-4 6L19 51c-3 .6-5-1-6-4l-3-22c-.5-3 1-5 4-6Z"/>
     <path stroke-width="3.5" d="m18 28 16-3m-14 10 13-2m-12 9 9-2"/>
