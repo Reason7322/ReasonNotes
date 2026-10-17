@@ -18,18 +18,41 @@ QtObject {
     readonly property color glassBottom: frosted(glassPalette.textColor, 0.0)
     readonly property color glassHighlight: frosted(glassPalette.accentColor, 0.14)
 
-    // Native blur alone cannot sufficiently obscure high-contrast wallpapers
-    // behind a floating window. Dolphin-style glass keeps large reading panes
-    // nearly opaque and confines the atmospheric translucency to subtle edges.
-    // Keep Kvantum's live colors and native blur, but sharply limit wallpaper
-    // detail bleeding into long-form text. The opaque fallback is unchanged.
-    readonly property color mainBackground: isGlass ? frosted(glassPalette.windowColor, isBlurredGlass ? 0.98 : 1.0) : (isLight ? "#FAFAFC" : "#15171C")
-    readonly property color sidebar: isGlass ? frosted(glassPalette.buttonColor, isBlurredGlass ? 0.97 : 1.0) : (isLight ? "#EFF1F5" : "#1D2026")
-    readonly property color surface: isGlass ? frosted(glassPalette.baseColor, isBlurredGlass ? 0.985 : 1.0) : (isLight ? "#FFFFFF" : "#262931")
-    readonly property color surfaceHover: isGlass ? frosted(glassPalette.lightColor, isBlurredGlass ? 0.99 : 1.0) : (isLight ? "#E3E8EF" : "#2C3038")
+    // Qt Quick does not paint Kvantum's QWidget SVG elements. Reconstruct
+    // Dolphin's spatial glass material from the ACTIVE LiquidGlass palette,
+    // calibrated against the user's real floating Dolphin reference:
+    // cool, gently luminous top; navy blue-gray side panel; smoky base.
+    // The tint is recomputed if Noctalia regenerates the Kvantum palette.
+    // Preserve the compositor blur and prevent sharp wallpaper details.
+    function material(color, red, green, blue, opacity) {
+        return Qt.rgba(
+            Math.max(0, Math.min(1, color.r + red)),
+            Math.max(0, Math.min(1, color.g + green)),
+            Math.max(0, Math.min(1, color.b + blue)),
+            opacity
+        )
+    }
+
+    readonly property color dolphinSidebarTop: material(glassPalette.lightColor, 0.028, 0.043, 0.075, 0.985)
+    readonly property color dolphinSidebarUpper: material(glassPalette.buttonColor, -0.043, -0.025, 0.018, 0.985)
+    readonly property color dolphinSidebarMiddle: material(glassPalette.windowColor, 0.0, 0.018, 0.055, 0.985)
+    readonly property color dolphinSidebarInterlude: material(glassPalette.windowColor, 0.016, 0.031, 0.075, 0.985)
+    readonly property color dolphinSidebarLower: material(glassPalette.windowColor, -0.034, -0.037, -0.028, 0.985)
+    readonly property color dolphinSidebarDeep: material(glassPalette.windowColor, -0.020, -0.020, -0.008, 0.985)
+    readonly property color dolphinSidebarBottom: material(glassPalette.windowColor, 0.015, 0.020, 0.055, 0.985)
+
+    readonly property color dolphinEditorTop: material(glassPalette.lightColor, -0.018, 0.004, 0.028, 0.985)
+    readonly property color dolphinEditorMiddle: material(glassPalette.buttonColor, 0.007, 0.018, 0.028, 0.99)
+    readonly property color dolphinEditorBottom: material(glassPalette.baseColor, -0.002, 0.004, 0.012, 0.99)
+
+    // Ordinary Dark and Light and the no-native-blur fallback are unchanged.
+    readonly property color mainBackground: isGlass ? (isBlurredGlass ? dolphinEditorBottom : frosted(glassPalette.windowColor, 1.0)) : (isLight ? "#FAFAFC" : "#15171C")
+    readonly property color sidebar: isGlass ? (isBlurredGlass ? dolphinSidebarMiddle : frosted(glassPalette.buttonColor, 1.0)) : (isLight ? "#EFF1F5" : "#1D2026")
+    readonly property color surface: isGlass ? (isBlurredGlass ? material(glassPalette.baseColor, 0.0, 0.014, 0.022, 0.99) : frosted(glassPalette.baseColor, 1.0)) : (isLight ? "#FFFFFF" : "#262931")
+    readonly property color surfaceHover: isGlass ? (isBlurredGlass ? material(glassPalette.lightColor, 0.0, 0.010, 0.020, 0.995) : frosted(glassPalette.lightColor, 0.95)) : (isLight ? "#E3E8EF" : "#2C3038")
     readonly property color textPrimary: isGlass ? glassPalette.textColor : (isLight ? "#1D2430" : "#ECEEF3")
     readonly property color textSecondary: isGlass ? frosted(glassPalette.textColor, 0.72) : (isLight ? "#596476" : "#A2A7B2")
-    readonly property color border: isGlass ? frosted(glassPalette.midColor, 0.56) : (isLight ? "#D5DAE3" : "#353941")
+    readonly property color border: isGlass ? frosted(glassPalette.midColor, isBlurredGlass ? 0.37 : 0.56) : (isLight ? "#D5DAE3" : "#353941")
     readonly property color accent: isGlass ? glassPalette.accentColor : (isLight ? "#DCAF48" : "#DCAF48")
     readonly property color accentText: isGlass ? glassPalette.accentTextColor : (isLight ? "#17191E" : "#17191E")
     readonly property color selectedNote: isGlass ? frosted(glassPalette.accentColor, 0.21) : (isLight ? "#F4E8CB" : "#302C26")

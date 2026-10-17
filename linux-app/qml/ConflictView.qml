@@ -9,6 +9,15 @@ Rectangle {
     required property var i18n
 
     color: theme.mainBackground
+    // Dolphin-inspired Qt Quick rendering of the user's actual Kvantum
+    // LiquidGlass material, without requiring QWidget or compositor changes.
+    // Dark/Light and non-blurred glass are uniform, as before.
+    gradient: Gradient {
+        objectName: "dolphinEditorMaterial"
+        GradientStop { position: 0.0; color: root.theme.isBlurredGlass ? root.theme.dolphinEditorTop : root.theme.mainBackground }
+        GradientStop { position: 0.25; color: root.theme.isBlurredGlass ? root.theme.dolphinEditorMiddle : root.theme.mainBackground }
+        GradientStop { position: 1.0; color: root.theme.mainBackground }
+    }
 
     ColumnLayout {
         anchors.top: parent.top

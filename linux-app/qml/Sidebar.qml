@@ -16,8 +16,20 @@ Rectangle {
     signal deleteRequested()
 
     color: theme.sidebar
-    // Kitty uses an edge-lighting effect, not a full-surface striped
-    // gradient. The main reading surface remains uniform and fully opaque.
+    // The sidebar is the highest-priority Dolphin visual match: brighter
+    // blue-gray at the top, a distinctly cool navigation middle, deep smoked
+    // lower panel, with a gentle lift along the bottom edge.
+    gradient: Gradient {
+        objectName: "dolphinSidebarMaterial"
+        GradientStop { position: 0.0; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarTop : root.theme.sidebar }
+        GradientStop { position: 0.13; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarUpper : root.theme.sidebar }
+        GradientStop { position: 0.24; color: root.theme.sidebar }
+        GradientStop { position: 0.37; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarInterlude : root.theme.sidebar }
+        GradientStop { position: 0.56; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarLower : root.theme.sidebar }
+        GradientStop { position: 0.78; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarDeep : root.theme.sidebar }
+        GradientStop { position: 1.0; color: root.theme.isBlurredGlass ? root.theme.dolphinSidebarBottom : root.theme.sidebar }
+    }
+    // Keep a thin edge reflection, separate from the surface tint.
     Rectangle {
         objectName: "glassEdgeReflection"
         visible: root.theme.isGlass

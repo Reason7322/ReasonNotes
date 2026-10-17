@@ -12,8 +12,16 @@ Rectangle {
     signal backRequested()
 
     color: root.theme.mainBackground
-    // Kitty uses an edge-lighting effect, not a full-surface striped
-    // gradient. The main reading surface remains uniform and fully opaque.
+    // Dolphin-inspired Qt Quick rendering of the user's actual Kvantum
+    // LiquidGlass material, without requiring QWidget or compositor changes.
+    // Dark/Light and non-blurred glass are uniform, as before.
+    gradient: Gradient {
+        objectName: "dolphinEditorMaterial"
+        GradientStop { position: 0.0; color: root.theme.isBlurredGlass ? root.theme.dolphinEditorTop : root.theme.mainBackground }
+        GradientStop { position: 0.25; color: root.theme.isBlurredGlass ? root.theme.dolphinEditorMiddle : root.theme.mainBackground }
+        GradientStop { position: 1.0; color: root.theme.mainBackground }
+    }
+    // Retain a restrained top-edge reflection above the Kvantum material.
     Rectangle {
         objectName: "glassEdgeReflection"
         visible: root.theme.isGlass

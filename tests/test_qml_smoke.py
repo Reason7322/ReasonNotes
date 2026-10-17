@@ -438,14 +438,54 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertLess(sidebar_color.alpha(), 255)
         self.assertEqual(0, root.property("color").alpha())
         self.assertEqual(background, theme.property("editor"))
-        # Theme is still driven by the actual, live Noctalia/Kvantum palette.
-        self.assertEqual(background.name(), self.liquid_palette.windowColor.name())
-        self.assertEqual(sidebar_color.name(), self.liquid_palette.buttonColor.name())
-        # Against extreme wallpaper brightness, at most ~2% of background
-        # contrast survives through the text area versus ~18% previously.
-        self.assertLessEqual(255 - background.alpha(), 7)
+        # The material is calibrated to Dolphin's real sidebar screenshot,
+        # while its palette base remains the LIVE Kvantum/Noctalia source.
+        # In particular the sidebar must be a cooler, dark blue-gray rather
+        # than the previous flat charcoal button.color.
+        self.assertEqual(background, theme.property("dolphinEditorBottom"))
+        self.assertEqual(sidebar_color, theme.property("dolphinSidebarMiddle"))
+        self.assertEqual("#3f4a55", theme.property("dolphinSidebarTop").name())
+        self.assertEqual("#242f3c", theme.property("dolphinSidebarUpper").name())
+        self.assertEqual("#1c252f", theme.property("dolphinSidebarMiddle").name())
+        self.assertEqual("#202834", theme.property("dolphinSidebarInterlude").name())
+        self.assertEqual("#13171a", theme.property("dolphinSidebarLower").name())
+        self.assertEqual("#171b1f", theme.property("dolphinSidebarDeep").name())
+        self.assertEqual("#20252f", theme.property("dolphinSidebarBottom").name())
+        self.assertEqual("#334049", theme.property("dolphinEditorTop").name())
+        self.assertEqual("#313a3e", theme.property("dolphinEditorMiddle").name())
+        self.assertEqual("#293035", theme.property("dolphinEditorBottom").name())
+        self.assertLessEqual(255 - background.alpha(), 5)
+        # Every main content page shares the SAME surface material, including
+        # Settings and conflict resolution, not just the note editor.
+        sidebar_mat = root.findChild(QObject, "dolphinSidebarMaterial")
+        self.assertIsNotNone(sidebar_mat)
+        materials = root.findChildren(QObject, "dolphinEditorMaterial")
+        self.assertEqual(3, len(materials))
+        sidebar_stops = [node.property("color") for node in sidebar_mat.children()]
+        expected_sidebar = [
+            theme.property(name) for name in (
+                "dolphinSidebarTop", "dolphinSidebarUpper",
+                "dolphinSidebarMiddle", "dolphinSidebarInterlude",
+                "dolphinSidebarLower", "dolphinSidebarDeep",
+                "dolphinSidebarBottom"
+            )
+        ]
+        self.assertEqual(expected_sidebar, sidebar_stops)
+        for editor_material in materials:
+            self.assertEqual([
+                theme.property("dolphinEditorTop"),
+                theme.property("dolphinEditorMiddle"),
+                theme.property("dolphinEditorBottom"),
+            ], [node.property("color") for node in editor_material.children()])
         self.blur_state._set_active(False)
         QCoreApplication.processEvents()
+        # If the native blur protocol is absent, neither surface paints a
+        # mysterious gradient; Dark/Light and opaque glass remain uniform.
+        self.assertTrue(all(node.property("color") == theme.property("sidebar")
+                            for node in sidebar_mat.children()))
+        for material in materials:
+            self.assertTrue(all(node.property("color") == theme.property("mainBackground")
+                                for node in material.children()))
         self.assertEqual(255, root.property("color").alpha())
         edges = root.findChildren(QObject, "glassEdgeReflection")
         self.assertEqual(3, len(edges))
