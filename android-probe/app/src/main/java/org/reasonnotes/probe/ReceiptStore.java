@@ -367,6 +367,17 @@ public final class ReceiptStore {
             RevisionEnvelope revision,
             DeliveryLedger ledger,
             String localDevice) {
+        validateConfirmation(
+                receipt, revision,
+                ledger.entry(receipt.revisionId(), receipt.acknowledgingDevice()),
+                localDevice);
+    }
+
+    private static void validateConfirmation(
+            ReceiptEnvelope receipt,
+            RevisionEnvelope revision,
+            DeliveryLedger.Entry entry,
+            String localDevice) {
         validateDevice(localDevice);
         if (!receipt.destinationDevice().equals(localDevice)) {
             throw new IllegalArgumentException("receipt is addressed to another device");
@@ -375,8 +386,6 @@ public final class ReceiptStore {
         if (!revision.noteId().equals(receipt.noteId())) {
             throw new IllegalArgumentException("receipt note and revision identities disagree");
         }
-        DeliveryLedger.Entry entry = ledger.entry(
-                receipt.revisionId(), receipt.acknowledgingDevice());
         if (entry == null) throw new IllegalArgumentException("receipt peer has no delivery entry");
         if (entry.attempts() < 1) {
             throw new IllegalArgumentException("revision was never requested to receipt peer");
@@ -474,6 +483,13 @@ public final class ReceiptStore {
                 revisionById.put(revision.revisionId(), revision);
             }
             Arrays.sort(files, Comparator.comparing(File::getName));
+            Map<String, Map<String, DeliveryLedger.Entry>> byPeer = new LinkedHashMap<>();
+            java.util.HashSet<String> recordedEvents = new java.util.HashSet<>();
+            for (DeliveryLedger.Event event : ledger.events()) {
+                if (event.kind().equals("reasonnotes-confirmed")) {
+                    recordedEvents.add(event.revisionId() + "\t" + event.detail());
+                }
+            }
             for (File file : files) {
                 try {
                     ReceiptEnvelope receipt = ReceiptEnvelope.parse(Files.readAllBytes(file.toPath()));
@@ -486,12 +502,28 @@ public final class ReceiptStore {
                         // endless false "unknown revision" warning.
                         continue;
                     }
+                    Map<String, DeliveryLedger.Entry> peerEntries = byPeer.computeIfAbsent(
+                            receipt.acknowledgingDevice(), peer -> {
+                                Map<String, DeliveryLedger.Entry> result = new LinkedHashMap<>();
+                                for (DeliveryLedger.Entry entry : ledger.entries(peer)) {
+                                    result.put(entry.revisionId(), entry);
+                                }
+                                return result;
+                            });
+                    DeliveryLedger.Entry state = peerEntries.get(receipt.revisionId());
                     validateConfirmation(receipt, revisionById.get(receipt.revisionId()),
-                            ledger, localDevice);
-                    if (previouslyConfirmedByAnotherReceipt(receipt, ledger)) {
-                        // Legacy redundant receipt persisted before this fix.
-                        // Keep the original confirmation intact during recovery.
-                        continue;
+                            state, localDevice);
+                    if (state.state().equals("confirmed")) {
+                        if (!receipt.receiptId().equals(state.receiptId())) {
+                            // Preserve the original matching peer confirmation.
+                            continue;
+                        }
+                        String detail = "receipt=" + receipt.receiptId()
+                                + " target=" + receipt.acknowledgingDevice();
+                        if (recordedEvents.contains(receipt.revisionId() + "\t" + detail)) {
+                            // Already confirmed and audit event durably stored.
+                            continue;
+                        }
                     }
                     if (ledger.recordConfirmed(
                             receipt.revisionId(),
@@ -500,6 +532,13 @@ public final class ReceiptStore {
                             confirmedUtc)) {
                         confirmed.add(receipt.revisionId());
                     }
+                    // Repaired or newly confirmed entries are now authoritative
+                    // for the rest of this recovery run.
+                    DeliveryLedger.Entry fresh = ledger.entry(
+                            receipt.revisionId(), receipt.acknowledgingDevice());
+                    peerEntries.put(receipt.revisionId(), fresh);
+                    recordedEvents.add(receipt.revisionId() + "\treceipt="
+                            + receipt.receiptId() + " target=" + receipt.acknowledgingDevice());
                 } catch (RuntimeException | IOException error) {
                     errors.add(file + ": " + error.getMessage());
                 }
