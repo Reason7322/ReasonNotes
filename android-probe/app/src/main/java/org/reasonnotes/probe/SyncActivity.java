@@ -5,6 +5,9 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -49,6 +52,10 @@ public final class SyncActivity extends Activity {
     private static final String LINUX_PEER = "linux";
     private static final String STATE_QUERY = "query";
     private static final String STATE_SELECTED = "selected";
+    private static final String STATE_AWAITED_REVISIONS = "awaited-revisions";
+    private static final String STATE_CONFIRMATION_DEADLINE = "confirmation-deadline";
+    private static final long CONFIRMATION_POLL_MS = 6000L;
+    private static final long CONFIRMATION_TIMEOUT_MS = 120000L;
 
     public record SelectionSnapshot(String query, Set<UUID> selected) {}
 
@@ -106,6 +113,14 @@ public final class SyncActivity extends Activity {
     private TextView status;
     private boolean chooseMode;
     private SelectionSnapshot restored;
+    private final Handler confirmationHandler = new Handler(Looper.getMainLooper());
+    private final Runnable confirmationTask = this::pollIncomingConfirmations;
+    private Set<String> awaitingRevisionIds = Set.of();
+    private OutgoingSelection awaitingSelection;
+    private long confirmationDeadline;
+    private long confirmationGeneration;
+    private boolean confirmationPollInFlight;
+    private boolean activityVisible;
 
     public static List<String> modeActions() {
         return List.of("Sync all notes", "Choose notes to sync");
@@ -163,6 +178,42 @@ public final class SyncActivity extends Activity {
                 : CompletionEvidence.CONFIRMED;
     }
 
+    static Set<String> newlyRequested(
+            List<DeliveryLedger.Entry> before, List<DeliveryLedger.Entry> after) {
+        Map<String, Integer> originalAttempts = new HashMap<>();
+        for (DeliveryLedger.Entry entry : before) {
+            originalAttempts.put(entry.revisionId(), entry.attempts());
+        }
+        HashSet<String> requested = new HashSet<>();
+        for (DeliveryLedger.Entry entry : after) {
+            if (entry.state().equals("transfer-requested")
+                    && entry.attempts() > originalAttempts.getOrDefault(entry.revisionId(), 0)) {
+                requested.add(entry.revisionId());
+            }
+        }
+        return Set.copyOf(requested);
+    }
+
+    static CompletionEvidence confirmationOf(
+            Set<String> requested, List<DeliveryLedger.Entry> entries) {
+        if (requested.isEmpty()) return CompletionEvidence.NEEDS_ATTENTION;
+        Map<String, String> states = new HashMap<>();
+        for (DeliveryLedger.Entry entry : entries) {
+            states.put(entry.revisionId(), entry.state());
+        }
+        for (String id : requested) {
+            String state = states.get(id);
+            if (state == null || state.equals("needs-attention") || state.equals("pending")) {
+                return CompletionEvidence.NEEDS_ATTENTION;
+            }
+            if (!state.equals("confirmed") && !state.equals("transfer-requested")) {
+                return CompletionEvidence.NEEDS_ATTENTION;
+            }
+        }
+        return requested.stream().allMatch(id -> states.get(id).equals("confirmed"))
+                ? CompletionEvidence.CONFIRMED : CompletionEvidence.AWAITING_RECEIPT;
+    }
+
     public static int bottomContentPadding(int base, int systemBottom, int imeBottom) {
         return base + Math.max(systemBottom, imeBottom);
     }
@@ -183,6 +234,11 @@ public final class SyncActivity extends Activity {
             Set<UUID> selectedIds = ids == null ? Set.of() : ids.stream().map(UUID::fromString)
                     .collect(java.util.stream.Collectors.toSet());
             restored = new SelectionSnapshot(query, selectedIds);
+            ArrayList<String> awaiting = state.getStringArrayList(STATE_AWAITED_REVISIONS);
+            if (awaiting != null && !awaiting.isEmpty()) {
+                awaitingRevisionIds = Set.copyOf(awaiting);
+                confirmationDeadline = state.getLong(STATE_CONFIRMATION_DEADLINE, 0L);
+            }
         }
         setContentView(buildContent());
         loadCatalogueAndMaybeSync();
@@ -195,10 +251,26 @@ public final class SyncActivity extends Activity {
             state.putStringArrayList(STATE_SELECTED,
                     new ArrayList<>(snapshot.selected().stream().map(UUID::toString).toList()));
         }
+        state.putStringArrayList(STATE_AWAITED_REVISIONS,
+                new ArrayList<>(awaitingRevisionIds));
+        state.putLong(STATE_CONFIRMATION_DEADLINE, confirmationDeadline);
         super.onSaveInstanceState(state);
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        activityVisible = true;
+        if (!awaitingRevisionIds.isEmpty()) scheduleConfirmationPoll(500L);
+    }
+
+    @Override protected void onPause() {
+        activityVisible = false;
+        confirmationHandler.removeCallbacks(confirmationTask);
+        super.onPause();
+    }
+
     @Override protected void onDestroy() {
+        confirmationHandler.removeCallbacks(confirmationTask);
         io.shutdown();
         super.onDestroy();
     }
@@ -381,7 +453,17 @@ public final class SyncActivity extends Activity {
                     } else {
                         syncAll.setEnabled(true);
                     }
-                    status.setVisibility(View.GONE);
+                    if (awaitingRevisionIds.isEmpty()) {
+                        status.setVisibility(View.GONE);
+                    } else {
+                        awaitingSelection = chooseMode
+                                ? OutgoingSelection.selected(selection.selected())
+                                : OutgoingSelection.all();
+                        status.setText("Waiting for computer confirmation…");
+                        status.setTextColor(UiTokens.TEXT_SECONDARY);
+                        status.setVisibility(View.VISIBLE);
+                        scheduleConfirmationPoll(500L);
+                    }
                 });
             } catch (RuntimeException error) {
                 runOnUiThread(() -> {
@@ -415,6 +497,73 @@ public final class SyncActivity extends Activity {
     }
 
     /**
+     * While this screen is visible, validate incoming receipts through the
+     * normal strict receiver. There is no background service or automatic
+     * resend. Stale/wrong-peer receipts cannot trigger the green state.
+     */
+    private void scheduleConfirmationPoll(long delay) {
+        confirmationHandler.removeCallbacks(confirmationTask);
+        if (activityVisible && !syncInFlight && !awaitingRevisionIds.isEmpty()) {
+            confirmationHandler.postDelayed(confirmationTask, delay);
+        }
+    }
+
+    private void pollIncomingConfirmations() {
+        if (!activityVisible || syncInFlight || awaitingRevisionIds.isEmpty()
+                || confirmationPollInFlight || repository == null) return;
+        confirmationPollInFlight = true;
+        long generation = confirmationGeneration;
+        Set<String> ids = awaitingRevisionIds;
+        io.execute(() -> {
+            RuntimeException failure = null;
+            try {
+                ReceiptStore receipts = new ReceiptStore(repository.root(), 3);
+                ExchangeDirectory.scan(this, repository, deliveryLedger, receipts, "android");
+            } catch (RuntimeException error) {
+                failure = error;
+            }
+            CompletionEvidence evidence = CompletionEvidence.NEEDS_ATTENTION;
+            if (failure == null) {
+                try {
+                    evidence = confirmationOf(ids, deliveryLedger.entries(LINUX_PEER));
+                } catch (RuntimeException error) {
+                    failure = error;
+                }
+            }
+            RuntimeException finalFailure = failure;
+            CompletionEvidence finalEvidence = evidence;
+            runOnUiThread(() -> {
+                confirmationPollInFlight = false;
+                if (!activityVisible || generation != confirmationGeneration
+                        || isFinishing() || isDestroyed()) return;
+                if (finalEvidence == CompletionEvidence.CONFIRMED) {
+                    awaitingRevisionIds = Set.of();
+                    confirmationHandler.removeCallbacks(confirmationTask);
+                    // Do not claim all historical notes are confirmed when
+                    // other, older outgoing revisions remain pending.
+                    boolean allSelected = awaitingSelection != null
+                            && deliveryEvidence(repository.revisions(),
+                                    deliveryLedger.entries(LINUX_PEER), awaitingSelection)
+                                == CompletionEvidence.CONFIRMED;
+                    status.setText(allSelected
+                            ? "All selected notes synced ✅" : "Sent notes synced ✅");
+                    status.setTextColor(UiTokens.SUCCESS);
+                } else if (SystemClock.elapsedRealtime() >= confirmationDeadline) {
+                    awaitingRevisionIds = Set.of();
+                    status.setText("Error: Computer confirmation not received ❌");
+                    status.setTextColor(UiTokens.DANGER);
+                } else {
+                    status.setText(finalFailure == null
+                            ? "Waiting for computer confirmation…"
+                            : "Checking confirmation…");
+                    status.setTextColor(UiTokens.TEXT_SECONDARY);
+                    scheduleConfirmationPoll(CONFIRMATION_POLL_MS);
+                }
+            });
+        });
+    }
+
+    /**
      * Retry is still accessible via a confirmed long-press on Start sync.
      * Ordinary short presses never silently resend pending requests.
      */
@@ -435,6 +584,9 @@ public final class SyncActivity extends Activity {
     private void startSync(OutgoingSelection outgoing, boolean retryUnconfirmed) {
         if (coordinator == null || syncInFlight) return;
         syncInFlight = true;
+        confirmationGeneration++;
+        awaitingRevisionIds = Set.of();
+        confirmationHandler.removeCallbacks(confirmationTask);
         status.setVisibility(View.VISIBLE);
         status.setText(conciseStatus(SyncStatus.Phase.SCANNING, CompletionEvidence.CONFIRMED));
         status.setTextColor(UiTokens.TEXT_SECONDARY);
@@ -444,12 +596,15 @@ public final class SyncActivity extends Activity {
             SyncStatus result = null;
             RuntimeException failure = null;
             CompletionEvidence completion = CompletionEvidence.NEEDS_ATTENTION;
+            Set<String> requestedThisRun = Set.of();
             try {
                 repository.reconcile();
+                List<DeliveryLedger.Entry> before = deliveryLedger.entries(LINUX_PEER);
                 result = coordinator.synchronize(outgoing, retryUnconfirmed);
+                List<DeliveryLedger.Entry> after = deliveryLedger.entries(LINUX_PEER);
+                requestedThisRun = newlyRequested(before, after);
                 if (result.phase() == SyncStatus.Phase.COMPLETE) {
-                    completion = deliveryEvidence(repository.revisions(),
-                            deliveryLedger.entries(LINUX_PEER), outgoing);
+                    completion = deliveryEvidence(repository.revisions(), after, outgoing);
                 }
             } catch (RuntimeException error) {
                 failure = error;
@@ -457,6 +612,7 @@ public final class SyncActivity extends Activity {
             SyncStatus finalResult = result;
             RuntimeException finalFailure = failure;
             CompletionEvidence finalCompletion = completion;
+            Set<String> requestedIds = requestedThisRun;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 syncInFlight = false;
@@ -470,6 +626,17 @@ public final class SyncActivity extends Activity {
                             || (finalResult.phase() == SyncStatus.Phase.COMPLETE
                                 && finalCompletion == CompletionEvidence.NEEDS_ATTENTION)
                                     ? UiTokens.DANGER : UiTokens.SUCCESS);
+                }
+                if (finalFailure == null
+                        && finalResult.phase() == SyncStatus.Phase.TRANSFER_REQUESTED
+                        && !requestedIds.isEmpty()) {
+                    awaitingRevisionIds = requestedIds;
+                    awaitingSelection = outgoing;
+                    confirmationDeadline = SystemClock.elapsedRealtime()
+                            + CONFIRMATION_TIMEOUT_MS;
+                    status.setText("Waiting for computer confirmation…");
+                    status.setTextColor(UiTokens.TEXT_SECONDARY);
+                    scheduleConfirmationPoll(CONFIRMATION_POLL_MS);
                 }
                 if (syncSelected != null && selection != null) {
                     syncSelected.setEnabled(selection.canSync());

@@ -33,6 +33,7 @@ from reasonnotes_sync.kdeconnect_linux import KdeConnectLinux
 from reasonnotes_sync.repository import Repository
 from reasonnotes_sync.foreground_purge import PurgeRelay, shared_key, PORT
 from reasonnotes_sync.sync import scan_inbox, sync_linux
+from reasonnotes_sync.receipt_return import return_pending_receipts
 
 
 APP_ID = "org.reasonnotes.ReasonNotes"
@@ -111,7 +112,8 @@ def main(arguments=None) -> int:
         application.setWindowIcon(QIcon(str(icon)))
 
     # Only the designated private user repository is opened at startup.
-    # No network transfer, received-file import, or sync is automatic.
+    # Startup/F5 can import incoming files and return verified receipts;
+    # content transfers still require deliberate user action.
     repository = Repository.open(
         root,
         local_device="linux",
@@ -124,9 +126,19 @@ def main(arguments=None) -> int:
     def scan_received():
         with receive_lock:
             inbox.mkdir(parents=True, exist_ok=True)
-            return scan_inbox(
+            report = scan_inbox(
                 repository, inbox, "linux", received_dir=options.received_dir
             )
+            # A receiver must send back its durable import evidence without
+            # requiring a second manual Sync click on Fedora. Only pending
+            # receipts are sent; already requested ones are not retried.
+            if not options.check_launch and device_id is not None:
+                count, warnings = return_pending_receipts(
+                    repository, KdeConnectLinux(device_id)
+                )
+                for warning in warnings:
+                    print("ReasonNotes acknowledgment: " + warning, file=sys.stderr)
+            return report
 
     def run_sync(selected):
         if device_id is None:
@@ -151,7 +163,8 @@ def main(arguments=None) -> int:
 
     # Render native Qt UI first. A large KDE Connect delivery must not stall
     # app startup: incoming files will be checked on a worker after QML loads.
-    # Never request outgoing transfers or consume retries at startup.
+    # Never request outgoing note transfers or consume retries at startup.
+    # Pending receipt acknowledgments may be returned automatically.
     presenter = NotePresenter(
         NoteService(repository, origin_device="linux"), run_sync,
     )

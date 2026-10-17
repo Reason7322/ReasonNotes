@@ -129,6 +129,52 @@ public final class SyncActivityContractTest {
     }
 
     @Test
+    public void onlyFreshTransferAttemptsBecomeLiveConfirmationTargets() {
+        String a = "a".repeat(64);
+        String b = "b".repeat(64);
+        String c = "c".repeat(64);
+        Instant now = Instant.parse("2026-10-17T04:00:00Z");
+        DeliveryLedger.Entry formerlyPending =
+                new DeliveryLedger.Entry(a, "linux", "pending", 0, null, null, null);
+        DeliveryLedger.Entry formerlyRequested =
+                new DeliveryLedger.Entry(b, "linux", "transfer-requested", 1, now, null, null);
+        DeliveryLedger.Entry previousConfirmed =
+                new DeliveryLedger.Entry(c, "linux", "confirmed", 1, now, "d".repeat(64), now);
+        DeliveryLedger.Entry newlyRequested =
+                new DeliveryLedger.Entry(a, "linux", "transfer-requested", 1, now, null, null);
+        DeliveryLedger.Entry unchanged =
+                new DeliveryLedger.Entry(b, "linux", "transfer-requested", 1, now, null, null);
+        assertEquals(Set.of(a), SyncActivity.newlyRequested(
+                List.of(formerlyPending, formerlyRequested, previousConfirmed),
+                List.of(newlyRequested, unchanged, previousConfirmed)));
+    }
+
+    @Test
+    public void confirmationWatcherRequiresEveryRequestedReceiptAndRejectsWrongEvidence() {
+        String a = "a".repeat(64);
+        String b = "b".repeat(64);
+        Instant now = Instant.parse("2026-10-17T04:00:00Z");
+        DeliveryLedger.Entry awaitingA =
+                new DeliveryLedger.Entry(a, "linux", "transfer-requested", 1, now, null, null);
+        DeliveryLedger.Entry confirmedA =
+                new DeliveryLedger.Entry(a, "linux", "confirmed", 1, now, "c".repeat(64), now);
+        DeliveryLedger.Entry awaitingB =
+                new DeliveryLedger.Entry(b, "linux", "transfer-requested", 1, now, null, null);
+        DeliveryLedger.Entry confirmedB =
+                new DeliveryLedger.Entry(b, "linux", "confirmed", 1, now, "d".repeat(64), now);
+        assertEquals(SyncActivity.CompletionEvidence.NEEDS_ATTENTION,
+                SyncActivity.confirmationOf(Set.of(a, b), List.of(confirmedA)));
+        assertEquals(SyncActivity.CompletionEvidence.AWAITING_RECEIPT,
+                SyncActivity.confirmationOf(Set.of(a, b), List.of(confirmedA, awaitingB)));
+        assertEquals(SyncActivity.CompletionEvidence.CONFIRMED,
+                SyncActivity.confirmationOf(Set.of(a, b), List.of(confirmedA, confirmedB)));
+        assertEquals(SyncActivity.CompletionEvidence.AWAITING_RECEIPT,
+                SyncActivity.confirmationOf(Set.of(a), List.of(awaitingA)));
+        assertEquals(SyncActivity.CompletionEvidence.NEEDS_ATTENTION,
+                SyncActivity.confirmationOf(Set.of(), List.of(confirmedA)));
+    }
+
+    @Test
     public void actualVisibleSyncScreenContainsNoEverPresentRetryOrInternalStatusWords()
             throws Exception {
         String source = new String(java.nio.file.Files.readAllBytes(
