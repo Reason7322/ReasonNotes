@@ -1,6 +1,7 @@
 package org.reasonnotes.probe;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import java.nio.charset.StandardCharsets;
 import java.io.File;
@@ -27,6 +28,46 @@ public final class ExchangeDirectoryTest {
         assertEquals(ExchangeDirectory.Kind.RECEIPT, ExchangeDirectory.classify(receipt.serialize()));
         assertEquals(ExchangeDirectory.Kind.UNRELATED, ExchangeDirectory.classify(
                 "# ordinary markdown\n".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    public void newRevisionsArePrioritizedBeforeOldReceipts() {
+        assertEquals(0, ExchangeDirectory.priority("a".repeat(64) + ".md"));
+        assertEquals(1, ExchangeDirectory.priority("a".repeat(64) + ".receipt.md"));
+        assertEquals(0, ExchangeDirectory.priority("ordinary.md"));
+    }
+
+    @Test
+    public void onlyValidatedPurgedNoteReceiptsCanBeSilentlyIgnored() throws Exception {
+        File root = temporary.newFolder("obsolete-purged-receipt");
+        ProbeRepository repository = ProbeRepository.open(root);
+        UUID note = UUID.fromString("33333333-3333-4333-8333-333333333333");
+        Instant now = Instant.parse("2026-10-16T18:00:00Z");
+        RevisionEnvelope local = repository.createProbeRevision(
+                note, "Secret already deleted", "android", now, false);
+        ReceiptEnvelope old = ReceiptEnvelope.create(
+                note, local.revisionId(), "linux", "android", now.plusSeconds(2));
+        ReceiptEnvelope wrongDestination = ReceiptEnvelope.create(
+                note, local.revisionId(), "android", "linux", now.plusSeconds(2));
+        assertEquals(false, ExchangeDirectory.isObsoletePurgedReceipt(
+                old.serialize(), repository, "android"));
+        repository.deleteNotes(java.util.Set.of(note), "android", now.plusSeconds(3));
+        assertEquals(true, repository.isPurged(note));
+        assertEquals(null, repository.revision(local.revisionId()));
+        assertEquals(true, ExchangeDirectory.isObsoletePurgedReceipt(
+                old.serialize(), repository, "android"));
+        assertEquals(false, ExchangeDirectory.isObsoletePurgedReceipt(
+                wrongDestination.serialize(), repository, "android"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ExchangeDirectory.isObsoletePurgedReceipt(
+                        "not a valid receipt".getBytes(StandardCharsets.UTF_8),
+                        repository, "android"));
+        // An unknown non-purged note cannot bypass normal strict validation.
+        ReceiptEnvelope unknown = ReceiptEnvelope.create(
+                UUID.fromString("44444444-4444-4444-8444-444444444444"),
+                "a".repeat(64), "linux", "android", now.plusSeconds(2));
+        assertEquals(false, ExchangeDirectory.isObsoletePurgedReceipt(
+                unknown.serialize(), repository, "android"));
     }
 
     @Test

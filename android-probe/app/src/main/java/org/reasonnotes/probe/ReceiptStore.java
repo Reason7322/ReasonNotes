@@ -405,7 +405,41 @@ public final class ReceiptStore {
             Instant confirmedUtc) {
         if (sourceName == null) throw new IllegalArgumentException("source name");
         ReceiptEnvelope receipt = ReceiptEnvelope.parse(data);
-        validateConfirmation(receipt, repository, ledger, localDevice);
+        return acceptValidated(
+                receipt, repository.revision(receipt.revisionId()),
+                repository, ledger, localDevice, confirmedUtc);
+    }
+
+    /**
+     * Validated revision snapshot for a single SAF scan: repeated receipts
+     * must not cause an entire repository graph reload per document.
+     */
+    public ImportOutcome acceptWithSnapshot(
+            byte[] data,
+            Map<String, RevisionEnvelope> revisions,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            String localDevice,
+            String sourceName,
+            Instant confirmedUtc) {
+        if (sourceName == null) throw new IllegalArgumentException("source name");
+        ReceiptEnvelope receipt = ReceiptEnvelope.parse(data);
+        return acceptValidated(
+                receipt, revisions.get(receipt.revisionId()),
+                repository, ledger, localDevice, confirmedUtc);
+    }
+
+    private ImportOutcome acceptValidated(
+            ReceiptEnvelope receipt,
+            RevisionEnvelope revision,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            String localDevice,
+            Instant confirmedUtc) {
+        if (repository.isPurged(receipt.noteId())) {
+            throw new IllegalArgumentException("receipt refers to permanently deleted note");
+        }
+        validateConfirmation(receipt, revision, ledger, localDevice);
         if (previouslyConfirmedByAnotherReceipt(receipt, ledger)) {
             // Already confirmed. Do not replace the trusted receipt, create
             // another inbox file, or record another confirmation event.
@@ -443,6 +477,15 @@ public final class ReceiptStore {
             for (File file : files) {
                 try {
                     ReceiptEnvelope receipt = ReceiptEnvelope.parse(Files.readAllBytes(file.toPath()));
+                    if (receipt.destinationDevice().equals(localDevice)
+                            && repository.isPurged(receipt.noteId())) {
+                        // Previous receipt evidence may remain after permanent
+                        // deletion removed its immutable revision history.
+                        // It cannot confirm a purged revision or resurrect it.
+                        // Retain the file as historical evidence without an
+                        // endless false "unknown revision" warning.
+                        continue;
+                    }
                     validateConfirmation(receipt, revisionById.get(receipt.revisionId()),
                             ledger, localDevice);
                     if (previouslyConfirmedByAnotherReceipt(receipt, ledger)) {

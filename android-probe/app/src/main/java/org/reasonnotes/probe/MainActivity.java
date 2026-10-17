@@ -133,7 +133,12 @@ public final class MainActivity extends Activity {
         incomingIo.execute(() -> {
             try {
                 ExchangeDirectory.ScanReport report = IncomingReceive.scanPhone(
-                        this, repository);
+                        this, repository, importedCount -> runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            // Each new revision is already durable. Show it
+                            // while older receipt files are still being scanned.
+                            renderNotes();
+                        }));
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     incomingCheckInFlight = false;

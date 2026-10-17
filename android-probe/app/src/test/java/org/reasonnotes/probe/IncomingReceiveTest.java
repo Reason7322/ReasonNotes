@@ -74,6 +74,10 @@ public final class IncomingReceiveTest {
                         0, 0, 0, 0, 0, 0, 0, 0, List.of("document tree permission denied"))));
         assertNull(IncomingReceive.status(new ExchangeDirectory.ScanReport(
                 0, 2, 0, 1, 0, 0, 0, 25, List.of())));
+        assertEquals(
+                "Received 2 note revisions · Incoming check: unexpected receipt",
+                IncomingReceive.status(new ExchangeDirectory.ScanReport(
+                        2, 20, 0, 0, 2, 0, 1, 0, List.of("unexpected receipt"))));
     }
 
     @Test

@@ -2,6 +2,7 @@ package org.reasonnotes.probe;
 
 import android.content.Context;
 import java.io.File;
+import java.util.function.IntConsumer;
 
 /**
  * Receive-only Android entry point. It deliberately has no KDE Connect sender,
@@ -20,6 +21,11 @@ public final class IncomingReceive {
 
     public static ExchangeDirectory.ScanReport scanPhone(
             Context context, ProbeRepository repository) {
+        return scanPhone(context, repository, imported -> {});
+    }
+
+    public static ExchangeDirectory.ScanReport scanPhone(
+            Context context, ProbeRepository repository, IntConsumer progress) {
         File files = context.getFilesDir();
         File root = new File(files, "probe-repository");
         DeliveryLedger ledger = new DeliveryLedger(
@@ -30,20 +36,25 @@ public final class IncomingReceive {
         // Preserve legacy physical-ID confirmations without resetting attempts.
         SyncActivity.preparePeerLedger(ledger, preferences.targetDeviceId());
         return run(() -> ExchangeDirectory.scan(
-                context, repository, ledger, receipts, "android"));
+                context, repository, ledger, receipts, "android", progress));
     }
 
     public static String status(ExchangeDirectory.ScanReport report) {
-        if (!report.errors().isEmpty()) {
-            return "Incoming check: " + report.errors().get(0);
-        }
-        if (report.imported() == 0 && report.confirmed() == 0) return null;
+        String success = null;
         if (report.imported() > 0 && report.confirmed() > 0) {
-            return "Received " + report.imported() + " revisions · confirmed "
+            success = "Received " + report.imported() + " revisions · confirmed "
                     + report.confirmed();
+        } else if (report.imported() > 0) {
+            success = "Received " + report.imported() + " note revisions";
+        } else if (report.confirmed() > 0) {
+            success = "Confirmed " + report.confirmed() + " deliveries";
         }
-        return report.imported() > 0
-                ? "Received " + report.imported() + " note revisions"
-                : "Confirmed " + report.confirmed() + " deliveries";
+        // A warning about an old receipt must not conceal a successful new
+        // note import. Keep the warning visible rather than swallowing it.
+        if (!report.errors().isEmpty()) {
+            String warning = "Incoming check: " + report.errors().get(0);
+            return success == null ? warning : success + " · " + warning;
+        }
+        return success;
     }
 }

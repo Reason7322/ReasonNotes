@@ -9,7 +9,9 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.nio.file.Files;
 import java.time.Instant;
+import java.util.Map;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.Rule;
 import org.junit.Test;
@@ -80,6 +82,47 @@ public final class ReceiptStoreTest {
     }
 
     @Test
+    public void revisionSnapshotReceiptValidationIsStrictAndRespectsLaterPermanentPurges()
+            throws Exception {
+        File root = temporary.newFolder("snapshot-validation");
+        ProbeRepository repository = ProbeRepository.open(root);
+        RevisionEnvelope revision = local(repository);
+        DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
+        ledger.registerLocal(revision.revisionId(), "android");
+        ledger.recordRequested(revision.revisionId(), "android", T0.plusSeconds(1));
+        ReceiptStore store = new ReceiptStore(root, 3);
+        ReceiptEnvelope confirmation = receipt(revision);
+        Map<String, RevisionEnvelope> snapshot = Map.of(revision.revisionId(), revision);
+        assertEquals("confirmed", store.acceptWithSnapshot(
+                confirmation.serialize(), snapshot, repository, ledger,
+                "linux", "receipt.md", T0.plusSeconds(4)).kind());
+        assertEquals("duplicate", store.acceptWithSnapshot(
+                confirmation.serialize(), snapshot, repository, ledger,
+                "linux", "receipt.md", T0.plusSeconds(5)).kind());
+
+        ReceiptEnvelope wrongPeer = ReceiptEnvelope.create(
+                revision.noteId(), revision.revisionId(), "stranger", "linux",
+                T0.plusSeconds(6));
+        assertThrows(IllegalArgumentException.class, () -> store.acceptWithSnapshot(
+                wrongPeer.serialize(), snapshot, repository, ledger,
+                "linux", "wrong.md", T0.plusSeconds(7)));
+        ReceiptEnvelope unregistered = ReceiptEnvelope.create(
+                revision.noteId(), "b".repeat(64), "android", "linux",
+                T0.plusSeconds(8));
+        assertThrows(IllegalArgumentException.class, () -> store.acceptWithSnapshot(
+                unregistered.serialize(), snapshot, repository, ledger,
+                "linux", "missing.md", T0.plusSeconds(9)));
+
+        repository.deleteNotes(Set.of(NOTE), "linux", T0.plusSeconds(10));
+        assertTrue(repository.isPurged(NOTE));
+        // Even a pre-purge snapshot is not permission to confirm a purged note.
+        assertThrows(IllegalArgumentException.class, () -> store.acceptWithSnapshot(
+                confirmation.serialize(), snapshot, repository, ledger,
+                "linux", "after-purge.md", T0.plusSeconds(11)));
+        assertEquals(null, repository.revision(revision.revisionId()));
+    }
+
+    @Test
     public void secondValidReceiptForSameRevisionAndPeerIsRedundantNotAnError() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(root);
@@ -110,6 +153,30 @@ public final class ReceiptStoreTest {
         assertEquals(accepted.receiptId(), ledger.entry(revision.revisionId(), "android").receiptId());
         assertEquals(1, ledger.events().stream()
                 .filter(event -> event.kind().equals("reasonnotes-confirmed")).count());
+    }
+
+    @Test
+    public void receiptSavedBeforePermanentPurgeDoesNotCauseRecoveryErrorsOrResurrection()
+            throws Exception {
+        File root = temporary.newFolder("purged-receipt-recovery");
+        ProbeRepository repository = ProbeRepository.open(root);
+        RevisionEnvelope revision = local(repository);
+        ReceiptEnvelope old = receipt(revision);
+        ReceiptStore store = new ReceiptStore(root, 3);
+        DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
+        File saved = store.inboxFile(old.receiptId());
+        repository.deleteNotes(Set.of(NOTE), "linux", T0.plusSeconds(10));
+        assertTrue(repository.isPurged(NOTE));
+        // Normal purge retires old receipts; simulate a previously received
+        // stale receipt resurfacing after the durable purge completed.
+        saved.getParentFile().mkdirs();
+        Files.write(saved.toPath(), old.serialize());
+        assertTrue(store.reconcileConfirmations(
+                repository, ledger, "linux", T0.plusSeconds(12)).errors().isEmpty());
+        assertTrue(saved.isFile()); // Evidence is retained, not deleted.
+        assertEquals(null, repository.revision(revision.revisionId()));
+        assertTrue(ledger.events().stream()
+                .noneMatch(event -> event.kind().equals("reasonnotes-confirmed")));
     }
 
     @Test
