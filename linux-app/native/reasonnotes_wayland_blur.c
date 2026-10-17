@@ -9,6 +9,7 @@
 
 struct rn_blur {
     struct wl_display *display;
+    struct wl_surface *surface;
     struct wl_event_queue *queue;
     struct wl_registry *registry;
     struct ext_background_effect_manager_v1 *manager;
@@ -42,8 +43,13 @@ static const struct ext_background_effect_manager_v1_listener manager_events = {
 
 static void free_blur(struct rn_blur *state) {
     if (!state) return;
-    if (state->effect)
+    if (state->effect) {
         ext_background_effect_surface_v1_destroy(state->effect);
+        /* Effect removal is double-buffered, just like activation.
+         * Commit after destroy while Qt's wl_surface is still alive. */
+        if (state->surface)
+            wl_surface_commit(state->surface);
+    }
     if (state->manager)
         ext_background_effect_manager_v1_destroy(state->manager);
     if (state->registry)
@@ -64,6 +70,7 @@ void *rn_blur_enable(void *display, void *compositor, void *surface, int *status
     state = calloc(1, sizeof *state);
     if (!state) { status = -4; goto fail; }
     state->display = display;
+    state->surface = surface;
     state->queue = wl_display_create_queue(state->display);
     if (!state->queue) { status = -4; goto fail; }
     state->registry = wl_display_get_registry(state->display);
@@ -94,6 +101,14 @@ void *rn_blur_enable(void *display, void *compositor, void *surface, int *status
     wl_region_add(region, 0, 0, 32000, 32000);
     ext_background_effect_surface_v1_set_blur_region(state->effect, region);
     wl_region_destroy(region);
+    /* Wayland spec: the blur region is pending/double-buffered state, and
+     * is applied ONLY on wl_surface.commit. A flush or Qt UpdateRequest
+     * alone cannot activate it. Make the effect live immediately rather
+     * than relying on a manual window resize to trigger Qt's next commit.
+     * No buffer attach is changed: this commit only applies pending state.
+     * All calls occur on Qt's GUI thread using Qt's existing wl_display.
+     */
+    wl_surface_commit(state->surface);
     wl_display_flush(state->display);
     if (status_out) *status_out = 0;
     return state;

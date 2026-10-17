@@ -22,6 +22,7 @@ if str(SOURCE_ROOT) not in sys.path:
 from PySide6.QtCore import QCoreApplication, QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick import QQuickWindow
 
 from reasonnotes_app.liquid_glass_palette import LiquidGlassPalette
 from reasonnotes_app.preferences import AppPreferences
@@ -105,6 +106,10 @@ def main(arguments=None) -> int:
     QCoreApplication.setOrganizationName("ReasonNotes")
     QCoreApplication.setOrganizationDomain("reasonnotes.local")
     QCoreApplication.setApplicationName("ReasonNotes")
+    # The glass mode can switch between opaque and translucent painting.
+    # Reserve an RGBA Wayland buffer before Qt creates the first window,
+    # otherwise a late alpha transition can cause opaque rendering bands.
+    QQuickWindow.setDefaultAlphaBuffer(True)
     application = QGuiApplication([sys.argv[0]])
     application.setDesktopFileName(APP_ID)
     icon = Path(__file__).parent / "icons" / "reasonnotes.svg"

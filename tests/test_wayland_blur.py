@@ -40,6 +40,27 @@ class WaylandBlurTest(unittest.TestCase):
             self.assertIsNone(controller._window)
             window.destroy()
 
+    def test_native_blur_region_commits_to_compositor_without_window_resize(self):
+        # ext-background-effect-v1 section set_blur_region explicitly says
+        # blur state is double-buffered until wl_surface.commit. The native
+        # helper must perform this commit rather than waiting for a resize.
+        source = (Path(__file__).resolve().parents[1] /
+                  "linux-app/native/reasonnotes_wayland_blur.c").read_text()
+        effect = source.index("ext_background_effect_surface_v1_set_blur_region(")
+        commit = source.index("wl_surface_commit(state->surface)", effect)
+        flush = source.index("wl_display_flush(state->display)", commit)
+        self.assertGreater(commit, effect)
+        self.assertGreater(flush, commit)
+        self.assertIn("wl_surface_commit(state->surface)", source[:effect],
+                      "effect disable also requires a surface commit")
+
+    def test_app_requests_rgba_buffer_before_window_creation(self):
+        source = (Path(__file__).resolve().parents[1] /
+                  "linux-app/reasonnotes.py").read_text()
+        assert source.index("QQuickWindow.setDefaultAlphaBuffer(True)") < source.index(
+            "application = QGuiApplication("
+        )
+
     def test_active_change_signal_and_no_note_side_effects(self):
         with TemporaryDirectory() as folder:
             preferences = AppPreferences(
