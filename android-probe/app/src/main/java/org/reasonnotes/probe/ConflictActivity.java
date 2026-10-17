@@ -1,6 +1,7 @@
 package org.reasonnotes.probe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -33,6 +34,7 @@ public final class ConflictActivity extends Activity {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private NoteService service;
+    private boolean destructiveActionInFlight;
     private UUID noteId;
     private LinearLayout candidates;
     private TextView status;
@@ -134,6 +136,14 @@ public final class ConflictActivity extends Activity {
             finish();
         });
         root.addView(skip, matchWrap());
+        Button deleteAll = button("Permanently delete every version", false);
+        deleteAll.setTextColor(UiTokens.DANGER);
+        deleteAll.setContentDescription(
+                "Permanently delete conflicted note and all revision history");
+        deleteAll.setOnClickListener(view -> confirmPermanentDeletion());
+        LinearLayout.LayoutParams deleteParams = matchWrap();
+        deleteParams.topMargin = UiTokens.dp(this, UiTokens.SPACE_S);
+        root.addView(deleteAll, deleteParams);
         ViewCompat.requestApplyInsets(root);
         return root;
     }
@@ -207,6 +217,51 @@ public final class ConflictActivity extends Activity {
                 runOnUiThread(() -> status.setText("Resolution failed: " + error.getMessage()));
             }
         });
+    }
+
+    private void confirmPermanentDeletion() {
+        NoteService.ConflictSnapshot expected = snapshot;
+        if (expected == null || destructiveActionInFlight) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Permanently delete this conflicted note?")
+                .setMessage("This erases every revision and all prior history for this note. "
+                        + "It cannot be undone. The paired Fedora app will also erase its "
+                        + "copy when both apps are open and connected.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete permanently", (dialog, which) -> {
+                    if (destructiveActionInFlight) return;
+                    destructiveActionInFlight = true;
+                    status.setText("Deleting all versions…");
+                    io.execute(() -> {
+                        try {
+                            service.permanentlyDeleteConflict(expected);
+                            // Remove presentation-only pins for this exact ID;
+                            // actual content/history was purged first.
+                            new PinStore(new AndroidLocalPreferences(
+                                    getSharedPreferences(AppPreferences.PREFERENCES_NAME,
+                                            MODE_PRIVATE)))
+                                    .clearPins(java.util.Set.of(expected.noteId()));
+                            ((ReasonNotesApplication) getApplication())
+                                    .requestImmediatePoll();
+                            runOnUiThread(() -> {
+                                if (!isFinishing() && !isDestroyed()) finish();
+                            });
+                        } catch (ProbeRepository.StaleHeadsException stale) {
+                            runOnUiThread(() -> {
+                                destructiveActionInFlight = false;
+                                status.setText("Conflict changed. Review its current revisions.");
+                                loadConflict();
+                            });
+                        } catch (RuntimeException error) {
+                            runOnUiThread(() -> {
+                                destructiveActionInFlight = false;
+                                status.setText("Permanent deletion could not finish: "
+                                        + error.getMessage());
+                            });
+                        }
+                    });
+                })
+                .show();
     }
 
     private Button button(String value, boolean accent) {

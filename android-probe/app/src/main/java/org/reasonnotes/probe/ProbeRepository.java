@@ -286,6 +286,21 @@ public final class ProbeRepository {
         });
     }
 
+    /** Explicit conflict-screen action only. The exact observed heads are
+     * checked under the repository lock before committing the durable fence.
+     * Ordinary batch deletion continues to skip unresolved conflicts. */
+    public void purgeConflictedNote(UUID noteId, Set<String> expectedHeadIds) {
+        withLock(() -> {
+            RevisionGraph snapshot = graph(load());
+            Set<String> actual = headIds(snapshot, noteId);
+            if (actual.size() < 2 || !actual.equals(expectedHeadIds)) {
+                throw new StaleHeadsException(expectedHeadIds, actual);
+            }
+            purgeNoteLocked(noteId);
+            reconcileLocked();
+        });
+    }
+
     /** Accept a deletion fence without requiring this note to be present. */
     public void applyRemotePurges(Set<UUID> noteIds) {
         withLock(() -> {

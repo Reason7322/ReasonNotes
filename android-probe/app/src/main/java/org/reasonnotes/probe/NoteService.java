@@ -162,6 +162,13 @@ public final class NoteService {
         repository.purgeNote(noteId);
     }
 
+    /** Deliberate irreversible conflict-screen action, never bulk selection. */
+    public void permanentlyDeleteConflict(ConflictSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        repository.purgeConflictedNote(
+                snapshot.noteId(), snapshot.observedHeadIds());
+    }
+
     public ProbeRepository.BatchDeleteResult deleteNotes(Set<UUID> noteIds) {
         return repository.deleteNotes(noteIds, originDevice, now());
     }

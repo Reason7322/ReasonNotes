@@ -134,6 +134,52 @@ public final class NoteServiceConflictTest {
     }
 
     @Test
+    public void explicitConflictDeletionPurgesAllVersionsButPreservesUnrelatedNotes() throws Exception {
+        ConflictFixture fixture = editDeleteConflict(true);
+        UUID unrelated = UUID.fromString("55555555-5555-4555-8555-555555555555");
+        RevisionEnvelope kept = fixture.repository().createRevision(
+                unrelated, Set.of(), "# Other note\n\nuntouched", "android",
+                Instant.parse("2026-10-15T04:00:00Z"), false);
+        byte[] original = Files.readAllBytes(new File(
+                fixture.repository().root(), "history/" + unrelated + "/"
+                        + kept.revisionId() + ".md").toPath());
+        NoteService.ConflictSnapshot selected = fixture.service().inspectConflict(NOTE);
+        assertEquals(3, fixture.repository().revisions().size() - 1);
+
+        fixture.service().permanentlyDeleteConflict(selected);
+
+        assertTrue(fixture.repository().isPurged(NOTE));
+        assertFalse(new File(fixture.repository().root(), "history/" + NOTE).exists());
+        assertTrue(fixture.repository().heads(NOTE).isEmpty());
+        assertTrue(fixture.service().listNotes("").stream()
+                .noneMatch(summary -> summary.noteId().equals(NOTE)));
+        assertEquals(kept, fixture.repository().current(unrelated));
+        assertTrue(java.util.Arrays.equals(original, Files.readAllBytes(
+                new File(fixture.repository().root(), "history/" + unrelated + "/"
+                        + kept.revisionId() + ".md").toPath())));
+        fixture.repository().importEnvelope(fixture.edit().serialize(), "old.md");
+        assertTrue(fixture.repository().isPurged(NOTE));
+        assertTrue(fixture.repository().heads(NOTE).isEmpty());
+    }
+
+    @Test
+    public void conflictDeletionRejectsStaleHeadsWithoutWritingAFence() throws Exception {
+        ConflictFixture fixture = editDeleteConflict(true);
+        NoteService.ConflictSnapshot captured = fixture.service().inspectConflict(NOTE);
+        RevisionEnvelope later = RevisionEnvelope.create(
+                NOTE, List.of(fixture.edit().parents().get(0)), "linux",
+                Instant.parse("2026-10-15T03:10:03Z"), false,
+                "# Concurrent third head\n\nother branch");
+        fixture.repository().importEnvelope(later.serialize(), "third.md");
+
+        assertThrows(ProbeRepository.StaleHeadsException.class,
+                () -> fixture.service().permanentlyDeleteConflict(captured));
+        assertFalse(fixture.repository().isPurged(NOTE));
+        assertEquals(4, fixture.repository().revisions().size());
+        assertEquals(3, fixture.repository().heads(NOTE).size());
+    }
+
+    @Test
     public void changedHeadsRejectStaleConflictChoiceAndRefreshInspection() throws Exception {
         ConflictFixture fixture = editDeleteConflict(true);
         NoteService.ConflictSnapshot stale = fixture.service().inspectConflict(NOTE);
