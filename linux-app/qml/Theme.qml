@@ -18,10 +18,15 @@ QtObject {
     readonly property color glassBottom: frosted(glassPalette.textColor, 0.0)
     readonly property color glassHighlight: frosted(glassPalette.accentColor, 0.14)
 
-    readonly property color mainBackground: isGlass ? (isBlurredGlass ? frosted(glassPalette.windowColor, 0.82) : glassPalette.windowColor) : (isLight ? "#FAFAFC" : "#15171C")
-    readonly property color sidebar: isGlass ? frosted(glassPalette.buttonColor, isBlurredGlass ? 0.84 : 1.0) : (isLight ? "#EFF1F5" : "#1D2026")
-    readonly property color surface: isGlass ? frosted(glassPalette.baseColor, isBlurredGlass ? 0.89 : 1.0) : (isLight ? "#FFFFFF" : "#262931")
-    readonly property color surfaceHover: isGlass ? frosted(glassPalette.lightColor, 0.95) : (isLight ? "#E3E8EF" : "#2C3038")
+    // Native blur alone cannot sufficiently obscure high-contrast wallpapers
+    // behind a floating window. Dolphin-style glass keeps large reading panes
+    // nearly opaque and confines the atmospheric translucency to subtle edges.
+    // Keep Kvantum's live colors and native blur, but sharply limit wallpaper
+    // detail bleeding into long-form text. The opaque fallback is unchanged.
+    readonly property color mainBackground: isGlass ? frosted(glassPalette.windowColor, isBlurredGlass ? 0.98 : 1.0) : (isLight ? "#FAFAFC" : "#15171C")
+    readonly property color sidebar: isGlass ? frosted(glassPalette.buttonColor, isBlurredGlass ? 0.97 : 1.0) : (isLight ? "#EFF1F5" : "#1D2026")
+    readonly property color surface: isGlass ? frosted(glassPalette.baseColor, isBlurredGlass ? 0.985 : 1.0) : (isLight ? "#FFFFFF" : "#262931")
+    readonly property color surfaceHover: isGlass ? frosted(glassPalette.lightColor, isBlurredGlass ? 0.99 : 1.0) : (isLight ? "#E3E8EF" : "#2C3038")
     readonly property color textPrimary: isGlass ? glassPalette.textColor : (isLight ? "#1D2430" : "#ECEEF3")
     readonly property color textSecondary: isGlass ? frosted(glassPalette.textColor, 0.72) : (isLight ? "#596476" : "#A2A7B2")
     readonly property color border: isGlass ? frosted(glassPalette.midColor, 0.56) : (isLight ? "#D5DAE3" : "#353941")

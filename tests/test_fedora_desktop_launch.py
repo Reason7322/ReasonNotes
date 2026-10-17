@@ -143,8 +143,11 @@ class DesktopLaunchTest(unittest.TestCase):
             self.assertTrue(os.access(executable, os.X_OK))
             self.assertIn("Exec=" + str(executable), desktop.read_text())
             self.assertIn("Terminal=false", desktop.read_text())
-            icon = home / ".local/share/icons/hicolor/scalable/apps/org.reasonnotes.ReasonNotes.svg"
-            self.assertTrue(icon.is_file())
+            # Desktop branding now installs real sized PNGs (the scalable
+            # placeholder was superseded by the selected ReasonNotes artwork).
+            for size in (32, 48, 64, 128, 256, 512):
+                icon = home / ".local/share/icons/hicolor" / f"{size}x{size}" / "apps/org.reasonnotes.ReasonNotes.png"
+                self.assertTrue(icon.is_file(), icon)
             self.assertEqual(notes.read_text(), "personal notes remain untouched")
             with self.assertRaises(FileExistsError):
                 installer.install_release("a" * 40, home)

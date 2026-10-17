@@ -423,9 +423,27 @@ class QmlSmokeTests(unittest.TestCase):
         # a solid, readable Qt window without changing note contents.
         self.blur_state._set_active(True)
         QCoreApplication.processEvents()
-        self.assertLess(theme.property("mainBackground").alpha(), 255)
-        self.assertLess(theme.property("sidebar").alpha(), 255)
+        # Floating above a bright, detailed wallpaper must remain legible:
+        # only a tiny fraction of background contrast can pass through the
+        # reading pane, while glass retains some compositor translucency.
+        background = theme.property("mainBackground")
+        sidebar_color = theme.property("sidebar")
+        surface = theme.property("surface")
+        hover = theme.property("surfaceHover")
+        self.assertGreaterEqual(background.alpha(), 248)
+        self.assertGreaterEqual(sidebar_color.alpha(), 246)
+        self.assertGreaterEqual(surface.alpha(), 250)
+        self.assertGreaterEqual(hover.alpha(), 251)
+        self.assertLess(background.alpha(), 255)
+        self.assertLess(sidebar_color.alpha(), 255)
         self.assertEqual(0, root.property("color").alpha())
+        self.assertEqual(background, theme.property("editor"))
+        # Theme is still driven by the actual, live Noctalia/Kvantum palette.
+        self.assertEqual(background.name(), self.liquid_palette.windowColor.name())
+        self.assertEqual(sidebar_color.name(), self.liquid_palette.buttonColor.name())
+        # Against extreme wallpaper brightness, at most ~2% of background
+        # contrast survives through the text area versus ~18% previously.
+        self.assertLessEqual(255 - background.alpha(), 7)
         self.blur_state._set_active(False)
         QCoreApplication.processEvents()
         self.assertEqual(255, root.property("color").alpha())
