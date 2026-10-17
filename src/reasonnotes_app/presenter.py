@@ -58,6 +58,9 @@ class NotePresenter:
         self.conflict_view: ConflictView | None = None
         self._skipped_conflict_draft = False
         self._active_head_ids: tuple[str, ...] = ()
+        # A blank startup editor is an in-memory draft, not a new revision.
+        # The generated "# Untitled" heading does not count as user content.
+        self._unbound_implicit_title = False
         self.refresh()
 
     def _delivery_statuses(self) -> dict[UUID, str]:
@@ -159,7 +162,11 @@ class NotePresenter:
 
     @property
     def can_edit(self) -> bool:
-        if self.active_note_id is None or self.conflict_view is not None:
+        # An unbound blank draft is an editable surface, not a read-only
+        # empty state. It becomes a persisted note only when text is meaningful.
+        if self.active_note_id is None:
+            return self.conflict_view is None
+        if self.conflict_view is not None:
             return False
         return not self.repository.graph().status(
             UUID(self.active_note_id)
@@ -180,6 +187,7 @@ class NotePresenter:
         self._active_head_ids = self.repository.graph().status(note_id).head_ids
         self.draft = initial_body
         self.dirty = False
+        self._unbound_implicit_title = False
         self.conflict_view = None
         self._skipped_conflict_draft = False
         self.save_state = "Saved"
@@ -217,18 +225,25 @@ class NotePresenter:
         self._active_head_ids = status.head_ids
         self.draft = body
         self.dirty = False
+        self._unbound_implicit_title = False
         self.conflict_view = None
         self._skipped_conflict_draft = False
         self.save_state = "Saved"
         self.save_error = ""
         return True
 
-    def edit_draft(self, body: str) -> bool:
+    def edit_draft(self, body: str, *, implicit_title: bool | None = None) -> bool:
         if self.active_note_id is None:
+            # The body editor synthesizes a Markdown title for compatibility
+            # with the existing title/body format. That generated title alone
+            # must never materialize a blank note in the user's library.
+            if implicit_title is not None:
+                self._unbound_implicit_title = implicit_title
             self.draft = body
             self.dirty = True
-            self._set_save_error("create or select a note before editing")
-            return False
+            self.save_state = "Dirty"
+            self.save_error = ""
+            return True
         # Conflict views are raised on selection/sync/save, and the durable
         # save checks current repository heads. Avoid rebuilding the entire
         # revision graph on every single keystroke in the draft editor.
@@ -243,9 +258,35 @@ class NotePresenter:
 
     def save_active(self) -> bool:
         if self.active_note_id is None:
-            if self.dirty:
-                self._set_save_error("unbound draft must be attached to a new note")
+            if not self.dirty:
+                return True
+            from .note_document import split_note
+            parts = split_note(self.draft)
+            meaningful = bool(
+                (parts.content.strip() if self._unbound_implicit_title
+                 else self.draft.strip())
+            )
+            if not meaningful:
+                # A blank startup or erased draft is not persisted and never
+                # creates an empty history entry or a remote transfer.
+                self.dirty = False
+                self.save_state = "Idle"
+                self.save_error = ""
+                return True
+            self.save_state = "Saving"
+            try:
+                note_id = self.service.create_note(self.draft)
+                head_ids = self.repository.graph().status(note_id).head_ids
+            except Exception as error:
+                self._set_save_error(error)
                 return False
+            self.active_note_id = str(note_id)
+            self._active_head_ids = head_ids
+            self.dirty = False
+            self._unbound_implicit_title = False
+            self.save_state = "Saved"
+            self.save_error = ""
+            self.refresh()
             return True
         if not self.dirty:
             return True

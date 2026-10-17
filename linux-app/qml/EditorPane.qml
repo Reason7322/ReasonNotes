@@ -32,69 +32,12 @@ Rectangle {
 
 
     Item {
-        id: emptyState
-        objectName: "emptyState"
-        property string accessibleDescription: root.i18n.t("Create a new note or select one from the sidebar")
-        anchors.fill: parent
-        visible: root.presenter.activeNoteId === ""
-
-        Column {
-            anchors.centerIn: parent
-            width: Math.min(460, parent.width - root.theme.spacingXXLarge * 2)
-            spacing: root.theme.spacing
-
-            Label {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                text: root.i18n.t("A quiet place for your thoughts")
-                color: root.theme.textPrimary
-                font.family: root.theme.fontFamily
-                font.pixelSize: 30
-                font.weight: Font.DemiBold
-                wrapMode: Text.Wrap
-            }
-
-            Label {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                text: root.i18n.t("Create a new note or choose one from the sidebar to begin writing in Markdown.")
-                color: root.theme.textSecondary
-                font.family: root.theme.fontFamily
-                font.pixelSize: root.theme.editorBodySize
-                lineHeightMode: Text.ProportionalHeight
-                lineHeight: 1.4
-                wrapMode: Text.Wrap
-            }
-
-            Button {
-                anchors.horizontalCenter: parent.horizontalCenter
-                implicitWidth: 156
-                implicitHeight: root.theme.primaryButtonHeight
-                text: root.i18n.t("Create a note")
-                onClicked: root.presenter.createNote()
-                contentItem: Label {
-                    text: parent.text
-                    color: root.theme.accentText
-                    font.pixelSize: root.theme.secondarySize
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                background: Rectangle {
-                    color: parent.hovered ? Qt.lighter(root.theme.accent, 1.08) : root.theme.accent
-                    border.color: parent.activeFocus ? root.theme.textPrimary : "transparent"
-                    border.width: parent.activeFocus ? 2 : 0
-                    radius: root.theme.radiusSmall
-                }
-            }
-        }
-    }
-
-    Item {
         id: editorContent
         objectName: "editorContent"
         anchors.fill: parent
-        visible: root.presenter.activeNoteId !== ""
+        // The new-note editor is ready immediately, without any history row
+        // until the first meaningful draft is saved.
+        visible: true
 
         Item {
             id: readingColumn
@@ -270,7 +213,14 @@ Rectangle {
         }
     }
 
-    Component.onCompleted: root.loadDocumentFields()
+    Component.onCompleted: {
+        root.loadDocumentFields()
+        // The window should accept typing without requiring an extra click.
+        // Only do this for the blank startup document; never steal focus from
+        // search, dialogs, or already-open notes.
+        if (root.presenter.activeNoteId === "")
+            Qt.callLater(root.focusEditor)
+    }
 
     function focusEditor() {
         editor.forceActiveFocus()

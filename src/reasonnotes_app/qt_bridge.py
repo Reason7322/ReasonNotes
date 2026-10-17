@@ -411,33 +411,45 @@ class QtNotePresenter(QObject):
     @Slot(str, result=bool)
     def editTitle(self, title: str):
         changed = self.presenter.edit_draft(
-            change_title(self.presenter.draft, title)
+            change_title(self.presenter.draft, title),
+            implicit_title=(not bool(title.strip()))
+                if self.presenter.active_note_id is None else None,
         )
         self._notify_draft_edit()
         return changed
 
     @Slot(str, result=bool)
     def editContent(self, content: str):
+        implicit = None
+        if self.presenter.active_note_id is None:
+            from .note_document import split_note
+            implicit = (
+                self.presenter._unbound_implicit_title
+                or not split_note(self.presenter.draft).has_title
+            )
         changed = self.presenter.edit_draft(
-            change_content(self.presenter.draft, content)
+            change_content(self.presenter.draft, content),
+            implicit_title=implicit,
         )
         self._notify_draft_edit()
         return changed
 
     @Slot(result=bool)
     def saveNow(self):
+        before = self.presenter.active_note_id
         saved = self.presenter.save_active()
-        self._notify()
+        self._notify(body=(before != self.presenter.active_note_id))
         return saved
 
     @Slot(result=bool)
     def autosave(self):
         was_dirty = self.presenter.dirty
+        before = self.presenter.active_note_id
         saved = self.presenter.autosave()
         # A previous note's idle timer may still fire after a switch.
         # A clean draft produces no revision and needs no model refresh.
         if was_dirty or not saved:
-            self._notify()
+            self._notify(body=(before != self.presenter.active_note_id))
         return saved
 
     @Slot(result=bool)

@@ -99,15 +99,66 @@ class NotePresenterTests(unittest.TestCase):
         self.assertTrue(restarted.select_note(str(NOTE_A)))
         self.assertEqual("# First\nBody", restarted.draft)
 
-    def test_unbound_draft_cannot_close_and_new_note_preserves_it(self):
-        self.assertFalse(self.presenter.edit_draft("Recovered startup draft"))
-
+    def test_unbound_nonempty_draft_saves_on_close_without_loss(self):
+        self.assertTrue(self.presenter.can_edit)
+        self.assertFalse(self.presenter.dirty)
+        self.assertEqual(0, len(self.repository.revisions()))
+        self.assertTrue(self.presenter.edit_draft("Recovered startup draft"))
         self.assertEqual("Recovered startup draft", self.presenter.draft)
         self.assertTrue(self.presenter.dirty)
-        self.assertFalse(self.presenter.close_requested())
-        self.assertTrue(self.presenter.create_note())
+        self.assertTrue(self.presenter.close_requested())
+        self.assertEqual(str(NOTE_A), self.presenter.active_note_id)
         self.assertEqual("Recovered startup draft", self.service.open_note(NOTE_A))
         self.assertFalse(self.presenter.dirty)
+
+    def test_untouched_blank_startup_remains_unpersisted_after_save_close_and_autosave(self):
+        self.assertIsNone(self.presenter.active_note_id)
+        self.assertTrue(self.presenter.can_edit)
+        self.assertTrue(self.presenter.autosave())
+        self.assertTrue(self.presenter.save_active())
+        self.assertTrue(self.presenter.close_requested())
+        self.assertFalse(self.presenter.dirty)
+        self.assertEqual(0, len(self.repository.revisions()))
+        self.assertEqual((), self.presenter.notes)
+
+    def test_generated_untitled_heading_without_body_is_not_persisted(self):
+        self.assertTrue(self.presenter.edit_draft(
+            "# Untitled\n\n", implicit_title=True
+        ))
+        self.assertTrue(self.presenter.autosave())
+        self.assertIsNone(self.presenter.active_note_id)
+        self.assertEqual(0, len(self.repository.revisions()))
+        self.assertTrue(self.presenter.edit_draft(
+            "# Untitled\n\n  ", implicit_title=True
+        ))
+        self.assertTrue(self.presenter.close_requested())
+        self.assertEqual(0, len(self.repository.revisions()))
+
+    def test_unbound_generated_title_and_body_materialize_once_on_save(self):
+        self.assertTrue(self.presenter.edit_draft(
+            "# Untitled\n\nTyped without clicking New Note",
+            implicit_title=True,
+        ))
+        self.assertTrue(self.presenter.save_active())
+        self.assertEqual(str(NOTE_A), self.presenter.active_note_id)
+        self.assertEqual(1, len(self.repository.revisions()))
+        self.assertEqual(
+            "# Untitled\n\nTyped without clicking New Note",
+            self.service.open_note(NOTE_A),
+        )
+        self.assertTrue(self.presenter.autosave())
+        self.assertEqual(1, len(self.repository.revisions()))
+
+    def test_unbound_nonempty_draft_is_saved_before_switch_or_sync(self):
+        existing = self.service.create_note("# Previous")
+        self.presenter.refresh()
+        self.assertTrue(self.presenter.edit_draft(
+            "# Untitled\n\nDraft to keep", implicit_title=True
+        ))
+        self.assertTrue(self.presenter.select_note(str(existing)))
+        self.assertEqual(2, len(self.repository.revisions()))
+        self.assertEqual(str(existing), self.presenter.active_note_id)
+        self.assertEqual("# Previous", self.presenter.draft)
 
     def test_switch_flushes_active_draft_before_loading_another_note(self):
         first = self.service.create_note("# First")

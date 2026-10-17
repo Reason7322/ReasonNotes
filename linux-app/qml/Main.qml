@@ -67,18 +67,11 @@ ApplicationWindow {
         orientation: Qt.Horizontal
         handle: Rectangle {
             objectName: "splitHandle"
+            // Keep all nine pixels available for dragging but cover the
+            // previously transparent gap and remove its decorative stripe.
+            // Otherwise native Wayland blur exposes a bright wallpaper bar.
             implicitWidth: 9
-            color: "transparent"
-
-            Rectangle {
-                anchors.centerIn: parent
-                anchors.horizontalCenterOffset: -3
-                width: 1
-                height: parent.height
-                color: parent.SplitHandle.hovered || parent.SplitHandle.pressed
-                    ? theme.accent
-                    : theme.border
-            }
+            color: theme.sidebar
         }
 
         Sidebar {

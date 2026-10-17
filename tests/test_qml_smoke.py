@@ -1019,15 +1019,159 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(360, restored_sidebar.property("width"), delta=1)
         del restored_engine
 
-    def test_concept_c_empty_state_replaces_inactive_editor(self):
-        engine, root, warnings = self.load_qml()
-        empty_state = root.findChild(object, "emptyState")
-        editor_content = root.findChild(object, "editorContent")
+    def test_blank_startup_has_editable_focused_editor_without_persisted_note(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
 
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        QTest.qWait(30)
+        editor_content = root.findChild(object, "editorContent")
+        editor = root.findChild(object, "markdownEditor")
+        self.assertIsNone(root.findChild(object, "emptyState"))
+        self.assertTrue(editor_content.property("visible"))
+        self.assertFalse(editor.property("readOnly"))
+        self.assertEqual("", editor.property("text"))
+        self.assertEqual("", self.bridge.activeNoteId)
+        self.assertEqual(0, self.bridge.notesModel.rowCount())
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        self.assertTrue(editor.hasActiveFocus())
+        for key in (Qt.Key_H, Qt.Key_E, Qt.Key_L, Qt.Key_L, Qt.Key_O):
+            QTest.keyClick(root, key)
+        QCoreApplication.processEvents()
+        self.assertIn("hello", editor.property("text").lower())
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual("Dirty", self.bridge.saveState)
+        self.assertTrue(self.bridge.autosave())
+        self.assertEqual(1, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual(1, self.bridge.notesModel.rowCount())
+        self.assertIn("hello", self.bridge.currentBody.lower())
+        self.assertEqual("Saved", self.bridge.saveState)
         self.assertEqual([], [warning.toString() for warning in warnings])
-        self.assertTrue(empty_state.property("visible"))
-        self.assertFalse(editor_content.property("visible"))
-        self.assertIn("Create", empty_state.property("accessibleDescription"))
+        del engine
+
+    def test_blank_startup_deleted_text_does_not_create_an_empty_note(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        QTest.qWait(30)
+        editor = root.findChild(object, "markdownEditor")
+        self.assertTrue(editor.hasActiveFocus())
+        for key in (Qt.Key_T, Qt.Key_E, Qt.Key_S, Qt.Key_T):
+            QTest.keyClick(root, key)
+        QTest.keyClick(root, Qt.Key_A, Qt.ControlModifier)
+        QTest.keyClick(root, Qt.Key_Backspace)
+        QCoreApplication.processEvents()
+        self.assertEqual("", editor.property("text"))
+        self.assertTrue(self.bridge.autosave())
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual("", self.bridge.activeNoteId)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_blank_startup_title_only_is_saved_on_autosave(self):
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+        self.assertTrue(self.bridge.editTitle("Typed title only"))
+        self.assertTrue(self.bridge.autosave())
+        self.assertEqual(1, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual("Typed title only", self.bridge.currentTitle)
+        self.assertEqual("Saved", self.bridge.saveState)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_split_handle_has_no_visible_bar_and_keeps_resize_handle(self):
+        from PySide6.QtCore import QObject
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("width", 1200)
+        root.setProperty("height", 800)
+        QCoreApplication.processEvents()
+        handle = root.findChild(QObject, "splitHandle")
+        sidebar = root.findChild(QObject, "sidebar")
+        theme = root.findChild(QObject, "theme")
+        self.assertIsNotNone(handle)
+        self.assertAlmostEqual(9, handle.property("width"), delta=1)
+        self.assertEqual(
+            theme.property("sidebar").name(),
+            handle.property("color").name(),
+        )
+        self.assertEqual(0, len(handle.childItems()))
+        self.assertTrue(sidebar.property("width") >= 250)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_blank_startup_autosaves_only_after_idle_and_survives_reopen(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        QTest.qWait(30)
+        editor = root.findChild(object, "markdownEditor")
+        self.assertTrue(editor.hasActiveFocus())
+        for key in (Qt.Key_N, Qt.Key_O, Qt.Key_T, Qt.Key_E):
+            QTest.keyClick(root, key)
+        QCoreApplication.processEvents()
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        # Real idle timer, not a direct presenter/autosave invocation.
+        QTest.qWait(2700)
+        QCoreApplication.processEvents()
+        self.assertEqual(1, len(self.bridge.presenter.repository.revisions()))
+        created_id = self.bridge.activeNoteId
+        self.assertNotEqual("", created_id)
+        self.assertIn("note", self.bridge.currentBody.lower())
+        from reasonnotes_app.service import NoteService
+        from reasonnotes_app.presenter import NotePresenter
+        from reasonnotes_sync.repository import Repository
+        reopened = NotePresenter(NoteService(
+            Repository.open(self.bridge.presenter.repository.root),
+            origin_device="linux",
+        ))
+        self.assertTrue(reopened.select_note(created_id))
+        self.assertIn("note", reopened.draft.lower())
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_split_handle_drag_still_resizes_sidebar_without_decorative_stripe(self):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        handle = root.findChild(object, "splitHandle")
+        sidebar = root.findChild(object, "sidebar")
+        previous = sidebar.width()
+        self.assertEqual(0, len(handle.childItems()))
+        point = handle.mapToItem(None, handle.width()/2, handle.height()/2)
+        start = QPoint(round(point.x()), round(point.y()))
+        QTest.mousePress(root, Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mouseMove(root, QPoint(start.x() + 55, start.y()), delay=15)
+        QTest.mouseRelease(root, Qt.LeftButton, Qt.NoModifier,
+                           QPoint(start.x() + 55, start.y()))
+        QCoreApplication.processEvents()
+        self.assertAlmostEqual(previous + 55, sidebar.width(), delta=3)
+        self.assertEqual([], [warning.toString() for warning in warnings])
+        del engine
+
+    def test_blank_startup_does_not_create_note_on_explicit_empty_save_or_sync(self):
+        from reasonnotes_sync.sync import SyncReport
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+        self.assertTrue(self.bridge.saveNow())
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        self.assertTrue(self.bridge.closeRequested())
+        self.assertEqual(0, len(self.bridge.presenter.repository.revisions()))
+        self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
     def test_secondary_views_follow_concept_c_visual_language(self):
@@ -1246,7 +1390,7 @@ class QmlSmokeTests(unittest.TestCase):
             root.findChild(object, "startSyncButton").property("enabled")
         )
 
-    def test_editor_is_read_only_until_a_note_exists(self):
+    def test_editor_is_editable_even_before_first_note_exists(self):
         engine = QQmlApplicationEngine()
         engine.rootContext().setContextProperty("glassPalette", self.liquid_palette)
         engine.rootContext().setContextProperty("blurState", self.blur_state)
@@ -1258,7 +1402,8 @@ class QmlSmokeTests(unittest.TestCase):
         root = engine.rootObjects()[0]
         editor = root.findChild(object, "markdownEditor")
 
-        self.assertTrue(editor.property("readOnly"))
+        self.assertFalse(editor.property("readOnly"))
+        self.assertEqual(0, self.bridge.notesModel.rowCount())
 
         self.assertTrue(self.bridge.createNote())
         QCoreApplication.processEvents()
