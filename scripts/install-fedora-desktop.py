@@ -96,12 +96,31 @@ def install_release(version: str, home: Path) -> tuple[Path, Path]:
         "StartupNotify=true\n"
         "StartupWMClass=" + DESKTOP_ID + "\n",
     )
-    icon_dir = home / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps"
-    icon_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        release / "linux-app" / "icons" / "reasonnotes.svg",
-        icon_dir / (DESKTOP_ID + ".svg"),
-    )
+    # The colorful app identity is used in hicolor (or fallback themes).
+    # Real dimension-specific PNGs avoid depending on SVG raster decoding.
+    icons = home / ".local" / "share" / "icons"
+    source_icons = release / "linux-app" / "icons"
+    for size in (32, 48, 64, 128, 256, 512):
+        target = icons / "hicolor" / f"{size}x{size}" / "apps"
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_icons / "hicolor" / f"{size}x{size}" / "reasonnotes.png",
+                     target / (DESKTOP_ID + ".png"))
+
+    # The previous release shipped a scalable placeholder. Drop it only if it
+    # still matches our original, otherwise respect a user-modified icon.
+    old_icon = icons / "hicolor" / "scalable" / "apps" / (DESKTOP_ID + ".svg")
+    old_source = source_icons / "reasonnotes.svg"
+    if old_icon.is_file() and old_icon.read_bytes() == old_source.read_bytes():
+        old_icon.unlink()
+
+    # YAMIS is a symbolic monochrome theme (currentColor). Adding an
+    # application-specific override changes no other icons in that theme.
+    yamis = icons / "YAMIS"
+    if (yamis / "index.theme").is_file():
+        yamis_apps = yamis / "apps" / "scalable"
+        yamis_apps.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_icons / "reasonnotes-yamis.svg",
+                     yamis_apps / (DESKTOP_ID + ".svg"))
     return executable, desktop_file
 
 
