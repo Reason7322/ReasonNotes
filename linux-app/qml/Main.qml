@@ -19,6 +19,9 @@ ApplicationWindow {
         theme.sidebarMinimum,
         Math.min(440, settings.sidebarWidth)
     )
+    // A single boundary coordinate directly positions both panels.
+    // Unlike a native SplitView, this adds zero independently tinted pixels.
+    property real liveSidebarWidth: restoredSidebarWidth
 
     visible: !smokeMode
     width: 1200
@@ -62,17 +65,10 @@ ApplicationWindow {
         onTriggered: settings.sidebarWidth = sidebar.width
     }
 
-    SplitView {
+    Item {
+        id: panelLayout
+        objectName: "panelLayout"
         anchors.fill: parent
-        orientation: Qt.Horizontal
-        handle: Rectangle {
-            objectName: "splitHandle"
-            // Keep all nine pixels available for dragging but cover the
-            // previously transparent gap and remove its decorative stripe.
-            // Otherwise native Wayland blur exposes a bright wallpaper bar.
-            implicitWidth: 9
-            color: theme.sidebar
-        }
 
         Sidebar {
             id: sidebar
@@ -83,10 +79,51 @@ ApplicationWindow {
             settingsOpen: root.settingsVisible
             onSettingsRequested: root.settingsVisible = !root.settingsVisible
             onNotesRequested: root.settingsVisible = false
-            SplitView.minimumWidth: theme.sidebarMinimum
-            SplitView.maximumWidth: 440
-            SplitView.preferredWidth: root.restoredSidebarWidth
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            width: Math.max(
+                theme.sidebarMinimum,
+                Math.min(440, root.width - 520, root.liveSidebarWidth)
+            )
             onWidthChanged: saveSidebarWidth.restart()
+
+            // Preserve an accessible drag target without painting an extra
+            // vertical surface into the transparent Wayland framebuffer.
+            // It sits entirely inside the otherwise unused sidebar margin.
+            MouseArea {
+                id: sidebarResizeTarget
+                objectName: "sidebarResizeTarget"
+                z: 100
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 12
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                preventStealing: true
+                cursorShape: Qt.SplitHCursor
+                property real pressWindowX: 0
+                property real pressSidebarWidth: 0
+                onPressed: function(mouse) {
+                    pressWindowX = mapToItem(null, mouse.x, mouse.y).x
+                    pressSidebarWidth = sidebar.width
+                }
+                onPositionChanged: function(mouse) {
+                    if (!(pressedButtons & Qt.LeftButton))
+                        return
+                    const currentX = mapToItem(null, mouse.x, mouse.y).x
+                    const maximum = Math.min(
+                        440, root.width - 520
+                    )
+                    // Move the shared edge once: both sidebar and editor
+                    // use this coordinate, with no painted separator.
+                    root.liveSidebarWidth = Math.max(
+                        theme.sidebarMinimum,
+                        Math.min(maximum, pressSidebarWidth + currentX - pressWindowX)
+                    )
+                }
+            }
             onSyncRequested: syncDialog.open()
             onDeleteRequested: {
                 if (root.bridge.prepareDelete() > 0)
@@ -95,8 +132,12 @@ ApplicationWindow {
         }
 
         Item {
-            SplitView.fillWidth: true
-            SplitView.minimumWidth: 520
+            id: contentPanel
+            objectName: "contentPanel"
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: sidebar.right
+            anchors.right: parent.right
 
             EditorPane {
                 id: editorPane

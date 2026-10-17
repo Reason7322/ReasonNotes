@@ -381,7 +381,13 @@ Rectangle {
                 }
             }
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            // The remaining bright short strip at the sidebar edge is the
+            // notes ListView scroll thumb; never paint a scrollbar track.
+            // Mouse wheel, touchpad and list scrolling remain functional.
+            ScrollBar.vertical: ScrollBar {
+                objectName: "notesListScrollBar"
+                policy: ScrollBar.AlwaysOff
+            }
         }
 
         Button {

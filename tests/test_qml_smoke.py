@@ -946,6 +946,31 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [w.toString() for w in warnings])
         del engine
 
+    def test_notes_list_thumb_never_renders_even_when_catalogue_is_scrollable(self):
+        from PySide6.QtCore import QObject
+        from uuid import uuid4
+        for n in range(40):
+            self.bridge.presenter.service.create_note(
+                f"# Title {n}\n\nBody {n}"
+            )
+        self.bridge.presenter.refresh()
+        self.bridge._notify()
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.setProperty("height", 560)
+        QCoreApplication.processEvents()
+        notes = root.findChild(QObject, "notesList")
+        scrollbar = root.findChild(QObject, "notesListScrollBar")
+        self.assertIsNotNone(scrollbar)
+        self.assertFalse(scrollbar.property("visible"))
+        self.assertGreater(notes.property("contentHeight"), notes.height() * 2)
+        notes.setProperty("contentY", 100)
+        QCoreApplication.processEvents()
+        self.assertAlmostEqual(100, notes.property("contentY"), delta=1)
+        self.assertIsNone(root.findChild(QObject, "splitHandle"))
+        self.assertEqual([], [w.toString() for w in warnings])
+        del engine
+
     def test_selected_sidebar_note_has_no_gold_selection_bar(self):
         self.assertTrue(self.bridge.createNote())
         engine, root, warnings = self.load_qml()
@@ -1125,6 +1150,41 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(360, restored_sidebar.property("width"), delta=1)
         del restored_engine
 
+    def test_invisible_edge_dragged_width_is_saved_across_reopen(self):
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtTest import QTest
+
+        engine, root, warnings = self.load_qml()
+        root.setProperty("visible", True)
+        root.requestActivate()
+        QCoreApplication.processEvents()
+        sidebar = root.findChild(object, "sidebar")
+        hit = root.findChild(object, "sidebarResizeTarget")
+        point = hit.mapToItem(None, QPointF(hit.width()/2, hit.height()/2))
+        start = QPoint(round(point.x()), round(point.y()))
+        QTest.mousePress(root, Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mouseMove(root, QPoint(start.x() + 62, start.y()), delay=25)
+        QTest.mouseRelease(root, Qt.LeftButton, Qt.NoModifier,
+                           QPoint(start.x() + 62, start.y()))
+        QCoreApplication.processEvents()
+        self.assertAlmostEqual(sidebar.width(), 362, delta=1)
+        QTest.qWait(320)
+        QCoreApplication.processEvents()
+        root.close()
+        del engine
+        QCoreApplication.processEvents()
+
+        reopened_engine, reopened_root, reopened_warnings = self.load_qml()
+        reopened_root.setProperty("visible", True)
+        QCoreApplication.processEvents()
+        restored_sidebar = reopened_root.findChild(object, "sidebar")
+        content_panel = reopened_root.findChild(object, "contentPanel")
+        self.assertAlmostEqual(restored_sidebar.width(), 362, delta=1)
+        self.assertAlmostEqual(content_panel.x(), restored_sidebar.width(), delta=.001)
+        self.assertEqual([], [w.toString() for w in warnings])
+        self.assertEqual([], [w.toString() for w in reopened_warnings])
+        del reopened_engine
+
     def test_blank_startup_has_editable_focused_editor_without_persisted_note(self):
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
@@ -1192,24 +1252,25 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
-    def test_split_handle_has_no_visible_bar_and_keeps_resize_handle(self):
-        from PySide6.QtCore import QObject
+    def test_no_splitter_surface_and_the_sidebar_still_has_invisible_resize_target(self):
+        from PySide6.QtCore import QObject, QPointF
         engine, root, warnings = self.load_qml()
         root.setProperty("visible", True)
         root.setProperty("width", 1200)
         root.setProperty("height", 800)
         QCoreApplication.processEvents()
-        handle = root.findChild(QObject, "splitHandle")
         sidebar = root.findChild(QObject, "sidebar")
-        theme = root.findChild(QObject, "theme")
-        self.assertIsNotNone(handle)
-        self.assertAlmostEqual(9, handle.property("width"), delta=1)
-        self.assertEqual(
-            theme.property("sidebar").name(),
-            handle.property("color").name(),
-        )
-        self.assertEqual(0, len(handle.childItems()))
-        self.assertTrue(sidebar.property("width") >= 250)
+        editor = root.findChild(QObject, "editorPane")
+        hit = root.findChild(QObject, "sidebarResizeTarget")
+        self.assertIsNone(root.findChild(QObject, "splitHandle"))
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(12, hit.width(), delta=0.001)
+        self.assertAlmostEqual(sidebar.width() - 12, hit.x(), delta=0.001)
+        # No extra strip/gap at all: adjacent surfaces share one x boundary.
+        editor_origin = editor.mapToItem(None, QPointF(0, 0))
+        sidebar_origin = sidebar.mapToItem(None, QPointF(0, 0))
+        self.assertAlmostEqual(
+            sidebar_origin.x() + sidebar.width(), editor_origin.x(), delta=0.001)
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
@@ -1246,25 +1307,38 @@ class QmlSmokeTests(unittest.TestCase):
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
-    def test_split_handle_drag_still_resizes_sidebar_without_decorative_stripe(self):
-        from PySide6.QtCore import QPoint, Qt
+    def test_invisible_resize_target_drags_both_directions_and_clamps_without_a_seam(self):
+        from PySide6.QtCore import QPoint, QPointF, Qt
         from PySide6.QtTest import QTest
         engine, root, warnings = self.load_qml()
         root.setProperty("visible", True)
         root.requestActivate()
         QCoreApplication.processEvents()
-        handle = root.findChild(object, "splitHandle")
         sidebar = root.findChild(object, "sidebar")
+        editor = root.findChild(object, "editorPane")
+        hit = root.findChild(object, "sidebarResizeTarget")
         previous = sidebar.width()
-        self.assertEqual(0, len(handle.childItems()))
-        point = handle.mapToItem(None, handle.width()/2, handle.height()/2)
-        start = QPoint(round(point.x()), round(point.y()))
-        QTest.mousePress(root, Qt.LeftButton, Qt.NoModifier, start)
-        QTest.mouseMove(root, QPoint(start.x() + 55, start.y()), delay=15)
-        QTest.mouseRelease(root, Qt.LeftButton, Qt.NoModifier,
-                           QPoint(start.x() + 55, start.y()))
-        QCoreApplication.processEvents()
+        self.assertIsNone(root.findChild(object, "splitHandle"))
+
+        def drag(delta):
+            point = hit.mapToItem(None, QPointF(hit.width()/2, hit.height()/2))
+            start = QPoint(round(point.x()), round(point.y()))
+            QTest.mousePress(root, Qt.LeftButton, Qt.NoModifier, start)
+            QTest.mouseMove(root, QPoint(start.x() + delta, start.y()), delay=15)
+            QTest.mouseRelease(root, Qt.LeftButton, Qt.NoModifier,
+                               QPoint(start.x() + delta, start.y()))
+            QCoreApplication.processEvents()
+
+        drag(55)
         self.assertAlmostEqual(previous + 55, sidebar.width(), delta=3)
+        drag(-28)
+        self.assertAlmostEqual(previous + 27, sidebar.width(), delta=3)
+        drag(300)
+        self.assertAlmostEqual(440, sidebar.width(), delta=1)
+        drag(-400)
+        self.assertAlmostEqual(250, sidebar.width(), delta=1)
+        editor_left = editor.mapToItem(None, QPointF(0, 0)).x()
+        self.assertAlmostEqual(editor_left, sidebar.width(), delta=0.01)
         self.assertEqual([], [warning.toString() for warning in warnings])
         del engine
 
@@ -1441,10 +1515,12 @@ class QmlSmokeTests(unittest.TestCase):
         QCoreApplication.processEvents()
 
         sync_list = root.findChild(object, "syncList")
-        split_handle = root.findChild(object, "splitHandle")
         self.assertEqual([], [warning.toString() for warning in warnings])
         self.assertGreaterEqual(sync_list.property("height"), 96)
-        self.assertGreaterEqual(split_handle.property("width"), 8)
+        self.assertIsNone(root.findChild(object, "splitHandle"))
+        target = root.findChild(object, "sidebarResizeTarget")
+        self.assertGreaterEqual(target.property("width"), 12)
+        self.assertGreaterEqual(target.property("height"), 560)
         del engine
 
     def test_real_component_tree_loads_offscreen_without_warnings(self):
