@@ -24,15 +24,16 @@ public final class KdeConnectSender {
         intent.setComponent(new ComponentName(PACKAGE, ACTIVITY));
         intent.setType(uris.size() == 1
                 && uris.get(0).getPath() != null
-                && uris.get(0).getPath().endsWith(".zip")
-                ? "application/zip" : "text/markdown");
+                && uris.get(0).getPath().endsWith(".json")
+                ? "application/json" : "text/markdown");
         intent.putExtra("deviceId", deviceId);
         if (uris.size() == 1) {
             intent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
         } else {
             intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
         }
-        ClipData clip = ClipData.newUri(context.getContentResolver(), "ReasonNotes revisions", uris.get(0));
+        ClipData clip = ClipData.newUri(
+                context.getContentResolver(), "ReasonNotes sync", uris.get(0));
         for (int index = 1; index < uris.size(); index++) clip.addItem(new ClipData.Item(uris.get(index)));
         intent.setClipData(clip);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

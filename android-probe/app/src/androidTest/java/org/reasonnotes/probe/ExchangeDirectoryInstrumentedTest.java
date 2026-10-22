@@ -40,8 +40,12 @@ public final class ExchangeDirectoryInstrumentedTest {
         byte[] partial = java.util.Arrays.copyOf(revision.serialize(), revision.serialize().length - 2);
         write(context, directory.createFile("text/markdown", "reasonnotes-partial.md"), partial);
 
-        ProbeRepository repository = ProbeRepository.open(new File(context.getFilesDir(), "instrumented-probe"));
-        ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(context, repository);
+        File root = new File(context.getFilesDir(), "instrumented-probe");
+        ProbeRepository repository = ProbeRepository.open(root);
+        DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
+        ReceiptStore receipts = new ReceiptStore(root, 3);
+        ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
+                context, repository, ledger, receipts, "android");
 
         assertEquals(1, report.imported());
         assertEquals(1, report.rejected());

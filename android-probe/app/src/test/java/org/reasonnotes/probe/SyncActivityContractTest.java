@@ -232,4 +232,20 @@ public final class SyncActivityContractTest {
         File files = new File("/application/files");
         assertEquals(new File(files, "delivery-state"), SyncActivity.deliveryStateDirectory(files));
     }
+
+    @Test
+    public void transferPathAlwaysUsesOneJsonCarrierAndNeverTheUndeployedZipGenerator()
+            throws Exception {
+        String syncSource = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/main/java/org/reasonnotes/probe/SyncActivity.java")),
+                java.nio.charset.StandardCharsets.UTF_8);
+        String senderSource = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/main/java/org/reasonnotes/probe/KdeConnectSender.java")),
+                java.nio.charset.StandardCharsets.UTF_8);
+
+        assertTrue(syncSource.contains("createTransportPayload("));
+        assertTrue(syncSource.contains("TransportBundle.write("));
+        assertFalse(syncSource.contains("TransferBundle.create("));
+        assertTrue(senderSource.contains("application/json"));
+    }
 }

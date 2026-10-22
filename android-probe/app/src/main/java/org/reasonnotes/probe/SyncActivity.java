@@ -27,6 +27,9 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -660,13 +663,9 @@ public final class SyncActivity extends Activity {
     private SyncCoordinator.RequestEvidence requestTransfer(
             List<SyncCoordinator.OutgoingFile> files, String targetDevice) {
         try {
-            // A multi-file ACTION_SEND_MULTIPLE launch did not reliably reach
-            // Fedora. Build a single validated ZIP before granting a URI, so
-            // KDE Connect needs to read just one file from our FileProvider.
-            File payload = files.size() == 1 ? files.get(0).file()
-                    : TransferBundle.create(
-                            new File(new File(getFilesDir(), "probe-repository"), "outgoing"),
-                            files);
+            File payload = createTransportPayload(
+                    new File(new File(getFilesDir(), "probe-repository"), "outgoing"),
+                    files);
             List<Uri> uris = List.of(FileProvider.getUriForFile(
                     this, getPackageName() + ".files", payload));
             CompletableFuture<KdeConnectSender.RequestOutcome> launched = new CompletableFuture<>();
@@ -676,6 +675,24 @@ public final class SyncActivity extends Activity {
         } catch (Exception error) {
             return new SyncCoordinator.RequestEvidence(false, "transfer request failed: " + error.getMessage());
         }
+    }
+
+    static File createTransportPayload(
+            File directory, List<SyncCoordinator.OutgoingFile> files) throws IOException {
+        ArrayList<TransportBundle.Item> items = new ArrayList<>();
+        for (SyncCoordinator.OutgoingFile outgoing : files) {
+            if (!Files.isRegularFile(outgoing.file().toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("missing or unsafe source file: " + outgoing.identity());
+            }
+            if (Files.size(outgoing.file().toPath()) > TransportBundle.MAX_ENVELOPE_BYTES) {
+                throw new IOException("source envelope exceeds size limit: " + outgoing.identity());
+            }
+            String kind = outgoing.kind() == SyncCoordinator.FileKind.RECEIPT
+                    ? "receipt" : "revision";
+            items.add(new TransportBundle.Item(
+                    kind, outgoing.identity(), Files.readAllBytes(outgoing.file().toPath())));
+        }
+        return TransportBundle.write(directory, items);
     }
 
     private Button button(String value, boolean accent) {

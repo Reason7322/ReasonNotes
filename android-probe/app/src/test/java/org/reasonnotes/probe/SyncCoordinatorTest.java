@@ -302,6 +302,52 @@ public final class SyncCoordinatorTest {
         assertFalse(status.summary().contains("fully synchronized"));
     }
 
+    @Test
+    public void mixedPlanBuildsOneJsonCarrierAndAdvancesExistingPerEnvelopeLedgers()
+            throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope outgoing = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Android", "android", NOW.minusSeconds(3), false);
+        RevisionEnvelope incoming = RevisionEnvelope.create(
+                NOTE_B, List.of(), "linux", NOW.minusSeconds(2), false, "# Linux");
+        fixture.repository().importEnvelope(incoming.serialize(), "incoming.md");
+        ReceiptEnvelope receipt = fixture.receipts().queue(
+                incoming, "android", NOW.minusSeconds(1));
+        File outbox = temporary.newFolder("transport-outbox");
+        ArrayList<File> carriers = new ArrayList<>();
+        SyncCoordinator coordinator = coordinator(
+                fixture,
+                SyncCoordinator.FlushEvidence::success,
+                () -> scan(0, 0, 0),
+                files -> {
+                    try {
+                        carriers.add(SyncActivity.createTransportPayload(outbox, files));
+                        return new SyncCoordinator.RequestEvidence(true, "accepted");
+                    } catch (Exception error) {
+                        throw new RuntimeException(error);
+                    }
+                });
+
+        SyncStatus status = coordinator.synchronize(OutgoingSelection.all(), false);
+
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, status.phase());
+        assertEquals(1, carriers.size());
+        assertEquals(1, outbox.listFiles().length);
+        assertTrue(carriers.get(0).getName().endsWith(".json"));
+        TransportBundle.Carrier parsed = TransportBundle.parse(
+                java.nio.file.Files.readAllBytes(carriers.get(0).toPath()),
+                carriers.get(0).getName());
+        assertEquals(List.of("receipt", "revision"),
+                parsed.items().stream().map(TransportBundle.Item::kind).toList());
+        assertEquals(Set.of(receipt.receiptId(), outgoing.revisionId()),
+                parsed.items().stream().map(TransportBundle.Item::identity)
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertEquals("transfer-requested",
+                fixture.ledger().entry(outgoing.revisionId(), "linux").state());
+        assertEquals("transfer-requested",
+                fixture.receipts().entry(receipt.receiptId(), "linux").state());
+    }
+
     private static SyncCoordinator coordinator(
             Fixture fixture,
             SyncCoordinator.DraftFlusher flusher,

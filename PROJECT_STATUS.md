@@ -195,6 +195,27 @@ store. Both platforms implement selected outgoing note revision filtering,
 while incoming scans and required receipts remain unconditional. Android
 DraftStore and PinStore are device-local metadata, not synchronized history.
 
+## Latest development checkpoint — canonical JSON v1 on modern Android
+
+Forge integrated the approved canonical JSON v1 carrier on a fresh branch
+created from the recovered modern Android source
+`9e2cd049282a31b1f9db45bd3ec09b6da9bc5721`. The implementation sends every
+non-empty plan, including a one-envelope plan, as one deterministic
+content-addressed JSON payload. Android accepts canonical JSON bundles plus
+legacy individual `.md` envelopes; it does not create or import ZIP carriers.
+
+The full carrier, every embedded envelope, ordering, schema, payload hash, and
+declared identity are validated before repository or receipt-ledger mutation.
+Replayed carriers remain per-envelope duplicates, and a malformed later member
+cannot confirm an earlier receipt. Existing receipt confirmation, retry,
+history, conflict, deletion, and modern UI behavior remain the authority.
+
+Clean offline verification passed 157/157 JVM unit tests, `assembleDebug`, and
+`assembleDebugAndroidTest`. Candidate APK SHA-256 is
+`e7cbf93bb9f3e1821d361a4b32cd50681b2c2350b12d5eac7339911e1bb9ee97`.
+No APK was installed, no ADB operation was performed, and physical durable
+round-trip acceptance remains pending separate authorization.
+
 ## Latest development checkpoint — native Fedora desktop launch
 
 The owner requested desktop usability and ordinary launch instead of more

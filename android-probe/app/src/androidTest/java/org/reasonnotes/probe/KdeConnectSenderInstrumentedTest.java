@@ -22,9 +22,9 @@ public final class KdeConnectSenderInstrumentedTest {
     @Test
     public void explicitInstalledActivityResolvesAndGrantedContentUriOpens() throws Exception {
         var context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        File history = new File(context.getFilesDir(), "probe-repository/history/fixture");
-        assertTrue(history.mkdirs() || history.isDirectory());
-        File file = new File(history, "intent-probe.md");
+        File outbox = new File(context.getFilesDir(), "probe-repository/outgoing");
+        assertTrue(outbox.mkdirs() || outbox.isDirectory());
+        File file = new File(outbox, "reasonnotes-bundle-v1-" + "a".repeat(64) + ".json");
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write("ReasonNotes intent routing probe".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
@@ -37,6 +37,7 @@ public final class KdeConnectSenderInstrumentedTest {
         assertEquals(KdeConnectSender.PACKAGE, resolved.activityInfo.packageName);
         assertTrue("KDE Connect share activity must be exported", resolved.activityInfo.exported);
         assertEquals(Intent.ACTION_SEND, intent.getAction());
+        assertEquals("application/json", intent.getType());
         assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM));
         assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
         assertNotNull(intent.getClipData());

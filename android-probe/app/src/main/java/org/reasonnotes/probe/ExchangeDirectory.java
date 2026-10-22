@@ -26,6 +26,44 @@ public final class ExchangeDirectory {
     private static final String TREE_KEY = "tree-uri";
     private static final String PERFORMANCE_TAG = "ReasonNotes.ReceivePerf";
     private record IncomingDocument(Uri uri, String name, long modifiedUtc) {}
+    private static final class ImportState {
+        final Set<String> recordedImports = new HashSet<>();
+        final Map<String, Set<String>> queuedReceipts = new HashMap<>();
+        Map<String, RevisionEnvelope> revisions;
+
+        ImportState(DeliveryLedger ledger) {
+            for (DeliveryLedger.Event event : ledger.events()) {
+                if (event.kind().equals("reasonnotes-imported")) {
+                    recordedImports.add(event.revisionId());
+                }
+            }
+        }
+
+        Map<String, RevisionEnvelope> revisions(ProbeRepository repository) {
+            if (revisions == null) {
+                revisions = new HashMap<>();
+                for (RevisionEnvelope revision : repository.revisions()) {
+                    revisions.put(revision.revisionId(), revision);
+                }
+            }
+            return revisions;
+        }
+
+        Set<String> queuedFor(ReceiptStore store, String peer) {
+            return queuedReceipts.computeIfAbsent(peer, ignored -> {
+                Set<String> recorded = new HashSet<>();
+                for (ReceiptStore.DeliveryEntry entry : store.entries(peer)) {
+                    recorded.add(entry.revisionId());
+                }
+                return recorded;
+            });
+        }
+
+        void recordRevision(RevisionEnvelope revision) {
+            recordedImports.add(revision.revisionId());
+            if (revisions != null) revisions.put(revision.revisionId(), revision);
+        }
+    }
     private static final byte[] REVISION_MARKER = "---\nreasonnotes-format: 1\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
     private static final byte[] RECEIPT_MARKER = "---\nreasonnotes-receipt-format: 1\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
@@ -113,19 +151,28 @@ public final class ExchangeDirectory {
         long listedNs = System.nanoTime();
         // Snapshot durable evidence once rather than reopening and rewriting
         // full ledgers for every previously imported revision.
-        Set<String> recordedImports = new HashSet<>();
-        for (DeliveryLedger.Event event : ledger.events()) {
-            if (event.kind().equals("reasonnotes-imported")) {
-                recordedImports.add(event.revisionId());
-            }
-        }
-        Map<String, Set<String>> queuedReceipts = new HashMap<>();
-        Map<String, RevisionEnvelope> revisionSnapshot = null;
+        ImportState state = new ImportState(ledger);
         for (IncomingDocument document : orderedDocuments(context, uri)) {
             String name = document.name();
             try {
                 scanned++;
                 byte[] data = read(context, document.uri());
+                if (TransportBundle.isBundleFilename(name)) {
+                    ScanReport bundle = applyTransportBundle(
+                            data, name, repository, ledger, receiptStore,
+                            localDevice, observed, state);
+                    imported += bundle.imported();
+                    duplicates += bundle.duplicates();
+                    confirmed += bundle.confirmed();
+                    duplicateReceipts += bundle.duplicateReceipts();
+                    receiptsQueued += bundle.receiptsQueued();
+                    rejectedRevisions += bundle.rejectedRevisions();
+                    rejectedReceipts += bundle.rejectedReceipts();
+                    ignored += bundle.ignored();
+                    errors.addAll(bundle.errors());
+                    if (bundle.imported() > 0) progress.accept(imported);
+                    continue;
+                }
                 Kind kind = classify(data);
                 if (kind == Kind.UNRELATED) {
                     ignored++;
@@ -140,14 +187,8 @@ public final class ExchangeDirectory {
                             ignored++;
                             continue;
                         }
-                        if (revisionSnapshot == null) {
-                            revisionSnapshot = new HashMap<>();
-                            for (RevisionEnvelope revision : repository.revisions()) {
-                                revisionSnapshot.put(revision.revisionId(), revision);
-                            }
-                        }
                         ReceiptStore.ImportOutcome outcome = receiptStore.acceptWithSnapshot(
-                                data, revisionSnapshot, repository,
+                                data, state.revisions(repository), repository,
                                 ledger, localDevice, name, observed);
                         if (outcome.kind().equals("confirmed")) confirmed++;
                         else duplicateReceipts++;
@@ -172,17 +213,10 @@ public final class ExchangeDirectory {
                 // Don't load every repository revision again for this one.
                 RevisionEnvelope revision = RevisionEnvelope.parse(data);
                 if (outcome.kind().equals("duplicate")
-                        && recordedImports.contains(revision.revisionId())
+                        && state.recordedImports.contains(revision.revisionId())
                         && (revision.originDevice().equals(localDevice)
-                            || queuedReceipts.computeIfAbsent(
-                                    revision.originDevice(),
-                                    peer -> {
-                                        Set<String> recorded = new HashSet<>();
-                                        for (ReceiptStore.DeliveryEntry entry : receiptStore.entries(peer)) {
-                                            recorded.add(entry.revisionId());
-                                        }
-                                        return recorded;
-                                    }).contains(revision.revisionId()))) {
+                            || state.queuedFor(receiptStore, revision.originDevice())
+                                    .contains(revision.revisionId()))) {
                     // The stored revision bytes have already been checked
                     // by repository.importEnvelope. The durable import event
                     // and queued receipt are also already present.
@@ -193,11 +227,10 @@ public final class ExchangeDirectory {
                         outcome, revision, ledger, receiptStore,
                         localDevice, name, observed)) {
                     receiptsQueued++;
-                    queuedReceipts.computeIfAbsent(
-                            revision.originDevice(), peer -> new HashSet<>())
+                    state.queuedFor(receiptStore, revision.originDevice())
                             .add(revision.revisionId());
                 }
-                recordedImports.add(revision.revisionId());
+                state.recordRevision(revision);
                 if (outcome.kind().equals("imported")) {
                     progress.accept(imported);
                 }
@@ -248,8 +281,8 @@ public final class ExchangeDirectory {
             while (cursor.moveToNext()) {
                 String id = cursor.getString(idIndex);
                 String name = cursor.getString(nameIndex);
-                if (id == null || name == null || !name.toLowerCase(
-                        java.util.Locale.ROOT).endsWith(".md")) continue;
+                if (id == null || name == null) continue;
+                if (!isCandidateFilename(name)) continue;
                 String type = typeIndex < 0 || cursor.isNull(typeIndex)
                         ? null : cursor.getString(typeIndex);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(type)) continue;
@@ -273,12 +306,105 @@ public final class ExchangeDirectory {
         return name.endsWith(".receipt.md") ? 1 : 0;
     }
 
+    static boolean isCandidateFilename(String name) {
+        return name != null
+                && (name.toLowerCase(java.util.Locale.ROOT).endsWith(".md")
+                    || TransportBundle.isBundleFilename(name));
+    }
+
     /** A canonical receipt about an already purged note cannot be confirmed. */
     static boolean isObsoletePurgedReceipt(
             byte[] data, ProbeRepository repository, String localDevice) {
         ReceiptEnvelope receipt = ReceiptEnvelope.parse(data);
         return receipt.destinationDevice().equals(localDevice)
                 && repository.isPurged(receipt.noteId());
+    }
+
+    static ScanReport applyTransportBundle(
+            byte[] data,
+            String sourceName,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            ReceiptStore receiptStore,
+            String localDevice,
+            Instant observed) {
+        return applyTransportBundle(
+                data, sourceName, repository, ledger, receiptStore,
+                localDevice, observed, new ImportState(ledger));
+    }
+
+    private static ScanReport applyTransportBundle(
+            byte[] data,
+            String sourceName,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            ReceiptStore receiptStore,
+            String localDevice,
+            Instant observed,
+            ImportState state) {
+        // parse validates the carrier and every embedded envelope identity before
+        // any repository, delivery-ledger or receipt-store mutation can occur.
+        TransportBundle.Carrier carrier = TransportBundle.parse(data, sourceName);
+        int imported = 0;
+        int duplicates = 0;
+        int confirmed = 0;
+        int duplicateReceipts = 0;
+        int receiptsQueued = 0;
+        int rejectedRevisions = 0;
+        int rejectedReceipts = 0;
+        int ignored = 0;
+        ArrayList<String> errors = new ArrayList<>();
+        for (TransportBundle.Item item : carrier.items()) {
+            byte[] envelope = item.envelope();
+            String memberName = sourceName + "#" + item.identity();
+            if (item.kind().equals("receipt")) {
+                try {
+                    if (isObsoletePurgedReceipt(envelope, repository, localDevice)) {
+                        ignored++;
+                        continue;
+                    }
+                    ReceiptStore.ImportOutcome outcome = receiptStore.acceptWithSnapshot(
+                            envelope, state.revisions(repository), repository,
+                            ledger, localDevice, memberName, observed);
+                    if (outcome.kind().equals("confirmed")) confirmed++;
+                    else duplicateReceipts++;
+                } catch (IllegalArgumentException | IllegalStateException error) {
+                    rejectedReceipts++;
+                    errors.add(memberName + ": " + error.getMessage());
+                }
+                continue;
+            }
+            ProbeRepository.ImportOutcome outcome = repository.importEnvelope(
+                    envelope, memberName);
+            if (outcome.kind().equals("imported")) imported++;
+            else if (outcome.kind().equals("duplicate")) duplicates++;
+            else if (outcome.kind().equals("purged")) {
+                ignored++;
+                continue;
+            } else {
+                rejectedRevisions++;
+                continue;
+            }
+            RevisionEnvelope revision = RevisionEnvelope.parse(envelope);
+            if (outcome.kind().equals("duplicate")
+                    && state.recordedImports.contains(revision.revisionId())
+                    && (revision.originDevice().equals(localDevice)
+                        || state.queuedFor(receiptStore, revision.originDevice())
+                                .contains(revision.revisionId()))) {
+                continue;
+            }
+            if (finishRevisionImport(
+                    outcome, revision, ledger, receiptStore,
+                    localDevice, memberName, observed)) {
+                receiptsQueued++;
+                state.queuedFor(receiptStore, revision.originDevice())
+                        .add(revision.revisionId());
+            }
+            state.recordRevision(revision);
+        }
+        return new ScanReport(
+                imported, duplicates, confirmed, duplicateReceipts, receiptsQueued,
+                rejectedRevisions, rejectedReceipts, ignored, List.copyOf(errors));
     }
 
     static boolean finishRevisionImport(
