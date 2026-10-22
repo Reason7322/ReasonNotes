@@ -32,7 +32,7 @@
 **Files:**
 - Create: `android-probe/app/src/main/java/org/reasonnotes/probe/TransportBundle.java`
 - Create: `android-probe/app/src/test/java/org/reasonnotes/probe/TransportBundleTest.java`
-- Modify: `android-probe/app/build.gradle.kts` (JVM-test-only `org.json` implementation matching the Android API)
+- Modify: `android-probe/app/build.gradle.kts` (cached Gson 2.10.1 for the same parser on JVM and Android)
 
 **Interfaces:**
 - Produces: `TransportBundle.create(List<Item>)`, `TransportBundle.parse(byte[], String)`, and immutable carrier/items.
