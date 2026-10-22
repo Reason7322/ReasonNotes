@@ -1,5 +1,66 @@
 # ReasonNotes — Project Status
 
+## Active checkpoint — JSON v1 batching and physical performance (2026-10-22)
+
+This section supersedes the older next-action text below.
+
+- Android branch: `forge/android-notes-shell`.
+- Android JSON v1 implementation before this handoff: commit
+  `111a8984dc34eb9a1749186d3ea6e7367ada8a16`.
+- Desktop counterpart: ReasonNotesKvantum branch
+  `forge/reasonnotes-completion`, commit
+  `88def77e2bfe3c6b2b92897b5d134395a761ffd3`.
+- Both sides preserve the existing per-envelope revision/receipt bytes and
+  legacy individual `.md` import. New sends use one canonical, deterministic
+  `reasonnotes-transport-bundle` JSON v1 carrier. Android has no ZIP support;
+  desktop retains read-only legacy ZIP import because ZIP was physically used
+  before JSON approval.
+- Android verification at `111a898`: 99/99 host unit tests passed and
+  `assembleDebug` passed. APK SHA-256:
+  `9179c9bfe8594b3c90d3ecc0b865b4f5cc2fcb353953e2923a69e13f0e060ed1`.
+  The APK was installed in place over USB on POCO X6 5G serial `59dffe68`;
+  private notes/preferences were preserved. Lint still has 15 pre-existing
+  minimum-API findings; the JSON codec adds none.
+- Exact desktop candidate `88def77` was installed only to candidate paths and
+  launched on native Wayland against
+  `/tmp/reasonnotes-json-acceptance-20261022.5l4ADn`. Production was untouched.
+- Physical desktop-to-phone transfer proof: desktop created exactly one
+  2,114-byte carrier
+  `reasonnotes-bundle-v1-653e9d081325c8895b2878b5960006f2508555227a2ee6dab0b33bcaa816f9a2.json`
+  at epoch `1792640559.141730032`; it appeared in the phone exchange directory
+  at epoch `1792640560`, approximately 0.86 seconds later. This proves the
+  batching/transport-count target: one KDE Connect payload for four revisions.
+- The phone did not durably import the new revision before the run was stopped.
+  The actual remaining bottleneck is pre-scan of historical state: 646 durable
+  receipt files in the private inbox and 365 legacy files in the SAF exchange
+  directory. The upgraded app remained at "Scanning incoming notes and
+  receipts" for more than 45 seconds because settled receipts and already
+  imported legacy files are re-opened/revalidated every sync.
+- The phone app and disposable desktop candidate were stopped. No receipt or
+  success was claimed. The desktop ledger correctly remains
+  `transfer-requested` for the four revisions.
+
+### Unfinished change
+
+Two intentionally red tests are staged in the working tree but not yet
+implemented:
+
+- `DeliveryLedgerTest.settledReceiptFastPathRequiresBothLedgerAndConfirmationEvent`
+  requires `DeliveryLedger.settledReceiptIds()`. It must skip a receipt only
+  when both the confirmed ledger row and matching confirmation event exist, so
+  interrupted event append remains repairable.
+- `ExchangeDirectoryTest.recognizesCanonicalAndCollisionLegacyEnvelopeNames`
+  requires `ExchangeDirectory.LegacyIdentity` and `legacyIdentity(String)` for
+  canonical/collision `.md` filenames.
+
+Focused test command currently fails to compile with exactly those 11 missing
+symbol errors. The smallest next action is to implement these two helpers,
+use the settled set in `ReceiptStore.reconcileConfirmations`, and short-circuit
+already durable legacy receipts/revisions in `ExchangeDirectory.scan`. Then run
+the two focused test classes, the 99-test suite, rebuild/reinstall, and repeat
+the physical round trip. Preserve crash repair: never skip a confirmed receipt
+whose confirmation event is missing.
+
 ## Current milestone
 
 Milestone 1 is complete. Milestone 2 Tasks 1 through 3 are implemented:

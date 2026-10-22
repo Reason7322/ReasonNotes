@@ -2,58 +2,88 @@
 
 ## Checkpoint
 
-- Sender branch: `forge/kdeconnect-feasibility`
-- Received Qwen checkpoint:
-  `73710b088fb0d8f167a054916fef57ffc78a233c`
-- Latest source checkpoint before this handoff documentation:
-  `0482711e0a4db132c7608a98358fa0b630806e47`
-- Verify the final pushed remote SHA before checkout; this file cannot contain
-  the hash of its own commit.
+- Sender branch: `forge/android-notes-shell`.
+- Android implementation before this handoff document:
+  `111a8984dc34eb9a1749186d3ea6e7367ada8a16`.
+- Desktop counterpart: ReasonNotesKvantum `forge/reasonnotes-completion` at
+  `88def77e2bfe3c6b2b92897b5d134395a761ffd3`.
+- Verify the final pushed Android SHA before checkout; this document cannot
+  contain its own commit hash.
 
-## Delta
+## Implemented
 
-Forge fixed the Android self-targeting bug, corrected the Android 16 action-bar
-overlap, made the probe display every imported note, and fixed CLI resolutions
-so `--target-device android` registers the resolution in the outbox.
+Canonical JSON v1 batching is implemented on both platforms. A carrier keeps
+each existing revision/receipt envelope byte-for-byte and validates the full
+schema, hash, canonical encoding, identities, limits, and every embedded
+envelope before repository mutation. New sends use one carrier/KDE Connect
+request. Legacy individual `.md` remains readable. Android does not implement
+ZIP. Desktop retains read-only ZIP import only because ZIP was physically used
+before the JSON decision.
 
-Physical POCO acceptance P0–P6 is complete. Both directions transferred through
-KDE Connect without a chooser or per-file file-manager operation after setup.
-Linux and Android converged by exact head ID and body hash. Physical safety
-fixtures verified duplicate delivery, offline retry limits, Skip, Keep Linux,
-Keep Android, edit/deletion choices, stale resolution plus a third head, and a
-late ancestor. Full evidence is in
-`docs/milestone1/PHONE_TEST_RESULTS.md`.
+Android verification before physical testing: 99/99 host tests and
+`assembleDebug` passed. Installed APK SHA-256:
+`9179c9bfe8594b3c90d3ecc0b865b4f5cc2fcb353953e2923a69e13f0e060ed1`.
+It was installed in place over USB on POCO X6 5G serial `59dffe68`; app data and
+preferences were preserved. Production desktop paths were not touched.
 
-## Artifact
+## Physical evidence and discovered bottleneck
 
-- Source commit: `7d9c597ee68720b7ac0f547f2f320123990a24ed`
-- APK:
-  `/home/reason/Codex-Projects/ReasonNotes-artifacts/ReasonNotes-Probe-multinote-7d9c597-31002579.apk`
-- SHA-256:
-  `310025791599f0c226cfaef5f59f6d143d2cdf23578b3436927165d60936d03e`
+The exact desktop candidate sent four fixture revisions as one 2,114-byte
+carrier:
 
-The original frozen APK was preserved unchanged.
+`reasonnotes-bundle-v1-653e9d081325c8895b2878b5960006f2508555227a2ee6dab0b33bcaa816f9a2.json`
 
-Final verification: 61/61 Python tests and 17/17 Android host tests passed;
-`assembleDebug` and `assembleDebugAndroidTest` succeeded. The rebuilt app APK
-matched the physical-test artifact SHA-256 exactly.
+Desktop durable creation epoch: `1792640559.141730032`.
+Phone exchange-directory epoch: `1792640560`.
+Observed network delivery was approximately 0.86 seconds and transfer count
+was exactly one.
 
-## Evidence boundary
+Android then remained at "Scanning incoming notes and receipts" for more than
+45 seconds and had not imported revision
+`1f3b83b289dfa80080b72b31227fec1b51884cc97e5eb7dfd4a4458f850e3670`.
+The physical phone has 646 already durable private receipt files and 365 legacy
+SAF exchange files. Current startup reconciliation replays all confirmed
+receipts, and exchange scanning re-opens all legacy `.md` files. The run was
+stopped without claiming import/receipt/success. The desktop ledger correctly
+remains `transfer-requested`.
 
-- The test-only instrumentation APK did not install through ADB because HyperOS
-  blocks that route. Equivalent assertions were verified directly on the
-  physical device.
-- A deliberately interrupted large in-flight transfer was not attempted.
-- KDE Connect still does not provide application-level import acknowledgement.
-  The sender can safely retain an already imported revision as unconfirmed;
-  default sync does not resend it and explicit retry is capped.
-- Do not reinterpret a transfer request or KDE completion as ReasonNotes import.
+## Intentionally red worktree state
 
-## Recommendation and next action
+Two tests were added and are deliberately red:
 
-Continue with KDE Connect. The next plan is
-`docs/superpowers/plans/2026-10-12-milestone2-minimal-notes-slice.md`.
-Begin with the small receipt envelope, then build only the minimal CRUD/search
-shell around the proven Python and native Android cores. Do not restart the
-Milestone 1 investigation or repeat the completed phone matrix without a
-specific regression.
+1. `DeliveryLedgerTest.settledReceiptFastPathRequiresBothLedgerAndConfirmationEvent`
+   expects `settledReceiptIds()`. A receipt is settled only if its confirmed
+   ledger entry has the matching `reasonnotes-confirmed` event. This preserves
+   recovery after an interrupted event append.
+2. `ExchangeDirectoryTest.recognizesCanonicalAndCollisionLegacyEnvelopeNames`
+   expects `LegacyIdentity` plus `legacyIdentity(String)` for revision and
+   receipt names, including KDE collision suffixes.
+
+Focused Gradle compilation currently reports 11 missing-symbol errors for
+only those unimplemented APIs. Do not remove or weaken the tests.
+
+## Smallest next action
+
+Implement the two helpers. Use `settledReceiptIds()` to avoid reparsing fully
+settled private receipts in `ReceiptStore.reconcileConfirmations`. In
+`ExchangeDirectory.scan`, identify content-addressed legacy filenames before
+opening SAF streams; skip already stored receipts, and treat already imported
+revisions idempotently while still repairing missing import evidence/return
+receipt state. Do not introduce deletion of exchange files.
+
+Then run only:
+
+```sh
+ANDROID_HOME=/home/reason/Temporary/ChatGPTProjects/ReasonNotes/toolchain/Android/install/android-sdk \
+JAVA_HOME=/home/reason/Temporary/ChatGPTProjects/ReasonNotes/toolchain/Android/install/jdk-17.0.20.1+1 \
+./gradlew testDebugUnitTest \
+  --tests org.reasonnotes.probe.DeliveryLedgerTest \
+  --tests org.reasonnotes.probe.ExchangeDirectoryTest \
+  --no-daemon --console=plain
+```
+
+If green, run the full 99-test suite, rebuild/install the APK, and repeat the
+physical round trip. Measure separately: scan start to durable Android import,
+one outbound receipt carrier arriving on Linux, and Linux durable confirmation.
+Do not claim success from share launch or file arrival alone. Do not proceed to
+production cutover.

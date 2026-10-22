@@ -32,6 +32,26 @@ public final class ExchangeDirectoryTest {
     }
 
     @Test
+    public void recognizesCanonicalAndCollisionLegacyEnvelopeNames() {
+        String revision = "a".repeat(64);
+        String receipt = "b".repeat(64);
+
+        assertEquals(
+                new ExchangeDirectory.LegacyIdentity(ExchangeDirectory.Kind.REVISION, revision),
+                ExchangeDirectory.legacyIdentity(revision + ".md"));
+        assertEquals(
+                new ExchangeDirectory.LegacyIdentity(ExchangeDirectory.Kind.REVISION, revision),
+                ExchangeDirectory.legacyIdentity(revision + " (3).md"));
+        assertEquals(
+                new ExchangeDirectory.LegacyIdentity(ExchangeDirectory.Kind.RECEIPT, receipt),
+                ExchangeDirectory.legacyIdentity(receipt + ".receipt.md"));
+        assertEquals(
+                new ExchangeDirectory.LegacyIdentity(ExchangeDirectory.Kind.RECEIPT, receipt),
+                ExchangeDirectory.legacyIdentity(receipt + ".receipt (2).md"));
+        assertEquals(null, ExchangeDirectory.legacyIdentity("reasonnotes-valid.md"));
+    }
+
+    @Test
     public void durableRevisionImportRecordsEvidenceBeforeQueuingReceipt() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repository = ProbeRepository.open(root);

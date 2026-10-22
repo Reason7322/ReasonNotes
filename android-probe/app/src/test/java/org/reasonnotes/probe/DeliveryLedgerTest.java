@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -103,6 +104,25 @@ public final class DeliveryLedgerTest {
                 List.of("transfer-requested", "reasonnotes-confirmed"),
                 new DeliveryLedger(state, 3).events().stream()
                         .map(DeliveryLedger.Event::kind).toList());
+    }
+
+    @Test
+    public void settledReceiptFastPathRequiresBothLedgerAndConfirmationEvent() throws Exception {
+        File state = temporary.newFolder("settled-state");
+        DeliveryLedger ledger = new DeliveryLedger(state, 3);
+        ledger.registerLocal(REVISION, "android");
+        ledger.recordRequested(REVISION, "android", Instant.parse("2026-10-12T14:00:00Z"));
+        ledger.recordConfirmed(
+                REVISION, "android", RECEIPT, Instant.parse("2026-10-12T14:00:01Z"));
+
+        assertEquals(Set.of(RECEIPT), ledger.settledReceiptIds());
+
+        File events = new File(state, "events.tsv");
+        String requested = java.nio.file.Files.readAllLines(events.toPath()).get(0) + "\n";
+        java.nio.file.Files.write(
+                events.toPath(), requested.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        assertEquals(Set.of(), new DeliveryLedger(state, 3).settledReceiptIds());
     }
 
     @Test
