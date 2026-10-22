@@ -80,12 +80,29 @@ public final class ExchangeDirectory {
         int ignored = 0;
         for (DocumentFile document : directory.listFiles()) {
             String name = document.getName();
-            if (!document.isFile() || name == null || !name.toLowerCase(java.util.Locale.ROOT).endsWith(".md")) {
+            boolean legacyEnvelope = name != null
+                    && name.toLowerCase(java.util.Locale.ROOT).endsWith(".md");
+            boolean transportBundle = TransportBundle.isBundleFilename(name);
+            if (!document.isFile() || (!legacyEnvelope && !transportBundle)) {
                 ignored++;
                 continue;
             }
             try {
                 byte[] data = read(context, document.getUri());
+                if (transportBundle) {
+                    ScanReport bundle = applyTransportBundle(
+                            data, name, repository, ledger, receiptStore, localDevice, observed);
+                    imported += bundle.imported();
+                    duplicates += bundle.duplicates();
+                    confirmed += bundle.confirmed();
+                    duplicateReceipts += bundle.duplicateReceipts();
+                    receiptsQueued += bundle.receiptsQueued();
+                    rejectedRevisions += bundle.rejectedRevisions();
+                    rejectedReceipts += bundle.rejectedReceipts();
+                    ignored += bundle.ignored();
+                    errors.addAll(bundle.errors());
+                    continue;
+                }
                 Kind kind = classify(data);
                 if (kind == Kind.UNRELATED) {
                     ignored++;
@@ -131,6 +148,68 @@ public final class ExchangeDirectory {
                 rejectedRevisions,
                 rejectedReceipts,
                 ignored,
+                List.copyOf(errors));
+    }
+
+    static ScanReport applyTransportBundle(
+            byte[] data,
+            String sourceName,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            ReceiptStore receiptStore,
+            String localDevice,
+            Instant observed) {
+        // Parsing validates the carrier, every embedded envelope and every declared
+        // identity before the first durable repository operation is attempted.
+        TransportBundle.Carrier carrier = TransportBundle.parse(data, sourceName);
+        int imported = 0;
+        int duplicates = 0;
+        int confirmed = 0;
+        int duplicateReceipts = 0;
+        int receiptsQueued = 0;
+        int rejectedRevisions = 0;
+        int rejectedReceipts = 0;
+        ArrayList<String> errors = new ArrayList<>();
+        for (TransportBundle.Item item : carrier.items()) {
+            String memberName = sourceName + "#" + item.identity();
+            if (item.kind().equals("receipt")) {
+                try {
+                    ReceiptStore.ImportOutcome outcome = receiptStore.accept(
+                            item.envelope(), repository, ledger, localDevice, memberName, observed);
+                    if (outcome.kind().equals("confirmed")) confirmed++;
+                    else duplicateReceipts++;
+                } catch (IllegalArgumentException | IllegalStateException error) {
+                    rejectedReceipts++;
+                    errors.add(memberName + ": " + error.getMessage());
+                }
+                continue;
+            }
+            ProbeRepository.ImportOutcome outcome = repository.importEnvelope(
+                    item.envelope(), memberName);
+            if (outcome.kind().equals("imported")) imported++;
+            else if (outcome.kind().equals("duplicate")) duplicates++;
+            else {
+                rejectedRevisions++;
+                continue;
+            }
+            if (finishRevisionImport(
+                    outcome,
+                    repository,
+                    ledger,
+                    receiptStore,
+                    localDevice,
+                    memberName,
+                    observed)) receiptsQueued++;
+        }
+        return new ScanReport(
+                imported,
+                duplicates,
+                confirmed,
+                duplicateReceipts,
+                receiptsQueued,
+                rejectedRevisions,
+                rejectedReceipts,
+                0,
                 List.copyOf(errors));
     }
 
