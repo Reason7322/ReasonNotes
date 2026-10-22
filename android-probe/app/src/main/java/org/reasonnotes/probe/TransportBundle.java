@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /** Deterministic one-payload carrier for unchanged revision and receipt envelopes. */
 public final class TransportBundle {
@@ -87,7 +88,8 @@ public final class TransportBundle {
             throw new IllegalArgumentException("bundle payload exceeds size limit");
         }
         String filename = "reasonnotes-bundle-v1-" + sha256(payload) + ".json";
-        return new Carrier(filename, payload, values.stream().map(Validated::item).toList());
+        return new Carrier(filename, payload,
+                values.stream().map(Validated::item).collect(Collectors.toList()));
     }
 
     public static Carrier parse(byte[] data, String filename) {
@@ -148,7 +150,8 @@ public final class TransportBundle {
         if (!values.equals(ordered) || !Arrays.equals(canonical(ordered), data)) {
             throw new IllegalArgumentException("bundle payload is not canonical");
         }
-        return new Carrier(filename, data, values.stream().map(Validated::item).toList());
+        return new Carrier(filename, data,
+                values.stream().map(Validated::item).collect(Collectors.toList()));
     }
 
     public static File write(File directory, List<Item> items) {
@@ -226,7 +229,8 @@ public final class TransportBundle {
     }
 
     private static List<String> keys(JsonObject object) {
-        return object.entrySet().stream().map(java.util.Map.Entry::getKey).toList();
+        return object.entrySet().stream().map(java.util.Map.Entry::getKey)
+                .collect(Collectors.toList());
     }
 
     private static byte[] canonical(List<Validated> values) {
