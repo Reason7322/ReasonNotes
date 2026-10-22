@@ -37,6 +37,7 @@ public final class KdeConnectSenderInstrumentedTest {
         assertEquals(KdeConnectSender.PACKAGE, resolved.activityInfo.packageName);
         assertTrue("KDE Connect share activity must be exported", resolved.activityInfo.exported);
         assertEquals(Intent.ACTION_SEND, intent.getAction());
+        assertEquals("application/json", intent.getType());
         assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM));
         assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
         assertNotNull(intent.getClipData());

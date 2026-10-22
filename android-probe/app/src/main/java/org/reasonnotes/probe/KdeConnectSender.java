@@ -22,14 +22,14 @@ public final class KdeConnectSender {
         if (uris.isEmpty()) throw new IllegalArgumentException("at least one URI is required");
         Intent intent = new Intent(uris.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE);
         intent.setComponent(new ComponentName(PACKAGE, ACTIVITY));
-        intent.setType("text/markdown");
+        intent.setType("application/json");
         intent.putExtra("deviceId", deviceId);
         if (uris.size() == 1) {
             intent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
         } else {
             intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
         }
-        ClipData clip = ClipData.newUri(context.getContentResolver(), "ReasonNotes revisions", uris.get(0));
+        ClipData clip = ClipData.newUri(context.getContentResolver(), "ReasonNotes bundle", uris.get(0));
         for (int index = 1; index < uris.size(); index++) clip.addItem(new ClipData.Item(uris.get(index)));
         intent.setClipData(clip);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -45,7 +45,7 @@ public final class KdeConnectSender {
             Intent generic = new Intent(explicit).setComponent(null);
             generic.removeExtra("deviceId");
             try {
-                activity.startActivity(Intent.createChooser(generic, "Share ReasonNotes revisions"));
+                activity.startActivity(Intent.createChooser(generic, "Share ReasonNotes bundle"));
                 return new RequestOutcome(true, false, "Android share chooser launched");
             } catch (ActivityNotFoundException fallbackError) {
                 return new RequestOutcome(false, false, "no compatible share activity");

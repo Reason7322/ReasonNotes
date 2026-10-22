@@ -20,6 +20,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
+import java.nio.file.Files;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -302,10 +303,20 @@ public final class SyncActivity extends Activity {
     private SyncCoordinator.RequestEvidence requestTransfer(
             List<SyncCoordinator.OutgoingFile> files, String targetDevice) {
         try {
-            List<Uri> uris = files.stream().map(file -> FileProvider.getUriForFile(
-                    this, getPackageName() + ".files", file.file())).toList();
+            ArrayList<TransportBundle.Item> items = new ArrayList<>();
+            for (SyncCoordinator.OutgoingFile file : files) {
+                items.add(new TransportBundle.Item(
+                        file.kind().name().toLowerCase(Locale.ROOT),
+                        file.identity(),
+                        Files.readAllBytes(file.file().toPath())));
+            }
+            File carrier = TransportBundle.write(
+                    new File(getFilesDir(), "transport/outbox"), items);
+            Uri uri = FileProvider.getUriForFile(
+                    this, getPackageName() + ".files", carrier);
             CompletableFuture<KdeConnectSender.RequestOutcome> launched = new CompletableFuture<>();
-            runOnUiThread(() -> launched.complete(KdeConnectSender.request(this, uris, targetDevice)));
+            runOnUiThread(() -> launched.complete(
+                    KdeConnectSender.request(this, List.of(uri), targetDevice)));
             KdeConnectSender.RequestOutcome outcome = launched.get(30, java.util.concurrent.TimeUnit.SECONDS);
             return new SyncCoordinator.RequestEvidence(outcome.requested(), outcome.detail());
         } catch (Exception error) {

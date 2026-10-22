@@ -3,16 +3,22 @@ package org.reasonnotes.probe;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public final class TransportBundleTest {
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
     private static final UUID NOTE = UUID.fromString("11111111-1111-4111-8111-111111111111");
     private static final String REVISION_ID = "6d7ca32a49c9a246fb7808ba06c541c1b3dacc7add6a874cf5aefb375e94025a";
     private static final String RECEIPT_ID = "5656b6c8e23ef55a998b960d770762d522381fd99fad86d5b595664aeed3e0f1";
@@ -96,6 +102,23 @@ public final class TransportBundleTest {
         ArrayList<TransportBundle.Item> tooMany = new ArrayList<>();
         for (int index = 0; index < 257; index++) tooMany.add(fixture.items().get(0));
         assertThrows(IllegalArgumentException.class, () -> TransportBundle.create(tooMany));
+    }
+
+    @Test public void writesExactlyOneDurableCarrierFile() throws Exception {
+        Fixture fixture = fixture();
+        File directory = temporary.newFolder("outbox");
+
+        File written = TransportBundle.write(directory, fixture.items());
+        TransportBundle.Carrier expected = TransportBundle.create(fixture.items());
+
+        assertEquals(expected.filename(), written.getName());
+        assertArrayEquals(expected.payload(), Files.readAllBytes(written.toPath()));
+        assertEquals(1, directory.listFiles().length);
+        assertTrue(written.isFile());
+
+        File repeated = TransportBundle.write(directory, fixture.items());
+        assertEquals(written, repeated);
+        assertEquals(1, directory.listFiles().length);
     }
 
     private static String filename(byte[] payload) throws Exception {

@@ -4,10 +4,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -143,6 +149,44 @@ public final class TransportBundle {
             throw new IllegalArgumentException("bundle payload is not canonical");
         }
         return new Carrier(filename, data, values.stream().map(Validated::item).toList());
+    }
+
+    public static File write(File directory, List<Item> items) {
+        Objects.requireNonNull(directory, "directory");
+        Carrier carrier = create(items);
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            throw new IllegalStateException("cannot create transport outbox");
+        }
+        File target = new File(directory, carrier.filename());
+        File temporary = null;
+        try {
+            if (target.isFile() && Arrays.equals(Files.readAllBytes(target.toPath()), carrier.payload)) {
+                return target;
+            }
+            temporary = File.createTempFile(".reasonnotes-bundle-", ".tmp", directory);
+            try (FileOutputStream output = new FileOutputStream(temporary)) {
+                output.write(carrier.payload);
+                output.flush();
+                output.getFD().sync();
+            }
+            try {
+                Files.move(temporary.toPath(), target.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException error) {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            return target;
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot persist transport bundle", error);
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary.toPath());
+                } catch (IOException ignored) {
+                    // The durable write result is primary; a failed temp cleanup is harmless.
+                }
+            }
+        }
     }
 
     private static Validated validate(Item item) {
