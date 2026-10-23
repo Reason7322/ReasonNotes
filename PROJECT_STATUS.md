@@ -216,6 +216,30 @@ Clean offline verification passed 157/157 JVM unit tests, `assembleDebug`, and
 No APK was installed, no ADB operation was performed, and physical durable
 round-trip acceptance remains pending separate authorization.
 
+### Android JSON v1 launcher restoration candidate — 2026-10-23
+
+The modern JSON v1 branch now restores the exact accepted recovery launcher
+resource at `android-probe/app/src/main/res/drawable/reasonnotes_launcher.xml`
+and references it as both `android:icon` and `android:roundIcon`. The resource
+is byte-identical to the protected recovery checkout copy (SHA-256
+`12f95baf8b1feed12b3d96890f59f8b5c3bb30c83b772dc0297e90fb42306e36`).
+
+Focused verification ran only the launcher contract and canonical JSON carrier
+tests, then assembled the debug APK; the earlier 157-test result was not
+repeated. `aapt` reports package `org.reasonnotes.probe`, version 1 / 0.1,
+min SDK 26, target/compile SDK 35, launch activity
+`org.reasonnotes.probe.MainActivity`, and packaged icon
+`res/drawable/reasonnotes_launcher.xml`. The candidate and the known-good
+recovery APK both verify with APK Signature Scheme v2 and certificate SHA-256
+`d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+
+Prepared APK:
+`/home/reason/Temporary/ReasonNotes-JSON-v1-Candidates/android/ReasonNotes-Android-JSON-v1-with-launcher.apk`
+(SHA-256 `feb2312efa2195ed739b7d434b809bc169106bfaae7287d8039a7878f832b5fa`).
+It was not installed or launched; no ADB command or phone/data mutation was
+performed. Physical Fedora/Android synchronization remains the next potential
+owner-authorized acceptance step, not part of this milestone.
+
 ## Latest development checkpoint — native Fedora desktop launch
 
 The owner requested desktop usability and ordinary launch instead of more

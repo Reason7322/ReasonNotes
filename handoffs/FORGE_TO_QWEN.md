@@ -1,5 +1,33 @@
 # Forge -> Qwen Handoff
 
+## 2026-10-23 Android JSON v1 launcher candidate
+
+- Original goal: reliable bidirectional synchronization with visible progress,
+  explicit failures, and success only after durable import confirmation.
+- Authorized milestone: restore the accepted launcher icon on the modern
+  Android JSON v1 candidate, build it, verify package/signing compatibility,
+  and stop before deployment or physical synchronization.
+- Incoming source: `e189d3315bb6f6e1da3441a1a814c700514620d9` on
+  `forge/android-json-v1-integration`; final checkpoint SHA is reported outside
+  this file because a commit cannot contain its own identity.
+- Change: exact recovery icon SHA-256 `12f95baf...306e36`, plus manifest icon
+  and round-icon references and a focused contract regression test.
+- Focused verification: launcher contract and `TransportBundleTest` passed;
+  `assembleDebug` passed. The 157-test suite was deliberately not rerun.
+- APK: `/home/reason/Temporary/ReasonNotes-JSON-v1-Candidates/android/ReasonNotes-Android-JSON-v1-with-launcher.apk`,
+  SHA-256 `feb2312efa2195ed739b7d434b809bc169106bfaae7287d8039a7878f832b5fa`.
+- `aapt`: `org.reasonnotes.probe`, version 1 / 0.1, min SDK 26, target SDK 35,
+  launcher resource packaged and referenced. `apksigner`: v2 verifies and the
+  certificate SHA-256 matches the known-good recovery APK exactly:
+  `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+- Deployment/runtime: not installed, not launched, no ADB, no phone/data or
+  recovery-checkout mutation.
+- Remaining acceptance: separately authorized physical Fedora/Android JSON v1
+  synchronization and durable receipt confirmation.
+- One potential next action: owner-authorized installation and physical sync
+  verification; it is not authorized by this checkpoint.
+
+
 ## Checkpoint
 
 - Branch: `forge/android-json-v1-integration`
