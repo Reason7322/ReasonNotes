@@ -13,7 +13,9 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 
-/** Pure outgoing planning: selection never changes incoming scans or receipt eligibility. */
+/** Pure outgoing planning: selection never changes incoming scans. Ordinary
+ * pending receipts remain unconditional; an explicit selected-note retry is
+ * limited to receipts for those notes. */
 public final class SyncPlanner {
     public record Plan(
             List<String> revisionIds,
@@ -114,9 +116,24 @@ public final class SyncPlanner {
             if (entry != null && entry.state().equals("confirmed")) confirmed.add(revision.revisionId());
         }
 
+        List<String> receiptIds = receipts.eligible(
+                targetDevice, retryUnconfirmed, List.of());
+        if (retryUnconfirmed && !selection.allNotes()) {
+            Map<String, ReceiptStore.DeliveryEntry> receiptEntries = new HashMap<>();
+            for (ReceiptStore.DeliveryEntry entry : receipts.entries(targetDevice)) {
+                receiptEntries.put(entry.receiptId(), entry);
+            }
+            receiptIds = receiptIds.stream().filter(receiptId -> {
+                ReceiptStore.DeliveryEntry entry = receiptEntries.get(receiptId);
+                RevisionEnvelope revision = entry == null
+                        ? null : revisions.get(entry.revisionId());
+                return revision != null && selection.includes(revision.noteId());
+            }).toList();
+        }
+
         return new Plan(
                 List.copyOf(send),
-                receipts.eligible(targetDevice, retryUnconfirmed, List.of()),
+                receiptIds,
                 List.copyOf(skipped),
                 List.copyOf(missing),
                 List.copyOf(confirmed),

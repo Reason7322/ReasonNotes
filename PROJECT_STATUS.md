@@ -22,6 +22,17 @@ It was not installed or run. The pending physical receipt and existing attempt
 history remain for a separately authorized in-place update and single retry.
 See `docs/ANDROID_RECEIPT_SENDER_REPAIR_2026-10-23.md`.
 
+The repaired sender APK was subsequently installed in place with its hash,
+signer, existing receipt attempt, immutable revision, and SAF grant verified.
+Before retry, inspection found that the old retry path would include 14
+historical receipts. A focused follow-up now limits selected-note retry to
+receipts for the selected note while preserving ordinary unconditional pending
+receipts and Retry all semantics. The new regression failed before the change;
+the complete host suite passes 159 tests and the debug APK builds. The staged
+targeted-retry APK SHA-256 is
+`3a5fcbf5fff7ec87d58dca03b82bd5d7e8c524ca3e3c202e94ab60a253603622`.
+It has not been installed; the physical one-receipt retry remains pending.
+
 ## Current milestone
 
 Milestone 1 is complete. Milestone 2 Tasks 1 through 4 are implemented at source/test/build level. Task 4 still awaits physical and visual acceptance:

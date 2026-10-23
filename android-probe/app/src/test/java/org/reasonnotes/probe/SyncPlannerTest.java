@@ -140,6 +140,26 @@ public final class SyncPlannerTest {
     }
 
     @Test
+    public void selectedRetryIncludesOnlyReceiptsForTheSelectedNote() throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope remoteA = RevisionEnvelope.create(
+                NOTE_A, List.of(), "linux", at(0), false, "# Incoming A");
+        RevisionEnvelope remoteB = RevisionEnvelope.create(
+                NOTE_B, List.of(), "linux", at(1), false, "# Incoming B");
+        fixture.repository().importEnvelope(remoteA.serialize(), "incoming-a.md");
+        fixture.repository().importEnvelope(remoteB.serialize(), "incoming-b.md");
+        ReceiptEnvelope receiptA = fixture.receipts().queue(remoteA, "android", at(2));
+        ReceiptEnvelope receiptB = fixture.receipts().queue(remoteB, "android", at(3));
+        fixture.receipts().recordRequested(receiptA.receiptId(), "linux", at(4));
+        fixture.receipts().recordRequested(receiptB.receiptId(), "linux", at(5));
+
+        SyncPlanner.Plan selectedRetry = fixture.planner().plan(
+                OutgoingSelection.selected(Set.of(NOTE_A)), true);
+
+        assertEquals(List.of(receiptA.receiptId()), selectedRetry.receiptIds());
+    }
+
+    @Test
     public void forceRetryIsSeparateFromOrdinarySelectionAndStillBoundedExplicitly() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope a = fixture.repository().createRevision(
