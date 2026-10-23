@@ -113,7 +113,7 @@ public final class ReceiptStoreTest {
                 unregistered.serialize(), snapshot, repository, ledger,
                 "linux", "missing.md", T0.plusSeconds(9)));
 
-        repository.deleteNotes(Set.of(NOTE), "linux", T0.plusSeconds(10));
+        repository.purgeNote(NOTE);
         assertTrue(repository.isPurged(NOTE));
         // Even a pre-purge snapshot is not permission to confirm a purged note.
         assertThrows(IllegalArgumentException.class, () -> store.acceptWithSnapshot(
@@ -165,7 +165,7 @@ public final class ReceiptStoreTest {
         ReceiptStore store = new ReceiptStore(root, 3);
         DeliveryLedger ledger = new DeliveryLedger(new File(root, "delivery-state"), 3);
         File saved = store.inboxFile(old.receiptId());
-        repository.deleteNotes(Set.of(NOTE), "linux", T0.plusSeconds(10));
+        repository.purgeNote(NOTE);
         assertTrue(repository.isPurged(NOTE));
         // Normal purge retires old receipts; simulate a previously received
         // stale receipt resurfacing after the durable purge completed.

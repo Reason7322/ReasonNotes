@@ -1,5 +1,33 @@
 # ReasonNotes — Project Status
 
+## Four-requirement synchronization repair — 2026-10-23
+
+The product requirements are: notes remain editable on Android and Fedora;
+pressing Sync sends eligible changes; concurrent edits show both complete
+versions and require an explicit choice; and deletion on either device is sent
+to the other device without resurrection.
+
+Android now sends ordinary deletions as immutable JSON v1 tombstone revisions
+through the same Sync action as edits. Sync all includes tombstones even though
+deleted notes are intentionally absent from the note picker; Sync selected
+does not silently include deleted notes outside its visible scope. A concurrent
+edit and deletion remain two heads and therefore enter the existing explicit
+conflict chooser. Legacy permanent-purge fences remain readable for backward
+compatibility, but new user deletions no longer depend on the separate
+foreground-purge channel.
+
+The ordinary-sync ancestry repair remains in place: a pending descendant can
+carry its exhausted required ancestor, so an old failed attempt does not block
+the newer safe chain or unrelated notes. Ledger evidence is preserved and
+failures are not relabeled as success.
+
+The complete Android host suite passes 161 tests and `assembleDebug` succeeds.
+The resulting debug APK SHA-256 is
+`a5a03c7437ba14c3a0b5d0e774b1c9b7e64bca9dadd137fe4cbb420b1a0da444`.
+No APK was installed and no live synchronization or personal-note operation
+was performed. Physical create/edit round-trip, conflict choice, deletion in
+both directions, and restart persistence remain required acceptance.
+
 ## Ordinary Sync ancestry recovery — 2026-10-23
 
 Original product requirements are: editable notes on Fedora and Android;
@@ -23,15 +51,8 @@ SHA-256 is `ad0b8a758719447867691c3d9df18b81a665f292c5bfebe208b53b7860161fd2`.
 Fedora conflict/deletion/restart/confirmed-sync evidence was refreshed with
 33 passing focused tests; no Fedora source changed.
 
-The existing explicit conflict selection and durable purge-fence deletion
-behavior remain intact. A proposed partial conversion of deletion to ordinary
-JSON tombstones was rejected and fully removed after focused tests showed it
-would create a mixed deletion model. Therefore this checkpoint fixes the
-observed ordinary-sync blocker, but the owner's stricter requirement that
-deletion travel through the same normal JSON Sync action remains **not done**;
-the current implementation still uses its established foreground purge link.
-Physical verification of the recovered Android carrier also remains pending.
-No APK was installed and no live sync or personal-data migration occurred.
+This section records the earlier ancestry-only checkpoint. The later
+four-requirement repair above supersedes its former deletion limitation.
 
 ## Android receipt sender repair — 2026-10-23
 

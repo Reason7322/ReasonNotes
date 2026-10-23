@@ -58,10 +58,13 @@ public final class NoteServiceTest {
         assertEquals(2, repository.revisions().size());
 
         service.deleteNote(NOTE, unchanged.baseHeadIds());
-        assertTrue(repository.isPurged(NOTE));
+        assertFalse(repository.isPurged(NOTE));
         assertTrue(service.listNotes("").isEmpty());
         assertThrows(NoteService.NoteNotFoundException.class, () -> service.openNote(NOTE));
-        assertEquals(0, repository.revisions().size());
+        assertEquals(3, repository.revisions().size());
+        RevisionEnvelope deletion = repository.heads(NOTE).get(0);
+        assertTrue(deletion.deleted());
+        assertEquals(List.of(unchanged.revisionId()), deletion.parents());
 
         NoteService reopened = service(ProbeRepository.open(root), SECOND);
         assertTrue(reopened.listNotes("").isEmpty());
@@ -116,12 +119,11 @@ public final class NoteServiceTest {
         assertThrows(
                 ProbeRepository.StaleHeadsException.class,
                 () -> service.saveNote(NOTE, displayed.baseHeadIds(), "Unsafe", "draft"));
-        // Permanent deletion is intentional even if a remote edit arrived
-        // after this editor opened: no historical branch survives the purge.
-        service.deleteNote(NOTE, displayed.baseHeadIds());
-        assertTrue(repository.isPurged(NOTE));
-        assertTrue(repository.revisions().isEmpty());
-        assertThrows(NoteService.NoteNotFoundException.class, () -> service.openNote(NOTE));
+        assertThrows(
+                ProbeRepository.StaleHeadsException.class,
+                () -> service.deleteNote(NOTE, displayed.baseHeadIds()));
+        assertFalse(repository.isPurged(NOTE));
+        assertEquals(remote.revisionId(), service.openNote(NOTE).revisionId());
     }
 
     @Test

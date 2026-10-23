@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Allow ordinary Android Sync to recover a pending descendant from an exhausted local ancestor without blocking independent notes.
+**Goal:** Make ordinary Sync carry current edits and deletions while recovering pending descendants from exhausted local ancestors.
 
 **Architecture:** Extend only `SyncPlanner` dependency closure. Preserve JSON v1, receipts, conflicts, purge fences, and UI structure.
 
@@ -42,3 +42,23 @@
 - [ ] Permit exhausted local ancestors only as dependencies of eligible pending descendants.
 - [ ] Run focused tests and complete Android sync/conflict/deletion suites.
 - [ ] Update project status, commit, push, and verify both remotes.
+
+### Task 2: Carry deletion through normal JSON sync
+
+**Files:**
+- Modify: `android-probe/app/src/main/java/org/reasonnotes/probe/NoteService.java`
+- Modify: `android-probe/app/src/main/java/org/reasonnotes/probe/ProbeRepository.java`
+- Modify: `android-probe/app/src/main/java/org/reasonnotes/probe/SyncPlanner.java`
+- Modify: Fedora `src/reasonnotes_app/service.py`
+- Test: Android note service/planner/bulk/conflict suites
+- Test: Fedora note service/bidirectional/conflict/sync suites
+
+**Interfaces:**
+- Produces: ordinary content-free tombstone revisions registered in delivery ledgers.
+- Consumes: existing JSON v1 revision carrier, receipt confirmation and conflict resolution.
+
+- [ ] Change tests to require durable tombstones instead of immediate purge.
+- [ ] Run tests and verify RED.
+- [ ] Implement tombstone deletion and deleted-note Sync-all planning.
+- [ ] Verify create/edit/conflict/delete/restart behavior on isolated repositories.
+- [ ] Build both candidates, checkpoint affected repositories, and stop before deployment.

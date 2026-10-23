@@ -171,8 +171,8 @@ public final class SyncActivity extends Activity {
         Set<UUID> live = SyncPlanner.activeNotes(history);
         for (RevisionEnvelope revision : history) {
             if (!revision.originDevice().equals("android")
-                    || !live.contains(revision.noteId())
-                    || !outgoing.includes(revision.noteId())) continue;
+                    || (live.contains(revision.noteId())
+                        ? !outgoing.includes(revision.noteId()) : !outgoing.allNotes())) continue;
             DeliveryLedger.Entry state = byRevision.get(revision.revisionId());
             if (state == null || state.state().equals("pending")
                     || state.state().equals("needs-attention")) {

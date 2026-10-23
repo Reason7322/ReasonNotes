@@ -90,16 +90,14 @@ public final class SyncPlanner {
             RevisionEnvelope revision = revisions.get(id);
             if (revision == null) {
                 missing.add(id);
-            } else if (!live.contains(revision.noteId())
-                    || !selection.includes(revision.noteId())) {
+            } else if (!included(revision.noteId(), live, selection)) {
                 skipped.add(id);
             }
         }
 
         for (RevisionEnvelope candidate : revisions.values()) {
             if (!candidate.originDevice().equals(localDevice)
-                    || !live.contains(candidate.noteId())
-                    || !selection.includes(candidate.noteId())
+                    || !included(candidate.noteId(), live, selection)
                     || !eligible.contains(candidate.revisionId())) {
                 continue;
             }
@@ -110,7 +108,7 @@ public final class SyncPlanner {
         }
 
         for (RevisionEnvelope revision : revisions.values()) {
-            if (!live.contains(revision.noteId()) || !selection.includes(revision.noteId())
+            if (!included(revision.noteId(), live, selection)
                     || !revision.originDevice().equals(localDevice)) continue;
             DeliveryLedger.Entry entry = entries.get(revision.revisionId());
             if (entry != null && entry.state().equals("confirmed")) confirmed.add(revision.revisionId());
@@ -288,6 +286,14 @@ public final class SyncPlanner {
     private static String title(String body) {
         String value = NoteDocument.split(body).title();
         return value.isEmpty() ? "Untitled" : value;
+    }
+
+    private static boolean included(
+            UUID noteId, Set<UUID> live, OutgoingSelection selection) {
+        // Deleted notes are intentionally absent from the picker, but Sync all
+        // must still carry their pending tombstones through the normal JSON
+        // transport. Selected mode remains limited to visible live notes.
+        return live.contains(noteId) ? selection.includes(noteId) : selection.allNotes();
     }
 
     private record DependencyResult(Set<String> send, Set<String> confirmed, boolean blocked) {}

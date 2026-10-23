@@ -14,6 +14,12 @@ state is `needs-attention`, include that ancestor in the same carrier as the
 pending descendant. This is a user-initiated recovery caused by a newer change,
 not an automatic retry loop. Unrelated eligible notes continue in the batch.
 
+Ordinary deletion creates a content-free tombstone revision on both platforms.
+The tombstone uses the existing JSON v1 revision carrier and durable receipt
+path. A concurrent edit and deletion remain separate heads and therefore use
+the existing explicit conflict chooser. Legacy purge fences remain supported
+for previously purged notes but are no longer the normal Delete path.
+
 Alternatives rejected: resetting ledger rows would destroy evidence; sending a
 descendant without its ancestry could make the peer unable to reconcile it; a
 new protocol or background service is unnecessary.
@@ -24,6 +30,7 @@ new protocol or background service is unnecessary.
 - Advance attempts only after KDE Connect accepts the share request.
 - Keep durable receipts as the only confirmation of peer import.
 - Preserve existing explicit conflict selection and purge-fence deletion logic.
+- Preserve legacy purge-fence reads while routing new deletion through Sync.
 - Failed requests leave pending changes eligible for another ordinary Sync.
 - No UI redesign, protocol change, migration, installation, or live sync.
 

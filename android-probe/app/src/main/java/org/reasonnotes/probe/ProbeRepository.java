@@ -502,9 +502,8 @@ public final class ProbeRepository {
         });
     }
 
-    /** Explicit permanent deletion of selected notes, including any conflicts.
-     * Each fence is written before history removal. A partial I/O failure
-     * is reported; startup will finish purging fenced IDs before rendering. */
+    /** Save ordinary tombstone revisions for selected live notes. Unresolved
+     * conflicts and incomplete histories are skipped rather than destroyed. */
     public record BatchDeleteResult(
             List<UUID> deleted, List<UUID> skipped, Map<UUID, String> failed) {}
 
@@ -522,7 +521,7 @@ public final class ProbeRepository {
                 if (!existingIds.contains(id) && !purgeMarker(id).isFile()) {
                     skipped.add(id);
                 } else if (purgeMarker(id).isFile()) {
-                    deleted.add(id); // idempotent retry of a prior deletion
+                    skipped.add(id);
                 } else {
                     List<RevisionEnvelope> heads = snapshot.heads(id);
                     if (heads.size() != 1 || heads.get(0).deleted()
@@ -535,13 +534,17 @@ public final class ProbeRepository {
                     }
                 }
             }
-            try {
-                purgeManyLocked(Set.copyOf(deleted));
-                if (!deleted.isEmpty()) reconcileLocked();
-            } catch (RuntimeException error) {
-                for (UUID id : deleted) failed.put(id,
-                        "Deletion marker saved but cleanup needs retry: " + error.getMessage());
-                deleted.clear();
+            for (UUID id : List.copyOf(deleted)) {
+                try {
+                    RevisionEnvelope head = snapshot.heads(id).get(0);
+                    RevisionEnvelope tombstone = RevisionEnvelope.create(
+                            id, List.of(head.revisionId()), originDevice,
+                            modifiedUtc, true, "");
+                    persistImportedLocked(tombstone, tombstone.serialize());
+                } catch (RuntimeException error) {
+                    failed.put(id, "Deletion could not be saved: " + error.getMessage());
+                    deleted.remove(id);
+                }
             }
             return new BatchDeleteResult(List.copyOf(deleted),
                     List.copyOf(skipped), Map.copyOf(failed));

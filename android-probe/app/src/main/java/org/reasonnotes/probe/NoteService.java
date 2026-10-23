@@ -159,7 +159,10 @@ public final class NoteService {
     }
 
     public void deleteNote(UUID noteId, Set<String> expectedHeadIds) {
-        repository.purgeNote(noteId);
+        List<RevisionEnvelope> heads = repository.requireHeads(noteId, expectedHeadIds);
+        if (heads.size() != 1) throw new ConflictRequiredException(noteId);
+        if (heads.get(0).deleted()) throw new NoteNotFoundException(noteId);
+        repository.createRevision(noteId, expectedHeadIds, "", originDevice, now(), true);
     }
 
     /** Deliberate irreversible conflict-screen action, never bulk selection. */

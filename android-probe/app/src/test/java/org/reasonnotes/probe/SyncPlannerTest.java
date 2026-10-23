@@ -63,7 +63,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void selectedDeletedNoteSendsNeitherTombstoneNorOriginalHistory() throws Exception {
+    public void syncAllSendsDeletionAncestryWhileSelectedPickerKeepsDeletedHidden() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Shared", "android", at(0), false);
@@ -77,10 +77,10 @@ public final class SyncPlannerTest {
 
         assertEquals(List.of(), plan.revisionIds());
         assertFalse(plan.revisionIds().contains(other.revisionId()));
-        assertEquals(List.of(), fixture.planner().plan(
-                OutgoingSelection.all(), true).revisionIds().stream()
+        assertEquals(Set.of(ancestor.revisionId(), tombstone.revisionId()), Set.copyOf(
+                fixture.planner().plan(OutgoingSelection.all(), false).revisionIds().stream()
                 .filter(id -> id.equals(ancestor.revisionId()) || id.equals(tombstone.revisionId()))
-                .toList());
+                .toList()));
         // The original tombstone history remains stored as evidence; this
         // change affects selection/outgoing note files, not stored history.
         assertTrue(fixture.repository().revisions().contains(tombstone));
@@ -129,7 +129,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void deletedNoteIsNeverResentEvenWithConfirmedAncestor() throws Exception {
+    public void deletionTombstoneIsSentOnceWithConfirmedAncestor() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Shared", "android", at(0), false);
@@ -139,10 +139,9 @@ public final class SyncPlannerTest {
         RevisionEnvelope tombstone = fixture.repository().createRevision(
                 NOTE_A, Set.of(ancestor.revisionId()), "", "android", at(3), true);
 
-        SyncPlanner.Plan plan = fixture.planner().plan(
-                OutgoingSelection.selected(Set.of(NOTE_A)), false);
+        SyncPlanner.Plan plan = fixture.planner().plan(OutgoingSelection.all(), false);
 
-        assertEquals(List.of(), plan.revisionIds());
+        assertEquals(List.of(tombstone.revisionId()), plan.revisionIds());
         assertTrue(fixture.repository().revisions().contains(tombstone));
     }
 

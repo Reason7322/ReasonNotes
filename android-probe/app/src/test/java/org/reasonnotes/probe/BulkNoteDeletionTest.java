@@ -25,7 +25,7 @@ public final class BulkNoteDeletionTest {
                 () -> Instant.parse("2026-10-16T12:00:00Z"), ids::removeFirst);
     }
 
-    @Test public void permanentBulkPurgeDeletesAllRevisionHistoryNotJustCurrentHead() throws Exception {
+    @Test public void bulkDeleteCreatesTombstonesAndPreservesHistory() throws Exception {
         File root = temporary.newFolder("repo");
         ProbeRepository repo = ProbeRepository.open(root);
         NoteService service = service(repo);
@@ -37,18 +37,15 @@ public final class BulkNoteDeletionTest {
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, Set.of(A, B));
         assertTrue(result.successful());
         assertEquals(Set.of(A, B), Set.copyOf(result.deleted()));
-        assertEquals(Set.of(A, B), repo.purgedNoteIds());
+        assertTrue(repo.purgedNoteIds().isEmpty());
         assertEquals(Set.of(C), Set.copyOf(service.listNotes("").stream()
                 .map(NoteService.NoteSummary::noteId).toList()));
-        assertEquals(1, repo.revisions().size());
-        assertFalse(new File(root, "history/" + A).exists());
-        assertFalse(new File(root, "history/" + B).exists());
-        assertEquals(third.revisionId(), repo.revisions().get(0).revisionId());
-        assertEquals("purged", repo.importEnvelope(
-                RevisionEnvelope.create(A, List.of(), "linux",
-                    Instant.parse("2026-10-16T13:00:00Z"), false, "old private")
-                    .serialize(), "stale.md").kind());
-        assertEquals(1, ProbeRepository.open(root).revisions().size());
+        assertEquals(6, repo.revisions().size());
+        assertTrue(new File(root, "history/" + A).isDirectory());
+        assertTrue(new File(root, "history/" + B).isDirectory());
+        assertTrue(repo.heads(A).get(0).deleted());
+        assertTrue(repo.heads(B).get(0).deleted());
+        assertEquals(6, ProbeRepository.open(root).revisions().size());
     }
 
     @Test public void unresolvedConflictsRemainUntouchedWhileOtherNotesPurge() throws Exception {
@@ -66,14 +63,14 @@ public final class BulkNoteDeletionTest {
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, Set.of(A, B));
         assertEquals(Set.of(A), Set.copyOf(result.deleted()));
         assertEquals(Set.of(B), Set.copyOf(result.skipped()));
-        assertTrue(repo.isPurged(A));
+        assertFalse(repo.isPurged(A));
         assertFalse(repo.isPurged(B));
-        assertEquals(3, repo.revisions().size());
+        assertEquals(5, repo.revisions().size());
         assertEquals(2, repo.heads(B).size());
         assertEquals("duplicate", repo.importEnvelope(remote.serialize(), "old.md").kind());
     }
 
-    @Test public void missingIdIsSkippedAndPreviouslyPurgedIdIsIdempotent() throws Exception {
+    @Test public void missingAndAlreadyDeletedIdsAreSkipped() throws Exception {
         ProbeRepository repo = ProbeRepository.open(temporary.newFolder("missing"));
         NoteService service = service(repo);
         service.createNote("First", "live");
@@ -81,12 +78,12 @@ public final class BulkNoteDeletionTest {
         assertEquals(List.of(A), first.deleted());
         assertEquals(List.of(B), first.skipped());
         BulkNoteDeletion.Result repeated = BulkNoteDeletion.delete(service, Set.of(A, B));
-        assertEquals(List.of(A), repeated.deleted());
-        assertEquals(List.of(B), repeated.skipped());
-        assertTrue(repo.revisions().isEmpty());
+        assertEquals(List.of(), repeated.deleted());
+        assertEquals(Set.of(A, B), Set.copyOf(repeated.skipped()));
+        assertEquals(2, repo.revisions().size());
     }
 
-    @Test public void purgeOfFifteenNotesIncludesConflictedHeadAndIsFast() throws Exception {
+    @Test public void tombstoneOfFifteenNotesSkipsConflictAndIsFast() throws Exception {
         File root = temporary.newFolder("large");
         ProbeRepository repo = ProbeRepository.open(root);
         NoteService service = new NoteService(repo, "android",
@@ -104,13 +101,13 @@ public final class BulkNoteDeletionTest {
         long started = System.nanoTime();
         BulkNoteDeletion.Result result = BulkNoteDeletion.delete(service, selected);
         long ms = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        System.out.println("ANDROID_15_NOTE_PERMANENT_PURGE_JVM_MS=" + ms);
+        System.out.println("ANDROID_15_NOTE_TOMBSTONE_JVM_MS=" + ms);
         assertEquals(14, result.deleted().size());
         assertEquals(List.of(conflicted), result.skipped());
         assertTrue(result.failed().isEmpty());
-        assertEquals(14, repo.purgedNoteIds().size());
-        assertEquals(3, repo.revisions().size());
-        assertEquals(3, ProbeRepository.open(root).revisions().size());
+        assertTrue(repo.purgedNoteIds().isEmpty());
+        assertEquals(31, repo.revisions().size());
+        assertEquals(31, ProbeRepository.open(root).revisions().size());
         assertTrue("Deletion regression: " + ms + " ms", ms < 3000);
     }
 

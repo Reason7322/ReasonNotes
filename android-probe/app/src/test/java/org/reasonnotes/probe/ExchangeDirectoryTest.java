@@ -65,7 +65,9 @@ public final class ExchangeDirectoryTest {
                 note, local.revisionId(), "android", "linux", now.plusSeconds(2));
         assertEquals(false, ExchangeDirectory.isObsoletePurgedReceipt(
                 old.serialize(), repository, "android"));
-        repository.deleteNotes(java.util.Set.of(note), "android", now.plusSeconds(3));
+        // Legacy permanent purge fences remain readable for repositories
+        // created before ordinary deletion moved to JSON tombstones.
+        repository.purgeNote(note);
         assertEquals(true, repository.isPurged(note));
         assertEquals(null, repository.revision(local.revisionId()));
         assertEquals(true, ExchangeDirectory.isObsoletePurgedReceipt(
