@@ -1,5 +1,27 @@
 # ReasonNotes — Project Status
 
+## Android receipt sender repair — 2026-10-23
+
+The first physical JSON v1 receipt return exposed a concrete Android sender
+failure: KDE Connect's asynchronous transfer code lacked effective read access
+to the non-exported ReasonNotes `FileProvider` URI, despite the share intent's
+flag and `ClipData`. The generated carrier contained only the intended receipt,
+but it did not reach Fedora.
+
+`KdeConnectSender.request()` now grants KDE Connect's package temporary,
+read-only access before launching the explicit share activity and revokes that
+grant after five minutes or immediately on launch failure. The provider remains
+non-exported; no broad storage access, protocol, queue, receipt, or ledger
+change was introduced. Focused sender/transport/receipt verification passed
+36 tests, and both the debug application and instrumentation-test APKs built.
+
+The repaired APK is staged at
+`/home/reason/Temporary/ReasonNotes-JSON-v1-Candidates/android-receipt-grant-repair/ReasonNotes-Android-JSON-v1-receipt-grant.apk`,
+SHA-256 `e0e1f8e6eb2c8d184f90aaa59f9bfc0625a1aa3a6aa5ae9cbbda56c7b5ea81ec`.
+It was not installed or run. The pending physical receipt and existing attempt
+history remain for a separately authorized in-place update and single retry.
+See `docs/ANDROID_RECEIPT_SENDER_REPAIR_2026-10-23.md`.
+
 ## Current milestone
 
 Milestone 1 is complete. Milestone 2 Tasks 1 through 4 are implemented at source/test/build level. Task 4 still awaits physical and visual acceptance:

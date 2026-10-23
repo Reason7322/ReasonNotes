@@ -242,10 +242,20 @@ public final class SyncActivityContractTest {
         String senderSource = new String(java.nio.file.Files.readAllBytes(
                 java.nio.file.Path.of("src/main/java/org/reasonnotes/probe/KdeConnectSender.java")),
                 java.nio.charset.StandardCharsets.UTF_8);
+        String manifest = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/main/AndroidManifest.xml")),
+                java.nio.charset.StandardCharsets.UTF_8);
 
         assertTrue(syncSource.contains("createTransportPayload("));
         assertTrue(syncSource.contains("TransportBundle.write("));
         assertFalse(syncSource.contains("TransferBundle.create("));
         assertTrue(senderSource.contains("application/json"));
+        assertTrue(senderSource.contains(
+                "grantUriPermission(PACKAGE, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)"));
+        assertTrue(senderSource.contains(
+                "revokeUriPermission(PACKAGE, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)"));
+        assertTrue(senderSource.contains("URI_GRANT_LIFETIME"));
+        assertTrue(manifest.contains("android:name=\"androidx.core.content.FileProvider\""));
+        assertTrue(manifest.contains("android:exported=\"false\""));
     }
 }
