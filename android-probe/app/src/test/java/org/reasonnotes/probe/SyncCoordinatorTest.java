@@ -213,6 +213,36 @@ public final class SyncCoordinatorTest {
     }
 
     @Test
+    public void rejectedRecoveryBatchPreservesExhaustedAncestorAndPendingChild()
+            throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope ancestor = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Old", "android", NOW.minusSeconds(5), false);
+        fixture.planner().plan(OutgoingSelection.all(), false);
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", NOW.minusSeconds(4));
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", NOW.minusSeconds(3));
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", NOW.minusSeconds(2));
+        RevisionEnvelope child = fixture.repository().createRevision(
+                NOTE_A, Set.of(ancestor.revisionId()), "# Current", "android",
+                NOW.minusSeconds(1), false);
+        SyncCoordinator coordinator = coordinator(
+                fixture,
+                SyncCoordinator.FlushEvidence::success,
+                () -> scan(0, 0, 0),
+                files -> new SyncCoordinator.RequestEvidence(false, "request rejected"));
+
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.all(), false);
+
+        assertEquals(SyncStatus.Phase.ERROR, result.phase());
+        assertEquals("needs-attention",
+                fixture.ledger().entry(ancestor.revisionId(), "linux").state());
+        assertEquals(3, fixture.ledger().entry(ancestor.revisionId(), "linux").attempts());
+        assertEquals("pending", fixture.ledger().entry(child.revisionId(), "linux").state());
+        assertEquals(Set.of(ancestor.revisionId(), child.revisionId()),
+                Set.copyOf(fixture.planner().plan(OutgoingSelection.all(), false).revisionIds()));
+    }
+
+    @Test
     public void scanCanInvalidateDraftBaseWithoutReplacingDraft() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope base = fixture.repository().createRevision(

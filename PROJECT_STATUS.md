@@ -1,5 +1,38 @@
 # ReasonNotes — Project Status
 
+## Ordinary Sync ancestry recovery — 2026-10-23
+
+Original product requirements are: editable notes on Fedora and Android;
+user-triggered synchronization of changes; explicit two-version conflict
+choice; and deletion convergence without resurrection.
+
+Android ordinary Sync previously refused a new pending revision when one of
+its required local ancestors had exhausted three unconfirmed transfer
+attempts. The result was no carrier and the generic “Some notes need
+attention” message. `SyncPlanner` now treats a newer pending descendant as a
+safe, user-initiated recovery reason: it includes the exhausted local ancestor
+and pending descendant in one JSON v1 carrier. It does not reset ledger
+evidence, retry an exhausted revision by itself, or bypass durable receipts.
+Independent pending notes remain in the same plan. A rejected KDE Connect
+request leaves the ancestor at `needs-attention` and the child `pending`, so a
+later ordinary Sync remains possible.
+
+Focused Android planner/coordinator, JSON transport, conflict, deletion and UI
+contract verification passed 57 tests; `assembleDebug` passed. The offline APK
+SHA-256 is `ad0b8a758719447867691c3d9df18b81a665f292c5bfebe208b53b7860161fd2`.
+Fedora conflict/deletion/restart/confirmed-sync evidence was refreshed with
+33 passing focused tests; no Fedora source changed.
+
+The existing explicit conflict selection and durable purge-fence deletion
+behavior remain intact. A proposed partial conversion of deletion to ordinary
+JSON tombstones was rejected and fully removed after focused tests showed it
+would create a mixed deletion model. Therefore this checkpoint fixes the
+observed ordinary-sync blocker, but the owner's stricter requirement that
+deletion travel through the same normal JSON Sync action remains **not done**;
+the current implementation still uses its established foreground purge link.
+Physical verification of the recovered Android carrier also remains pending.
+No APK was installed and no live sync or personal-data migration occurred.
+
 ## Android receipt sender repair — 2026-10-23
 
 The first physical JSON v1 receipt return exposed a concrete Android sender

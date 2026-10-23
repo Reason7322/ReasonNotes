@@ -107,6 +107,28 @@ public final class SyncPlannerTest {
     }
 
     @Test
+    public void pendingDescendantRecoversExhaustedAncestorWithoutBlockingOtherNotes()
+            throws Exception {
+        Fixture fixture = fixture();
+        RevisionEnvelope ancestor = fixture.repository().createRevision(
+                NOTE_A, Set.of(), "# Old", "android", at(0), false);
+        fixture.planner().plan(OutgoingSelection.all(), false);
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", at(1));
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", at(2));
+        fixture.ledger().recordRequested(ancestor.revisionId(), "linux", at(3));
+        RevisionEnvelope descendant = fixture.repository().createRevision(
+                NOTE_A, Set.of(ancestor.revisionId()), "# Current", "android", at(4), false);
+        RevisionEnvelope independent = fixture.repository().createRevision(
+                NOTE_B, Set.of(), "# Independent", "android", at(5), false);
+
+        SyncPlanner.Plan plan = fixture.planner().plan(OutgoingSelection.all(), false);
+
+        assertEquals(Set.of(ancestor.revisionId(), descendant.revisionId(),
+                        independent.revisionId()), Set.copyOf(plan.revisionIds()));
+        assertEquals(List.of(), plan.blockedByAncestry());
+    }
+
+    @Test
     public void deletedNoteIsNeverResentEvenWithConfirmedAncestor() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(

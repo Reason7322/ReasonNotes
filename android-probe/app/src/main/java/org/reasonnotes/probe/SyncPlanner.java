@@ -244,6 +244,15 @@ public final class SyncPlanner {
                 confirmed.add(id);
             } else if (eligible.contains(id)) {
                 send.add(id);
+            } else if (!id.equals(candidate.revisionId())
+                    && entry != null
+                    && entry.state().equals("needs-attention")) {
+                // A newer pending edit is an explicit user reason to recover
+                // its complete local ancestry. Do not reset or disguise the
+                // exhausted row; include it in this one accepted carrier so
+                // the peer can safely import the descendant. With no pending
+                // descendant, ordinary Sync still does not resend it.
+                send.add(id);
             } else {
                 blocked = true;
             }
