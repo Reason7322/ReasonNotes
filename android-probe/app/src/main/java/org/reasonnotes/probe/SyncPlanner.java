@@ -52,10 +52,7 @@ public final class SyncPlanner {
         this.targetDevice = Objects.requireNonNull(targetDevice, "targetDevice");
     }
 
-    /** Current live notes only. Tombstone ancestry is preserved in the
-     * repository, but user-facing outgoing sync never offers deleted notes.
-     * The permanent-purge protocol is separate and unaffected.
-     */
+    /** Current live notes, used to classify catalogue state. */
     static Set<UUID> activeNotes(List<RevisionEnvelope> revisions) {
         RevisionGraph graph = new RevisionGraph();
         HashSet<UUID> ids = new HashSet<>();
@@ -179,7 +176,10 @@ public final class SyncPlanner {
             if (heads.isEmpty()) continue;
             boolean deleted = heads.stream().allMatch(RevisionEnvelope::deleted);
             String state = deliveryState(note.getValue(), deliveryEntries);
-            if (deleted) continue;
+            // A pending tombstone must remain selectable until the peer has
+            // durably confirmed it. Confirmed deletions stay out of the
+            // ordinary picker so it does not become a history browser.
+            if (deleted && state.equals("confirmed")) continue;
             RevisionEnvelope titleSource = note.getValue().stream()
                     .filter(revision -> !revision.deleted())
                     .max(Comparator.comparing(RevisionEnvelope::modifiedUtc)
@@ -290,10 +290,10 @@ public final class SyncPlanner {
 
     private static boolean included(
             UUID noteId, Set<UUID> live, OutgoingSelection selection) {
-        // Deleted notes are intentionally absent from the picker, but Sync all
-        // must still carry their pending tombstones through the normal JSON
-        // transport. Selected mode remains limited to visible live notes.
-        return live.contains(noteId) ? selection.includes(noteId) : selection.allNotes();
+        // Pending tombstones are visible in the picker and can be scoped just
+        // like live notes. This lets a user propagate one deletion without
+        // exposing unrelated notes through Sync all.
+        return selection.includes(noteId);
     }
 
     private record DependencyResult(Set<String> send, Set<String> confirmed, boolean blocked) {}

@@ -65,7 +65,7 @@ public final class SyncActivity extends Activity {
         private String query = "";
 
         public SelectionModel(List<SyncPlanner.CatalogueItem> catalogue) {
-            this.catalogue = catalogue.stream().filter(item -> !item.deleted()).toList();
+            this.catalogue = List.copyOf(catalogue);
         }
 
         public SelectionModel(List<SyncPlanner.CatalogueItem> catalogue, SelectionSnapshot snapshot) {

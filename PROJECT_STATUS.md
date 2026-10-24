@@ -1,5 +1,27 @@
 # ReasonNotes — Project Status
 
+## Selectable pending deletions — 2026-10-24
+
+Physical testing confirmed Fedora creation/edit round-trip, durable receipts,
+explicit two-version conflict choice and convergence, and Fedora-to-Android
+deletion. It also exposed a safety gap for the reverse deletion direction:
+Android hid deleted notes from the selected-note picker, making Sync all the
+only way to send a tombstone from a phone containing personal notes.
+
+The picker now retains a deleted note only while its tombstone is pending,
+requested, or needs attention, labels it `Deleted`, and permits selecting it
+independently. Once confirmed, the deleted entry disappears. Selected Sync now
+includes the selected tombstone and its required ancestry without including
+unrelated notes. This preserves ordinary JSON v1 transport and receipts while
+providing a safe, understandable recovery path.
+
+The new picker/planner regressions failed before the change and pass after it.
+The complete Android host suite passes 161 tests and `assembleDebug` succeeds;
+APK SHA-256 is
+`b985ee2d119d15de1e471f4bd63105157289960754611b9fa87e0a8b215fa3c3`.
+Physical installation and Android-to-Fedora deletion verification remain
+pending. Existing phone data and ledgers were not reset or cleared.
+
 ## Four-requirement synchronization repair — 2026-10-23
 
 The product requirements are: notes remain editable on Android and Fedora;

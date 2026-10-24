@@ -63,7 +63,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void syncAllSendsDeletionAncestryWhileSelectedPickerKeepsDeletedHidden() throws Exception {
+    public void selectedPendingDeletionSendsItsTombstoneAncestryOnly() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope ancestor = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Shared", "android", at(0), false);
@@ -75,7 +75,8 @@ public final class SyncPlannerTest {
         SyncPlanner.Plan plan = fixture.planner().plan(
                 OutgoingSelection.selected(Set.of(NOTE_A)), false);
 
-        assertEquals(List.of(), plan.revisionIds());
+        assertEquals(Set.of(ancestor.revisionId(), tombstone.revisionId()),
+                Set.copyOf(plan.revisionIds()));
         assertFalse(plan.revisionIds().contains(other.revisionId()));
         assertEquals(Set.of(ancestor.revisionId(), tombstone.revisionId()), Set.copyOf(
                 fixture.planner().plan(OutgoingSelection.all(), false).revisionIds().stream()
@@ -238,7 +239,7 @@ public final class SyncPlannerTest {
     }
 
     @Test
-    public void catalogueHidesDeletedTombstonesEvenWhenTheirDeliveryIsPending() throws Exception {
+    public void catalogueShowsPendingTombstoneForSafeSelectedSync() throws Exception {
         Fixture fixture = fixture();
         RevisionEnvelope a = fixture.repository().createRevision(
                 NOTE_A, Set.of(), "# Original title\n\nbody", "android", at(0), false);
@@ -255,10 +256,16 @@ public final class SyncPlannerTest {
 
         List<SyncPlanner.CatalogueItem> items = fixture.planner().catalogue();
 
-        assertFalse(items.stream().anyMatch(item -> item.noteId().equals(NOTE_A)));
-        assertEquals(1, items.size());
-        assertTrue(items.get(0).conflicted());
-        assertFalse(items.get(0).deleted());
+        assertEquals(2, items.size());
+        SyncPlanner.CatalogueItem deletedItem = items.stream()
+                .filter(item -> item.noteId().equals(NOTE_A)).findFirst().orElseThrow();
+        assertTrue(deletedItem.deleted());
+        assertEquals("pending", deletedItem.deliveryState());
+        assertEquals("Original title", deletedItem.title());
+        SyncPlanner.CatalogueItem conflictItem = items.stream()
+                .filter(item -> item.noteId().equals(NOTE_B)).findFirst().orElseThrow();
+        assertTrue(conflictItem.conflicted());
+        assertFalse(conflictItem.deleted());
         assertTrue(fixture.ledger().entry(deleted.revisionId(), "linux") != null);
         assertTrue(fixture.repository().revisions().contains(deleted));
     }

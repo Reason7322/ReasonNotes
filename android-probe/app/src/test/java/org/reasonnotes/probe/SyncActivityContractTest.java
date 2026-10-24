@@ -56,21 +56,24 @@ public final class SyncActivityContractTest {
     }
 
     @Test
-    public void deletedNotesCannotBeSelectedByTapRestoreSearchOrSelectAll() {
+    public void pendingDeletedNotesAreClearlyVisibleAndSelectable() {
         SyncActivity.SelectionModel model = new SyncActivity.SelectionModel(catalogue());
-        assertFalse(model.visible().stream().anyMatch(item -> item.deleted()));
+        assertTrue(model.visible().stream().anyMatch(item -> item.deleted()));
         model.setSelected(DELETED, true);
-        assertFalse(model.canSync());
+        assertTrue(model.canSync());
+        assertEquals(Set.of(DELETED), model.selected());
+        model.clearSelection();
         model.selectAllVisible();
-        assertEquals(Set.of(ALPHA, BETA), model.selected());
+        assertEquals(Set.of(ALPHA, BETA, DELETED), model.selected());
         SyncActivity.SelectionSnapshot forged = new SyncActivity.SelectionSnapshot(
                 "deleted", Set.of(DELETED, BETA));
         SyncActivity.SelectionModel resumed = new SyncActivity.SelectionModel(
                 catalogue(), forged);
-        assertEquals(Set.of(BETA), resumed.selected());
-        assertTrue(resumed.visible().isEmpty());
+        assertEquals(Set.of(DELETED, BETA), resumed.selected());
+        assertEquals(List.of(DELETED), resumed.visible().stream()
+                .map(SyncPlanner.CatalogueItem::noteId).toList());
         resumed.setQuery("");
-        assertEquals(2, resumed.visible().size());
+        assertEquals(3, resumed.visible().size());
     }
 
     @Test
