@@ -40,7 +40,6 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService incomingIo = Executors.newSingleThreadExecutor();
     private boolean incomingCheckPending;
-    private boolean startupReconciliationScheduled;
     private boolean incomingCheckInFlight;
     private ProbeRepository repository;
     private NoteService service;
@@ -476,21 +475,6 @@ public final class MainActivity extends Activity {
         sections.pinned().forEach(note -> addCard(pinnedGrid, note));
         sections.others().forEach(note -> addCard(otherGrid, note));
         updateSelectionUi();
-        if (!startupReconciliationScheduled && repository != null) {
-            startupReconciliationScheduled = true;
-            // After the initial list is visible, repair generated working
-            // views off the main thread. History-backed listing is safe before
-            // this maintenance; crash recovery still reconstructs them.
-            io.execute(() -> {
-                try { repository.reconcile(); }
-                catch (RuntimeException error) {
-                    runOnUiThread(() -> {
-                        if (!isFinishing() && !isDestroyed())
-                            localStatus.setText("Working-view recovery needs attention");
-                    });
-                }
-            });
-        }
         emptyState.setText("No notes yet. Create one to start writing.");
         if (incomingCheckPending) {
             incomingCheckPending = false;

@@ -502,6 +502,36 @@ public final class ProbeRepository {
         });
     }
 
+    /** Persist the first revision for a newly allocated note without loading
+     * or rebuilding unrelated history. Immutable history is authoritative;
+     * generated views are repaired by the existing deferred reconciliation. */
+    public RevisionEnvelope createInitialRevision(
+            UUID noteId,
+            String body,
+            String originDevice,
+            Instant modifiedUtc) {
+        return withLock(() -> {
+            if (purgeMarker(noteId).isFile()) {
+                throw new IllegalStateException("note has been permanently deleted");
+            }
+            File noteHistory = new File(history, noteId.toString());
+            File[] existing = noteHistory.listFiles(file -> file.isFile()
+                    && file.getName().endsWith(".md"));
+            if (existing != null && existing.length != 0) {
+                throw new IllegalStateException("note ID already has history");
+            }
+            RevisionEnvelope revision = RevisionEnvelope.create(
+                    noteId, List.of(), originDevice, modifiedUtc, false, body);
+            File path = new File(noteHistory, revision.revisionId() + ".md");
+            try {
+                durableWrite(path, revision.serialize(), false);
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot persist immutable history", error);
+            }
+            return revision;
+        });
+    }
+
     /** Save ordinary tombstone revisions for selected live notes. Unresolved
      * conflicts and incomplete histories are skipped rather than destroyed. */
     public record BatchDeleteResult(

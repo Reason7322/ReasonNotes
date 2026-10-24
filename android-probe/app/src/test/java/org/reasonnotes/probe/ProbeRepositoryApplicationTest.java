@@ -31,6 +31,24 @@ public final class ProbeRepositoryApplicationTest {
     }
 
     @Test
+    public void initialRevisionIsDurableWithoutRebuildingGeneratedViews() throws Exception {
+        File root = temporary.newFolder("initial-fast-path");
+        ProbeRepository repository = ProbeRepository.open(root);
+
+        RevisionEnvelope created = repository.createInitialRevision(
+                NOTE, "# Untitled\n", "android", at(0));
+
+        assertTrue(new File(root, "history/" + NOTE + "/" + created.revisionId() + ".md")
+                .isFile());
+        assertEquals(Set.of(created.revisionId()), repository.headIds(NOTE));
+        assertFalse("new-note path rebuilt generated current view",
+                new File(root, "current/" + NOTE + ".md").exists());
+
+        repository.reconcile();
+        assertTrue(new File(root, "current/" + NOTE + ".md").isFile());
+    }
+
+    @Test
     public void guardedWritesEnumerateHistoryAndRejectStaleHeadsWithoutWriting() throws Exception {
         ProbeRepository repository = ProbeRepository.open(temporary.newFolder("repo"));
         RevisionEnvelope root = repository.createRevision(

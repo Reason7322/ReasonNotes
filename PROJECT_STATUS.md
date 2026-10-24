@@ -520,3 +520,28 @@ suite: 165 tests, zero failures/errors. `assembleDebug` passes. Debug APK is
 `49a87c72fb272e874ac3ef49162895bdaf8876bc20571ae798299085775f25df`.
 The APK is not installed; real-device first-index and warm-scan timing, NEW NOTE
 responsiveness, and final deletion-receipt confirmation remain physical gates.
+
+## Forge Android NEW NOTE latency repair — 2026-10-24
+
+Physical review of the installed scan-index candidate showed that NEW NOTE still
+visibly lagged. Device evidence separated the stages: EditorActivity itself was
+displayed in 99 ms, while launch was delayed during a 3.46-second foreground
+incoming check. Source tracing found two additional critical-path costs: the
+home screen queued a full generated-view reconciliation on the same executor as
+NEW NOTE, and first-revision creation loaded and reconciled all unrelated note
+history.
+
+The home screen no longer queues generated-view maintenance ahead of user
+actions. A new guarded initial-revision path durably fsyncs the immutable first
+revision without loading unrelated history or rebuilding generated views.
+Normal edits retain full expected-head and incomplete-ancestry validation;
+EditorActivity still performs deferred generated-view reconciliation only after
+the writing surface is interactive. A regression verifies that the first
+revision is durable immediately and that explicit reconciliation reconstructs
+the generated view.
+
+Focused repository/service/editor tests pass, followed by the full Android JVM
+suite and `assembleDebug`. Candidate APK SHA-256:
+`6e2f4e72b7f4edaa97409150b35e41dcadc152482bbdc0f14ddbf0208cd2986e`
+(2,711,214 bytes). The candidate is not installed; actual NEW NOTE latency on
+the POCO remains the physical acceptance gate.

@@ -129,8 +129,8 @@ public final class NoteService {
     public OpenNote createNote(String title, String content) {
         UUID noteId = noteIds.get();
         String document = NoteDocument.changeContent(NoteDocument.changeTitle("", title), content);
-        RevisionEnvelope revision = repository.createRevision(
-                noteId, Set.of(), document, originDevice, now(), false);
+        RevisionEnvelope revision = repository.createInitialRevision(
+                noteId, document, originDevice, now());
         return open(revision);
     }
 
