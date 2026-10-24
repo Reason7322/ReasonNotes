@@ -228,6 +228,12 @@ public final class DeliveryLedger {
      * overwrite existing pending/requested/confirmed/attention evidence.
      * A catalogue refresh must not re-read and fsync the ledger per revision. */
     public void registerLocals(List<String> revisionIds, String targetDevice) {
+        synchronized (DeliveryLedger.class) {
+            registerLocalsTransaction(revisionIds, targetDevice);
+        }
+    }
+
+    private void registerLocalsTransaction(List<String> revisionIds, String targetDevice) {
         Objects.requireNonNull(revisionIds, "revisionIds");
         if (targetDevice == null || targetDevice.isBlank()) {
             throw new IllegalArgumentException("target identity must not be empty");
@@ -280,6 +286,13 @@ public final class DeliveryLedger {
      * Validate the entire batch before changing evidence. Each revision's
      * attempt count still advances exactly once and each event is retained. */
     public void recordRequestedBatch(List<String> revisionIds, String targetDevice, Instant observed) {
+        synchronized (DeliveryLedger.class) {
+            recordRequestedBatchTransaction(revisionIds, targetDevice, observed);
+        }
+    }
+
+    private void recordRequestedBatchTransaction(
+            List<String> revisionIds, String targetDevice, Instant observed) {
         Objects.requireNonNull(revisionIds, "revisionIds");
         if (targetDevice == null || targetDevice.isBlank()) {
             throw new IllegalArgumentException("target identity required");
@@ -330,6 +343,17 @@ public final class DeliveryLedger {
     }
 
     public boolean recordConfirmed(
+            String revisionId,
+            String targetDevice,
+            String receiptId,
+            Instant observed) {
+        synchronized (DeliveryLedger.class) {
+            return recordConfirmedTransaction(
+                    revisionId, targetDevice, receiptId, observed);
+        }
+    }
+
+    private boolean recordConfirmedTransaction(
             String revisionId,
             String targetDevice,
             String receiptId,

@@ -9,6 +9,10 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -17,6 +21,31 @@ public final class DeliveryLedgerTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
     private static final String REVISION = "8".repeat(64);
     private static final String RECEIPT = "9".repeat(64);
+
+    @Test
+    public void concurrentLedgerInstancesDoNotLoseRegisteredRevisions() throws Exception {
+        File state = temporary.newFolder("concurrent-instances");
+        int workers = 32;
+        ExecutorService pool = Executors.newFixedThreadPool(workers);
+        CountDownLatch ready = new CountDownLatch(workers);
+        CountDownLatch start = new CountDownLatch(1);
+        java.util.ArrayList<Future<?>> futures = new java.util.ArrayList<>();
+        for (int index = 1; index <= workers; index++) {
+            String revision = String.format("%064x", index);
+            futures.add(pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                new DeliveryLedger(state, 3).registerLocal(revision, "linux");
+                return null;
+            }));
+        }
+        ready.await();
+        start.countDown();
+        for (Future<?> future : futures) future.get();
+        pool.shutdown();
+
+        assertEquals(workers, new DeliveryLedger(state, 3).entries("linux").size());
+    }
 
     @Test
     public void bulkRegisterPreservesExistingConfirmedAndRetryState() throws Exception {
