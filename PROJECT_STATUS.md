@@ -495,3 +495,28 @@ updates transactional across instances, and add a durable processed-carrier
 index so unchanged content-addressed files are not reread. A new APK must not
 be installed without separate approval of its exact hash. Personal notes were
 not transmitted, removed, or modified by the acceptance fixtures.
+
+## Forge Android scan correctness/performance repair — 2026-10-24
+
+The physically observed ledger race and repeated full-content scans are repaired
+in source. Delivery-ledger read/modify/write operations used by discovery,
+transfer requests, and receipt confirmation now share a process-wide transaction
+boundary across Activity-owned instances. Incoming SAF scans also share one fair
+process-wide gate, preventing MainActivity and SyncActivity from processing and
+rewriting evidence concurrently.
+
+A private durable processed-document index records only successfully read and
+validated exchange files with reliable provider modification time and size.
+Subsequent scans list the directory but skip unchanged validated payloads; new
+or metadata-changed files are read and cryptographically validated normally.
+Malformed/rejected files and files with unreliable metadata are not skipped.
+Shared KDE Connect files are never deleted or modified.
+
+TDD evidence: the concurrent multi-instance ledger test failed before locking
+and passed afterward; the missing scan gate and processed-index types failed
+before implementation. Focused index/exchange/gate tests pass. Full Android JVM
+suite: 165 tests, zero failures/errors. `assembleDebug` passes. Debug APK is
+2,711,013 bytes with SHA-256
+`49a87c72fb272e874ac3ef49162895bdaf8876bc20571ae798299085775f25df`.
+The APK is not installed; real-device first-index and warm-scan timing, NEW NOTE
+responsiveness, and final deletion-receipt confirmation remain physical gates.

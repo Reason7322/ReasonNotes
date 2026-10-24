@@ -8,6 +8,7 @@ import android.provider.DocumentsContract;
 import android.util.Log;
 import androidx.documentfile.provider.DocumentFile;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
@@ -26,7 +27,7 @@ public final class ExchangeDirectory {
     private static final String TREE_KEY = "tree-uri";
     private static final String PERFORMANCE_TAG = "ReasonNotes.ReceivePerf";
     private static final ExchangeScanGate SCAN_GATE = new ExchangeScanGate();
-    private record IncomingDocument(Uri uri, String name, long modifiedUtc) {}
+    private record IncomingDocument(Uri uri, String name, long modifiedUtc, long size) {}
     private static final class ImportState {
         final Set<String> recordedImports = new HashSet<>();
         final Map<String, Set<String>> queuedReceipts = new HashMap<>();
@@ -164,11 +165,18 @@ public final class ExchangeDirectory {
         // Snapshot durable evidence once rather than reopening and rewriting
         // full ledgers for every previously imported revision.
         ImportState state = new ImportState(ledger);
+        ProcessedExchangeIndex processed = new ProcessedExchangeIndex(
+                new File(context.getFilesDir(), "reasonnotes-exchange-processed-v1.tsv"));
         for (IncomingDocument document : orderedDocuments(context, uri)) {
             String name = document.name();
+            if (processed.contains(name, document.modifiedUtc(), document.size())) continue;
+            int errorsBefore = errors.size();
+            int rejectedBefore = rejectedRevisions + rejectedReceipts;
+            boolean bytesRead = false;
             try {
                 scanned++;
                 byte[] data = read(context, document.uri());
+                bytesRead = true;
                 if (TransportBundle.isBundleFilename(name)) {
                     ScanReport bundle = applyTransportBundle(
                             data, name, repository, ledger, receiptStore,
@@ -248,8 +256,14 @@ public final class ExchangeDirectory {
                 }
             } catch (IOException | RuntimeException error) {
                 errors.add(name + ": " + error.getMessage());
+            } finally {
+                if (bytesRead && errors.size() == errorsBefore
+                        && rejectedRevisions + rejectedReceipts == rejectedBefore) {
+                    processed.record(name, document.modifiedUtc(), document.size());
+                }
             }
         }
+        processed.save();
         long finishedNs = System.nanoTime();
         Log.i(PERFORMANCE_TAG, "scan files=" + scanned
                 + " imported=" + imported + " duplicates=" + duplicates
@@ -280,7 +294,8 @@ public final class ExchangeDirectory {
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                DocumentsContract.Document.COLUMN_SIZE
         };
         ArrayList<IncomingDocument> documents = new ArrayList<>();
         try (Cursor cursor = context.getContentResolver().query(
@@ -290,6 +305,7 @@ public final class ExchangeDirectory {
             int nameIndex = cursor.getColumnIndexOrThrow(columns[1]);
             int typeIndex = cursor.getColumnIndex(columns[2]);
             int timeIndex = cursor.getColumnIndex(columns[3]);
+            int sizeIndex = cursor.getColumnIndex(columns[4]);
             while (cursor.moveToNext()) {
                 String id = cursor.getString(idIndex);
                 String name = cursor.getString(nameIndex);
@@ -300,9 +316,11 @@ public final class ExchangeDirectory {
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(type)) continue;
                 long modified = timeIndex < 0 || cursor.isNull(timeIndex)
                         ? 0 : cursor.getLong(timeIndex);
+                long size = sizeIndex < 0 || cursor.isNull(sizeIndex)
+                        ? -1 : cursor.getLong(sizeIndex);
                 documents.add(new IncomingDocument(
                         DocumentsContract.buildDocumentUriUsingTree(tree, id),
-                        name, modified));
+                        name, modified, size));
             }
         }
         documents.sort(Comparator
