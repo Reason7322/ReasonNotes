@@ -25,6 +25,7 @@ public final class ExchangeDirectory {
     private static final String PREFERENCES = "reasonnotes-exchange";
     private static final String TREE_KEY = "tree-uri";
     private static final String PERFORMANCE_TAG = "ReasonNotes.ReceivePerf";
+    private static final ExchangeScanGate SCAN_GATE = new ExchangeScanGate();
     private record IncomingDocument(Uri uri, String name, long modifiedUtc) {}
     private static final class ImportState {
         final Set<String> recordedImports = new HashSet<>();
@@ -115,6 +116,17 @@ public final class ExchangeDirectory {
      * foreground activity to refresh its list without waiting for old receipts.
      */
     public static ScanReport scan(
+            Context context,
+            ProbeRepository repository,
+            DeliveryLedger ledger,
+            ReceiptStore receiptStore,
+            String localDevice,
+            IntConsumer progress) {
+        return SCAN_GATE.run(() -> scanTransaction(
+                context, repository, ledger, receiptStore, localDevice, progress));
+    }
+
+    private static ScanReport scanTransaction(
             Context context,
             ProbeRepository repository,
             DeliveryLedger ledger,
