@@ -454,3 +454,44 @@ pin synchronization remain separate future tasks.
 - Keep transfer requests, KDE Connect completion, ReasonNotes import, and future
   receipt confirmation as separate evidence.
 - Never discard conflicting revisions or select a winner by timestamp.
+
+## Forge physical synchronization checkpoint — 2026-10-24
+
+Original acceptance remains: save/edit on Fedora and Android, explicit
+user-triggered transfer, two-version conflict choice, and deletion propagation
+in both directions with durable peer confirmation. Physical testing used only
+disposable notes and the isolated Fedora repository at
+`/home/reason/Temporary/ReasonNotes-Physical-Acceptance-d312682-6527405/`.
+
+Verified on the connected POCO with installed APK SHA-256
+`b985ee2d119d15de1e471f4bd63105157289960754611b9fa87e0a8b215fa3c3`:
+
+- Fedora create -> Android import -> Android receipt -> Fedora confirmation.
+- Android edit -> Fedora import -> Fedora receipts -> Android confirmation.
+- Independent edits produced two heads; Reason selected the Fedora version and
+  the resolution revision converged on both devices.
+- Fedora deletion propagated to Android and was durably confirmed by receipt.
+- Android deletion revision
+  `76826346641842125b663079d9b2a58b86087e733612bcaf789b06a203642092`
+  propagated to Fedora and removed the disposable note there.
+
+Two blocking defects were discovered and preserved without further live retry:
+
+1. Android stored Fedora's receipt for the Android-origin deletion, but the
+   tombstone had no corresponding transfer-requested delivery-ledger row, so
+   strict receipt validation could not confirm it. Runtime evidence shows
+   MainActivity and SyncActivity can perform overlapping exchange scans while
+   separate ledger instances use read/replace writes; this can lose a newly
+   recorded row.
+2. Android rescans the complete shared exchange directory on foreground/sync.
+   Measured scans processed 396-398 files and took 38.5-58.3 seconds each.
+   A read-only filename count later found 401 files: 346 standalone receipts,
+   41 Markdown/revision files, 11 JSON v1 bundles, and 3 other files. The owner
+   reports severe UI lag, including NEW NOTE.
+
+No source repair is included in this checkpoint. Proposed next implementation,
+pending design approval: serialize/coalesce process-wide scans, make ledger
+updates transactional across instances, and add a durable processed-carrier
+index so unchanged content-addressed files are not reread. A new APK must not
+be installed without separate approval of its exact hash. Personal notes were
+not transmitted, removed, or modified by the acceptance fixtures.
