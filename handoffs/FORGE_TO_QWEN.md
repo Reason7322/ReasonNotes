@@ -102,3 +102,18 @@ implemented. No migration test or product implementation exists yet.
 No APK build/install, app launch, personal-data migration, or synchronization
 occurred. Potential next action: continue Task 2 from this failing test by adding
 the minimal `CurrentNoteStore`, then migration tests/implementation.
+
+# Forge checkpoint — simplified sync v2 Task 2 complete
+
+Task 2 now implements `CurrentNoteStore` and `LegacyRepositoryMigrator`.
+Focused JDK 17/JUnit verification passes 10/10 tests: durable and coalesced
+current state, exact acknowledgment clearing, two-candidate conflict choice,
+content-free deletion fences, stale-carrier rejection, interrupted-pending
+recovery, live/conflict/deletion migration, interrupted staging rebuild, and
+safe refusal of malformed, missing-ancestry, and three-head legacy stores.
+
+Migration tests use synthetic `TemporaryFolder` roots only. No APK was built or
+installed, no app was launched, and no personal data was migrated or synced.
+The previously documented Android SDK and project Gradle cache were absent;
+therefore the focused tests were compiled and run directly with the retained
+JDK 17 and cached Gson/JUnit dependencies. Task 3 remains unstarted.

@@ -564,14 +564,24 @@ Verified Task 1 commits were Android `ee50f1a470924d13d1c3b4f5bbb596d1f726c10f`
 and Fedora `7de5e4678c671dcd6d6a8dc813b46d000f530ec7`, each mirrored to `handoff`
 and `github` before Task 2 began.
 
-Task 2 is intentionally checkpointed mid-RED. `CurrentNoteStoreTest.java`
-defines durable/coalesced local edits, two-version edit conflict resolution,
-permanent deletion with stale-carrier rejection, exact acknowledgment clearing,
-and interrupted-pending recovery. Its focused Gradle run fails because
-`CurrentNoteStore` does not exist yet; no store or migration implementation has
-been written. Continue by implementing the minimal Android current-state store,
-then add the synthetic-only legacy migration tests specified by the plan.
+Task 2 is complete at source and focused-test level. `CurrentNoteStore` now
+persists one live state and one coalesced pending state per note, stores exactly
+two complete edit-conflict candidates, creates exact outgoing acknowledgments,
+uses content-free durable deletion fences, rejects stale live carriers after
+deletion, and recovers a committed current write whose pending rename was
+interrupted. All records use fsynced temporary files and atomic replacement.
+
+`LegacyRepositoryMigrator` validates every legacy history file and ancestry,
+refuses malformed, incomplete, or more-than-two-head notes, rebuilds partial
+staging, reopens and compares the staged v2 store, atomically selects it, and
+only then erases the old synthetic root. Focused direct-JDK verification passed
+10/10 store and migration tests. The tests use only JUnit `TemporaryFolder`
+roots and contain no Android application-data references. The documented
+Android SDK and project Gradle cache were absent, so Gradle did not reach
+compilation; no APK build is claimed for Task 2.
 
 PRODUCT INCOMPLETE. No v2 application candidate was built, installed, launched,
-migrated, or synchronized. The currently installed Android application and all
-personal data remain on the previously accepted checkpoint.
+or synchronized, and no personal-data migration was run. The currently
+installed Android application and all personal data remain on the previously
+accepted checkpoint. Task 3 application/service integration is the next plan
+task, not part of this checkpoint.
