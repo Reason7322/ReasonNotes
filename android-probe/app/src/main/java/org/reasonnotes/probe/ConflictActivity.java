@@ -75,10 +75,8 @@ public final class ConflictActivity extends Activity {
             finish();
             return;
         }
-        ProbeRepository repository = ProbeRepository.open(new File(getFilesDir(), "probe-repository"));
-        service = new NoteService(
-                repository,
-                "android",
+        service = NoteService.openApplication(
+                getFilesDir(), "android",
                 () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
                 UUID::randomUUID);
         setContentView(buildContent());
@@ -207,7 +205,7 @@ public final class ConflictActivity extends Activity {
         status.setText("Revalidating current heads…");
         io.execute(() -> {
             try {
-                service.resolveConflict(inspected, revisionId);
+                service.resolveCurrentConflict(inspected, revisionId);
                 runOnUiThread(this::finish);
             } catch (NoteService.StaleConflictException stale) {
                 runOnUiThread(() -> render(
@@ -246,7 +244,7 @@ public final class ConflictActivity extends Activity {
                             runOnUiThread(() -> {
                                 if (!isFinishing() && !isDestroyed()) finish();
                             });
-                        } catch (ProbeRepository.StaleHeadsException stale) {
+                        } catch (NoteService.StaleConflictException stale) {
                             runOnUiThread(() -> {
                                 destructiveActionInFlight = false;
                                 status.setText("Conflict changed. Review its current revisions.");

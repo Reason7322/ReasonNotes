@@ -14,7 +14,7 @@ public final class BulkNoteDeletion {
     private BulkNoteDeletion() {}
 
     public static Result delete(NoteService service, Set<UUID> selected) {
-        ProbeRepository.BatchDeleteResult report = service.deleteNotes(selected);
+        NoteService.BatchDeleteResult report = service.deleteNotes(selected);
         return new Result(report.deleted(), report.skipped(), report.failed());
     }
 }

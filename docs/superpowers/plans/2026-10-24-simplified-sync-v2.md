@@ -93,12 +93,12 @@
 - Consumes `CurrentNoteStore` from Task 2.
 - Produces unchanged activity-facing `NoteService` behavior backed by current state rather than `ProbeRepository` graph scans.
 
-- [ ] Add failing tests proving launch listing reads only current records, repeated edits coalesce, edit/edit conflict exposes both complete versions, chosen content becomes pending, and deletion immediately removes all content.
-- [ ] Add a test proving deletion wins over a later stale upsert and no edit/delete conflict is created.
-- [ ] Adapt `NoteService` and activities without changing layout, labels, navigation, or editor behavior.
-- [ ] Run focused Android service/activity tests and verify they pass.
-- [ ] Add a performance contract using hundreds of synthetic legacy revisions but seven migrated current notes; assert v2 listing opens only current records and completes within the existing JVM budget.
-- [ ] Commit Task 3 on the Android branch.
+- [x] Add failing tests proving launch listing reads only current records, repeated edits coalesce, edit/edit conflict exposes both complete versions, chosen content becomes pending, and deletion immediately removes all content.
+- [x] Add a test proving deletion wins over a later stale upsert and no edit/delete conflict is created.
+- [x] Adapt `NoteService` and activities without changing layout, labels, navigation, or editor behavior.
+- [x] Run focused Android service/activity tests and verify they pass.
+- [x] Add a performance contract using hundreds of synthetic legacy revisions but seven migrated current notes; assert v2 listing opens only current records and completes within the existing JVM budget.
+- [x] Commit Task 3 on the Android branch.
 
 ### Task 4: Android v2 transport, acknowledgments, and understandable status
 

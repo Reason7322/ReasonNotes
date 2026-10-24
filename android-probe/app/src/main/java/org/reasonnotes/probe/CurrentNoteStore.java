@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 /** Durable current-state storage for simplified synchronization v2. */
@@ -62,6 +64,17 @@ public final class CurrentNoteStore {
         Objects.requireNonNull(noteId, "noteId");
         File file = stateFile(current, noteId);
         return file.isFile() ? readState(file) : null;
+    }
+
+    public synchronized Set<String> headIds(UUID noteId) {
+        Conflict value = conflict(noteId);
+        if (value != null) {
+            TreeSet<String> ids = new TreeSet<>();
+            value.candidates().forEach(candidate -> ids.add(candidate.changeId()));
+            return Set.copyOf(ids);
+        }
+        StateEnvelope state = get(noteId);
+        return state == null ? Set.of() : Set.of(state.changeId());
     }
 
     public synchronized StateEnvelope saveLocal(
@@ -181,6 +194,18 @@ public final class CurrentNoteStore {
         List<StateEnvelope> candidates = readStates(directory).stream()
                 .sorted(Comparator.comparing(StateEnvelope::changeId)).toList();
         return candidates.isEmpty() ? null : new Conflict(noteId, candidates);
+    }
+
+    public synchronized List<Conflict> conflicts() {
+        File[] directories = conflicts.listFiles(File::isDirectory);
+        if (directories == null) throw new IllegalStateException("cannot inspect conflicts");
+        java.util.Arrays.sort(directories, Comparator.comparing(File::getName));
+        ArrayList<Conflict> result = new ArrayList<>();
+        for (File directory : directories) {
+            Conflict value = conflict(UUID.fromString(directory.getName()));
+            if (value != null) result.add(value);
+        }
+        return List.copyOf(result);
     }
 
     void writeInterruptedLocalForTest(StateEnvelope state) {

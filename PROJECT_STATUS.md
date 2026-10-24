@@ -1,5 +1,33 @@
 # ReasonNotes — Project Status
 
+## Simplified synchronization v2 — Android Task 3 current-state application path (2026-10-24)
+
+The Android Home, Editor, conflict chooser, and bulk-deletion service path now
+use the Task 2 current-state store instead of reconstructing the immutable
+legacy revision graph for ordinary note operations. A guarded application
+opener performs the already-tested one-time staged migration and then opens
+only `reasonnotes-v2`. Repeated edits replace one current record and one pending
+state, conflicts retain both complete versions for explicit choice, and local
+deletion immediately erases note content while retaining only a content-free
+deletion fence and pending deletion operation. The editor no longer runs a
+post-open legacy-history reconciliation scan.
+
+The legacy `NoteService` constructor remains available only as a compatibility
+adapter for the not-yet-converted v1 transport and its tests. The old incoming
+receiver is deliberately disconnected after v2 activation; Task 4 must replace
+it with the v2 carrier/acknowledgment path before any APK can be built or
+deployed for product testing.
+
+Focused direct-JDK verification passes 34 tests covering current-state CRUD,
+restart, migration, two-version conflicts, selected resolution, independent
+bulk deletion, permanent deletion, stale-upsert rejection, legacy service
+compatibility, and listing seven current notes without touching 400 synthetic
+legacy files. Android Gradle compilation and APK assembly were not run because
+the previously documented SDK and project Gradle cache remain unavailable.
+No application was launched, no APK was built or installed, and no personal
+data was migrated or synchronized. Product completion still requires Tasks 4
+through 8 and separately authorized physical acceptance.
+
 ## Selectable pending deletions — 2026-10-24
 
 Physical testing confirmed Fedora creation/edit round-trip, durable receipts,

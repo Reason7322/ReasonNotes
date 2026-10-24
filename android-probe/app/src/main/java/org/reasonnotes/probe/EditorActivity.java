@@ -39,7 +39,7 @@ public final class EditorActivity extends Activity {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService debounce = Executors.newSingleThreadScheduledExecutor();
-    private ProbeRepository repository;
+    private CurrentNoteStore currentStore;
     private NoteService service;
     private DraftStore drafts;
     private UUID noteId;
@@ -68,13 +68,11 @@ public final class EditorActivity extends Activity {
         io.execute(() -> {
             if (isFinishing() || isDestroyed()) return;
             try {
-                repository = ProbeRepository.openForDisplay(
-                        new File(getFilesDir(), "probe-repository"));
-                service = new NoteService(
-                        repository,
-                        "android",
+                service = NoteService.openApplication(
+                        getFilesDir(), "android",
                         () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
                         UUID::randomUUID);
+                currentStore = service.currentStore();
                 drafts = new DraftStore(new File(getFilesDir(), "drafts"));
                 loadNoteOnWorker();
             } catch (RuntimeException error) {
@@ -233,7 +231,7 @@ public final class EditorActivity extends Activity {
                                 Set.of(draft.baseRevisionId()),
                                 draft.title(),
                                 draft.content()).revisionId(),
-                        () -> singleHeadOrConflictMarker(repository.headIds(noteId)),
+                        () -> singleHeadOrConflictMarker(currentStore.headIds(noteId)),
                         this::renderStatus);
                 ActiveDraftRegistry.register(autosave);
                 DraftStore.Recovery recovery = autosave.recovery();
@@ -283,17 +281,6 @@ public final class EditorActivity extends Activity {
         };
         title.addTextChangedListener(watcher);
         body.addTextChangedListener(watcher);
-        // Reconstruct generated views from immutable history *after* the
-        // editor is interactive. No disk work on the UI thread.
-        io.execute(() -> {
-            try { repository.reconcile(); }
-            catch (RuntimeException error) {
-                runOnUiThread(() -> {
-                    if (!isFinishing() && !isDestroyed())
-                        showWarning("Working-view recovery failed: " + error.getMessage());
-                });
-            }
-        });
         if (recovery.draft() == null) renderStatus(EditorAutosaveController.Status.SAVED);
         else renderStatus(recovery.safeToApply()
                 ? EditorAutosaveController.Status.DIRTY
@@ -363,7 +350,7 @@ public final class EditorActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> io.execute(() -> {
                     try {
-                        service.deleteNote(noteId, repository.headIds(noteId));
+                        service.deleteNote(noteId, currentStore.headIds(noteId));
                         ((ReasonNotesApplication) getApplication()).requestImmediatePoll();
                         runOnUiThread(() -> {
                             closing = true;

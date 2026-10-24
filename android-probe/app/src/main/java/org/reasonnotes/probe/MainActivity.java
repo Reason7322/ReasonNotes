@@ -88,15 +88,12 @@ public final class MainActivity extends Activity {
         localStatus.setText("Loading local history…");
         io.execute(() -> {
             try {
-                ProbeRepository opened = ProbeRepository.openForDisplay(
-                        new File(getFilesDir(), "probe-repository"));
-                NoteService openedService = new NoteService(
-                        opened, "android",
+                NoteService openedService = NoteService.openApplication(
+                        getFilesDir(), "android",
                         () -> Instant.now().truncatedTo(ChronoUnit.SECONDS),
                         UUID::randomUUID);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    repository = opened;
                     service = openedService;
                     updateSelectionUi();
                     renderNotes();
@@ -129,6 +126,9 @@ public final class MainActivity extends Activity {
      */
     private void checkIncomingOnResume() {
         if (incomingCheckInFlight) return;
+        // The v1 receiver is deliberately disconnected once current-state
+        // storage is active. Task 4 replaces it with the v2 receiver.
+        if (repository == null) return;
         if (ExchangeDirectory.savedTree(this) == null) {
             incomingStatus = null;
             return;
@@ -164,7 +164,7 @@ public final class MainActivity extends Activity {
 
     /** Called only for foreground remote deletions, on Android UI thread. */
     public void onRemotePurges(Set<UUID> ids) {
-        if (repository == null || service == null) return;
+        if (service == null) return;
         pins.clearPins(ids);
         selection.removeAll(ids);
         updateSelectionUi();
