@@ -1,5 +1,32 @@
 # ReasonNotes — Project Status
 
+## CHECKPOINT — Simplified synchronization v2 Android Task 4 WIP (2026-10-24)
+
+Task 4 is partially implemented and PRODUCT INCOMPLETE. The WIP extends the
+existing canonical carrier with `state-v2` and `ack-v2` items, adds pure v2
+carrier application, routes current-state pending notes and acknowledgments
+through a retryable coordinator path, and begins converting Android SAF receive,
+Home receive-on-resume, and Sync UI wiring away from historical delivery
+ledgers. Conflict candidates are excluded from outgoing state while independent
+pending notes continue; a chosen conflict resolution remains a normal pending
+state and therefore converges after peer import and acknowledgment.
+
+Focused direct-JDK verification passes 44 tests, including mixed v1/v2 carrier
+validation, durable state-before-ack processing, duplicate/reordered replay,
+independent progress, unlimited retry after rejected transfer requests,
+operation-scoped confirmation, conflict isolation, and the prior Task 2/3
+storage, migration, CRUD, conflict, and deletion contracts.
+
+This is a preservation checkpoint, not a completed Task 4 candidate. The
+modified Android Activity/SAF path has not been compiled. A project-local SDK
+platform was reconstructed from the retained Gradle transform to attempt the
+Android JVM suite, but Gradle could not start its required local daemon socket
+inside the sandbox (`java.net.SocketException: Operation not permitted`). No
+APK was assembled or installed; no application was launched; no personal data
+was migrated or synchronized. Continue by compiling the Activity/SAF wiring,
+fixing any integration errors, completing focused status contracts, running the
+Android JVM suite and `assembleDebug`, and only then marking Task 4 complete.
+
 ## Simplified synchronization v2 — Android Task 3 current-state application path (2026-10-24)
 
 The Android Home, Editor, conflict chooser, and bulk-deletion service path now

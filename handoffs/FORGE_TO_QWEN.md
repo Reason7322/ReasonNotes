@@ -1,5 +1,28 @@
 # Forge -> Qwen Handoff
 
+## 2026-10-24 checkpoint — simplified sync v2 Android Task 4 WIP
+
+- Original goal: save/edit on Fedora and Android, explicit Sync transfer,
+  complete two-version conflict choice, and permanent bidirectional deletion.
+- Incoming completed checkpoint: Task 3 at
+  `611fdc5058b1bde131821f180f6c88f412d06201`.
+- Current authorized milestone: Android Task 4 v2 transport,
+  acknowledgments, retryable pending state, and operation-scoped status.
+- WIP implemented: carrier kinds `state-v2`/`ack-v2`, pure current-state bundle
+  application, state-before-ack ordering, v1 revision read compatibility,
+  retryable current-state coordinator, ack clearing, independent-note progress,
+  SAF v2 scan overload, Home receive wiring, and initial SyncActivity v2 wiring.
+- Focused direct-JDK verification: 44 tests passed.
+- Not yet verified: Android Activity/SAF compilation, complete SyncActivity
+  contracts, full JVM suite, and APK assembly. The first Gradle attempt was
+  blocked before compilation because sandbox policy denied Gradle's daemon
+  server socket (`java.net.SocketException: Operation not permitted`).
+- Deployment/runtime: no APK build or install, no app launch, no migration of
+  personal data, and no synchronization.
+- Continuation: compile and repair the current Activity/SAF WIP, finish Task 4
+  status tests, run the Android suite and `assembleDebug`, then record the APK
+  hash. Do not start Fedora Task 5 from this checkpoint.
+
 ## 2026-10-23 Android JSON v1 launcher candidate
 
 - Original goal: reliable bidirectional synchronization with visible progress,

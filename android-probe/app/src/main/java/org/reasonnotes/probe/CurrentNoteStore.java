@@ -188,6 +188,31 @@ public final class CurrentNoteStore {
         }
     }
 
+    public synchronized boolean acknowledge(StateAckEnvelope ack) {
+        Objects.requireNonNull(ack, "ack");
+        if (!ack.destinationDevice().equals(deviceId))
+            throw new IllegalArgumentException("acknowledgment has wrong destination");
+        for (StateEnvelope state : pendingStates()) {
+            if (!state.changeId().equals(ack.acknowledgedChangeId())) continue;
+            if (!state.noteId().equals(ack.noteId()))
+                throw new IllegalArgumentException("acknowledgment note does not match change");
+            delete(stateFile(pending, state.noteId()));
+            return true;
+        }
+        return false;
+    }
+
+    public synchronized void markAcksRequested(List<StateAckEnvelope> acknowledgments) {
+        for (StateAckEnvelope ack : acknowledgments) {
+            delete(ackForChange(ack.acknowledgedChangeId()));
+        }
+    }
+
+    File pendingStateFile(UUID noteId) { return stateFile(pending, noteId); }
+    File outgoingAckFile(StateAckEnvelope ack) {
+        return ackForChange(ack.acknowledgedChangeId());
+    }
+
     public synchronized Conflict conflict(UUID noteId) {
         File directory = conflictDirectory(noteId);
         if (!directory.isDirectory()) return null;

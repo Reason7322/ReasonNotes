@@ -72,6 +72,8 @@ public final class SyncConfirmationRecord {
         }
     }
 
+    public void clear() { preferences.putString(KEY, ""); }
+
     private static boolean validRevisionId(String id) {
         return id != null && id.matches("[0-9a-f]{64}");
     }

@@ -127,6 +127,65 @@ public final class ExchangeDirectory {
                 context, repository, ledger, receiptStore, localDevice, progress));
     }
 
+    public static ScanReport scan(
+            Context context,
+            CurrentNoteStore store,
+            String localDevice,
+            IntConsumer progress) {
+        return SCAN_GATE.run(() -> scanCurrentTransaction(
+                context, store, localDevice, progress));
+    }
+
+    private static ScanReport scanCurrentTransaction(
+            Context context, CurrentNoteStore store, String localDevice, IntConsumer progress) {
+        Uri uri = savedTree(context);
+        if (uri == null) return new ScanReport(
+                0, 0, 0, 0, 0, 0, 0, 0, List.of("exchange directory not selected"));
+        DocumentFile directory = DocumentFile.fromTreeUri(context, uri);
+        if (directory == null || !directory.isDirectory()) return new ScanReport(
+                0, 0, 0, 0, 0, 0, 0, 0, List.of("saved exchange directory is unavailable"));
+        int imported = 0, duplicates = 0, confirmed = 0, queued = 0, rejected = 0, ignored = 0;
+        ArrayList<String> errors = new ArrayList<>();
+        ProcessedExchangeIndex processed = new ProcessedExchangeIndex(
+                new File(context.getFilesDir(), "reasonnotes-exchange-processed-v2.tsv"));
+        for (IncomingDocument document : orderedDocuments(context, uri)) {
+            if (processed.contains(document.name(), document.modifiedUtc(), document.size())) continue;
+            boolean successful = false;
+            try {
+                byte[] data = read(context, document.uri());
+                CurrentTransport.ScanReport report;
+                if (TransportBundle.isBundleFilename(document.name())) {
+                    report = CurrentTransport.applyBundle(
+                            data, document.name(), store, localDevice);
+                } else if (classify(data) == Kind.REVISION) {
+                    report = CurrentTransport.applyLegacyRevision(data, store, localDevice);
+                } else {
+                    ignored++;
+                    successful = true;
+                    continue;
+                }
+                imported += report.imported();
+                duplicates += report.duplicates();
+                confirmed += report.confirmed();
+                queued += report.acknowledgmentsQueued();
+                rejected += report.errors().size();
+                errors.addAll(report.errors().stream()
+                        .map(error -> document.name() + ": " + error).toList());
+                if (report.imported() > 0) progress.accept(imported);
+                successful = report.errors().isEmpty();
+            } catch (IOException | RuntimeException error) {
+                rejected++;
+                errors.add(document.name() + ": " + error.getMessage());
+            } finally {
+                if (successful) processed.record(
+                        document.name(), document.modifiedUtc(), document.size());
+            }
+        }
+        processed.save();
+        return new ScanReport(imported, duplicates, confirmed, 0, queued,
+                rejected, 0, ignored, List.copyOf(errors));
+    }
+
     private static ScanReport scanTransaction(
             Context context,
             ProbeRepository repository,

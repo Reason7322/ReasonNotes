@@ -11,7 +11,7 @@ import java.util.function.Supplier;
 
 /** Synchronous, testable scan-before-send transaction. Call it from a worker thread. */
 public final class SyncCoordinator {
-    public enum FileKind { REVISION, RECEIPT }
+    public enum FileKind { REVISION, RECEIPT, STATE, ACK }
     public record OutgoingFile(FileKind kind, String identity, File file) {
         public OutgoingFile {
             Objects.requireNonNull(kind, "kind");
@@ -35,6 +35,7 @@ public final class SyncCoordinator {
     }
 
     private final ProbeRepository repository;
+    private final CurrentNoteStore currentStore;
     private final DeliveryLedger ledger;
     private final ReceiptStore receipts;
     private final SyncPlanner planner;
@@ -55,6 +56,7 @@ public final class SyncCoordinator {
             TransferRequester requester,
             Supplier<Instant> clock) {
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.currentStore = null;
         this.ledger = Objects.requireNonNull(ledger, "ledger");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.planner = Objects.requireNonNull(planner, "planner");
@@ -65,8 +67,28 @@ public final class SyncCoordinator {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    public SyncCoordinator(
+            CurrentNoteStore currentStore,
+            String targetDevice,
+            DraftFlusher flusher,
+            IncomingScanner scanner,
+            TransferRequester requester,
+            Supplier<Instant> clock) {
+        this.repository = null;
+        this.currentStore = Objects.requireNonNull(currentStore, "currentStore");
+        this.ledger = null;
+        this.receipts = null;
+        this.planner = null;
+        this.targetDevice = Objects.requireNonNull(targetDevice, "targetDevice");
+        this.flusher = Objects.requireNonNull(flusher, "flusher");
+        this.scanner = Objects.requireNonNull(scanner, "scanner");
+        this.requester = Objects.requireNonNull(requester, "requester");
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
     public SyncStatus synchronize(OutgoingSelection selection, boolean retryUnconfirmed) {
         Objects.requireNonNull(selection, "selection");
+        if (currentStore != null) return synchronizeCurrent(selection);
         try {
             FlushEvidence flush = flusher.flush();
             if (!flush.saved()) return SyncStatus.error(flush.detail());
@@ -140,6 +162,56 @@ public final class SyncCoordinator {
         } catch (RuntimeException error) {
             String detail = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
             return SyncStatus.error(detail);
+        }
+    }
+
+    private SyncStatus synchronizeCurrent(OutgoingSelection selection) {
+        try {
+            FlushEvidence flush = flusher.flush();
+            if (!flush.saved()) return SyncStatus.error(flush.detail());
+            ScanEvidence scan = scanner.scan();
+            if (!scan.errors().isEmpty()) {
+                String detail = String.join("; ", scan.errors());
+                return new SyncStatus(SyncStatus.Phase.ERROR, 0, 0,
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(),
+                        scan.errors(), detail);
+            }
+
+            List<StateEnvelope> states = currentStore.pendingStates().stream()
+                    .filter(state -> selection.includes(state.noteId()))
+                    .filter(state -> currentStore.conflict(state.noteId()) == null)
+                    .toList();
+            List<StateAckEnvelope> acknowledgments = currentStore.pendingAcks();
+            ArrayList<OutgoingFile> files = new ArrayList<>();
+            for (StateEnvelope state : states) {
+                File file = currentStore.pendingStateFile(state.noteId());
+                if (!file.isFile()) return SyncStatus.error("pending note changed during sync");
+                files.add(new OutgoingFile(FileKind.STATE, state.changeId(), file));
+            }
+            for (StateAckEnvelope ack : acknowledgments) {
+                File file = currentStore.outgoingAckFile(ack);
+                if (!file.isFile()) return SyncStatus.error("pending acknowledgment changed during sync");
+                files.add(new OutgoingFile(FileKind.ACK, ack.ackId(), file));
+            }
+            if (files.isEmpty()) {
+                return new SyncStatus(SyncStatus.Phase.COMPLETE, 0, 0,
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), List.of(),
+                        "selected notes are synchronized");
+            }
+            RequestEvidence request = requester.request(List.copyOf(files));
+            if (!request.requested()) {
+                return new SyncStatus(SyncStatus.Phase.ERROR, 0, 0,
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(),
+                        List.of(request.detail()), request.detail());
+            }
+            currentStore.markAcksRequested(acknowledgments);
+            String requestedIds = states.stream().map(StateEnvelope::changeId)
+                    .sorted().collect(java.util.stream.Collectors.joining(","));
+            return new SyncStatus(SyncStatus.Phase.TRANSFER_REQUESTED,
+                    states.size(), acknowledgments.size(), scan.imported(), scan.confirmed(),
+                    scan.receiptsQueued(), List.of(), "waiting for peer confirmation: " + requestedIds);
+        } catch (RuntimeException error) {
+            return SyncStatus.error(error.getMessage());
         }
     }
 }

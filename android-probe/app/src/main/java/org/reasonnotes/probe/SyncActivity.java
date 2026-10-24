@@ -104,6 +104,7 @@ public final class SyncActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SyncPlanner planner;
     private ProbeRepository repository;
+    private CurrentNoteStore currentStore;
     private SyncCoordinator coordinator;
     private SelectionModel selection;
     private LinearLayout catalogueView;
@@ -289,34 +290,55 @@ public final class SyncActivity extends Activity {
     }
 
     private void initializeSync() {
-        File root = new File(getFilesDir(), "probe-repository");
-        // The picker only needs immutable history. Full derived-view repair is
-        // deferred until a real sync is requested, not before displaying notes.
-        ProbeRepository opened = ProbeRepository.openForDisplay(root);
-        DeliveryLedger ledger = new DeliveryLedger(deliveryStateDirectory(getFilesDir()), 3);
-        ReceiptStore receipts = new ReceiptStore(root, 3);
         AppPreferences preferences = new AppPreferences(new AndroidLocalPreferences(
                 getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
         String target = preferences.targetDeviceId();
-        String peer = preparePeerLedger(ledger, target);
-        deliveryLedger = ledger;
-        planner = new SyncPlanner(opened, ledger, receipts, "android", peer);
+        NoteService application = NoteService.openApplication(
+                getFilesDir(), "android",
+                () -> Instant.now().truncatedTo(ChronoUnit.SECONDS), UUID::randomUUID);
+        CurrentNoteStore store = application.currentStore();
         coordinator = new SyncCoordinator(
-                opened,
-                ledger,
-                receipts,
-                planner,
-                peer,
+                store,
+                LINUX_PEER,
                 ActiveDraftRegistry::flush,
                 () -> {
                     ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
-                            this, opened, ledger, receipts, "android");
+                            this, store, "android", ignored -> {});
                     return new SyncCoordinator.ScanEvidence(
                             report.imported(), report.confirmed(), report.receiptsQueued(), report.errors());
                 },
                 files -> requestTransfer(files, target),
                 () -> Instant.now().truncatedTo(ChronoUnit.SECONDS));
-        repository = opened;
+        currentStore = store;
+    }
+
+    private List<SyncPlanner.CatalogueItem> currentCatalogue() {
+        Map<UUID, StateEnvelope> pending = new HashMap<>();
+        currentStore.pendingStates().forEach(state -> pending.put(state.noteId(), state));
+        Map<UUID, SyncPlanner.CatalogueItem> items = new HashMap<>();
+        for (StateEnvelope state : currentStore.list()) {
+            boolean conflicted = currentStore.conflict(state.noteId()) != null;
+            items.put(state.noteId(), new SyncPlanner.CatalogueItem(
+                    state.noteId(), state.title().isEmpty() ? "Untitled" : state.title(),
+                    false, conflicted, state.modifiedUtc(),
+                    pending.containsKey(state.noteId()) ? "pending" : "confirmed"));
+        }
+        for (CurrentNoteStore.Conflict conflict : currentStore.conflicts()) {
+            if (items.containsKey(conflict.noteId())) continue;
+            StateEnvelope display = conflict.candidates().get(0);
+            items.put(conflict.noteId(), new SyncPlanner.CatalogueItem(
+                    conflict.noteId(), display.title().isEmpty() ? "Untitled" : display.title(),
+                    false, true, display.modifiedUtc(), "pending"));
+        }
+        for (StateEnvelope state : pending.values()) {
+            if (!state.operation().equals("delete")) continue;
+            items.put(state.noteId(), new SyncPlanner.CatalogueItem(
+                    state.noteId(), "Deleted note", true, false, state.modifiedUtc(), "pending"));
+        }
+        return items.values().stream()
+                .sorted(java.util.Comparator.comparing(SyncPlanner.CatalogueItem::modifiedUtc)
+                        .reversed().thenComparing(item -> item.noteId().toString()))
+                .toList();
     }
 
     private View buildContent() {
@@ -444,7 +466,7 @@ public final class SyncActivity extends Activity {
                 // Opening and reconciling the repository may require disk I/O.
                 // Build the visible UI first and initialize on the I/O worker.
                 initializeSync();
-                List<SyncPlanner.CatalogueItem> items = planner.catalogue();
+                List<SyncPlanner.CatalogueItem> items = currentCatalogue();
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     selection = restored == null
@@ -514,22 +536,25 @@ public final class SyncActivity extends Activity {
 
     private void pollIncomingConfirmations() {
         if (!activityVisible || syncInFlight || awaitingRevisionIds.isEmpty()
-                || confirmationPollInFlight || repository == null) return;
+                || confirmationPollInFlight || currentStore == null) return;
         confirmationPollInFlight = true;
         long generation = confirmationGeneration;
         Set<String> ids = awaitingRevisionIds;
         io.execute(() -> {
             RuntimeException failure = null;
             try {
-                ReceiptStore receipts = new ReceiptStore(repository.root(), 3);
-                ExchangeDirectory.scan(this, repository, deliveryLedger, receipts, "android");
+                ExchangeDirectory.scan(this, currentStore, "android", ignored -> {});
             } catch (RuntimeException error) {
                 failure = error;
             }
             CompletionEvidence evidence = CompletionEvidence.NEEDS_ATTENTION;
             if (failure == null) {
                 try {
-                    evidence = confirmationOf(ids, deliveryLedger.entries(LINUX_PEER));
+                    Set<String> pending = currentStore.pendingStates().stream()
+                            .map(StateEnvelope::changeId).collect(java.util.stream.Collectors.toSet());
+                    evidence = ids.stream().noneMatch(pending::contains)
+                            ? CompletionEvidence.CONFIRMED
+                            : CompletionEvidence.AWAITING_RECEIPT;
                 } catch (RuntimeException error) {
                     failure = error;
                 }
@@ -547,20 +572,9 @@ public final class SyncActivity extends Activity {
                     // Android session ended; never expire a pending checkpoint.
                     // Do not claim all historical notes are confirmed when
                     // other, older outgoing revisions remain pending.
-                    boolean allSelected = awaitingSelection != null
-                            && deliveryEvidence(repository.revisions(),
-                                    deliveryLedger.entries(LINUX_PEER), awaitingSelection)
-                                == CompletionEvidence.CONFIRMED;
-                    status.setText(allSelected
-                            ? "All selected notes synced ✅" : "Sent notes synced ✅");
+                    confirmationRecord.clear();
+                    status.setText("All selected notes synced ✅");
                     status.setTextColor(UiTokens.SUCCESS);
-                } else if (finalFailure == null
-                        && finalEvidence == CompletionEvidence.NEEDS_ATTENTION) {
-                    status.setText("Error: Some notes need attention ❌");
-                    status.setTextColor(UiTokens.DANGER);
-                    // Keep the checkpoint: a later valid receipt or explicit
-                    // retry may still settle the transfer.
-                    scheduleConfirmationPoll(CONFIRMATION_POLL_MS);
                 } else {
                     status.setText(finalFailure == null
                             ? "Waiting for computer confirmation…"
@@ -608,13 +622,15 @@ public final class SyncActivity extends Activity {
             CompletionEvidence completion = CompletionEvidence.NEEDS_ATTENTION;
             Set<String> requestedThisRun = Set.of();
             try {
-                repository.reconcile();
-                List<DeliveryLedger.Entry> before = deliveryLedger.entries(LINUX_PEER);
+                Set<String> operationIds = currentStore.pendingStates().stream()
+                        .filter(state -> outgoing.includes(state.noteId()))
+                        .map(StateEnvelope::changeId)
+                        .collect(java.util.stream.Collectors.toSet());
                 result = coordinator.synchronize(outgoing, retryUnconfirmed);
-                List<DeliveryLedger.Entry> after = deliveryLedger.entries(LINUX_PEER);
-                requestedThisRun = newlyRequested(before, after);
+                requestedThisRun = result.phase() == SyncStatus.Phase.TRANSFER_REQUESTED
+                        ? Set.copyOf(operationIds) : Set.of();
                 if (result.phase() == SyncStatus.Phase.COMPLETE) {
-                    completion = deliveryEvidence(repository.revisions(), after, outgoing);
+                    completion = CompletionEvidence.CONFIRMED;
                 }
             } catch (RuntimeException error) {
                 failure = error;
@@ -627,10 +643,12 @@ public final class SyncActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
                 syncInFlight = false;
                 if (finalFailure != null) {
-                    status.setText("Error: Sync failed ❌");
+                    status.setText("Transfer failed: " + finalFailure.getMessage());
                     status.setTextColor(UiTokens.DANGER);
                 } else {
-                    status.setText(conciseStatus(finalResult.phase(), finalCompletion));
+                    status.setText(finalResult.phase() == SyncStatus.Phase.ERROR
+                            ? "Transfer failed: " + finalResult.detail()
+                            : conciseStatus(finalResult.phase(), finalCompletion));
                     status.setTextColor(
                             finalResult.phase() == SyncStatus.Phase.ERROR
                             || (finalResult.phase() == SyncStatus.Phase.COMPLETE
@@ -664,7 +682,7 @@ public final class SyncActivity extends Activity {
             List<SyncCoordinator.OutgoingFile> files, String targetDevice) {
         try {
             File payload = createTransportPayload(
-                    new File(new File(getFilesDir(), "probe-repository"), "outgoing"),
+                    new File(new File(getFilesDir(), "reasonnotes-v2"), "outgoing"),
                     files);
             List<Uri> uris = List.of(FileProvider.getUriForFile(
                     this, getPackageName() + ".files", payload));
@@ -687,8 +705,12 @@ public final class SyncActivity extends Activity {
             if (Files.size(outgoing.file().toPath()) > TransportBundle.MAX_ENVELOPE_BYTES) {
                 throw new IOException("source envelope exceeds size limit: " + outgoing.identity());
             }
-            String kind = outgoing.kind() == SyncCoordinator.FileKind.RECEIPT
-                    ? "receipt" : "revision";
+            String kind = switch (outgoing.kind()) {
+                case RECEIPT -> "receipt";
+                case REVISION -> "revision";
+                case STATE -> "state-v2";
+                case ACK -> "ack-v2";
+            };
             items.add(new TransportBundle.Item(
                     kind, outgoing.identity(), Files.readAllBytes(outgoing.file().toPath())));
         }

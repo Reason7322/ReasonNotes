@@ -39,6 +39,11 @@ public final class IncomingReceive {
                 context, repository, ledger, receipts, "android", progress));
     }
 
+    public static ExchangeDirectory.ScanReport scanPhone(
+            Context context, CurrentNoteStore store, IntConsumer progress) {
+        return run(() -> ExchangeDirectory.scan(context, store, "android", progress));
+    }
+
     public static String status(ExchangeDirectory.ScanReport report) {
         String success = null;
         if (report.imported() > 0 && report.confirmed() > 0) {

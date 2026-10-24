@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService incomingIo = Executors.newSingleThreadExecutor();
     private boolean incomingCheckPending;
     private boolean incomingCheckInFlight;
-    private ProbeRepository repository;
+    private CurrentNoteStore currentStore;
     private NoteService service;
     private PinStore pins;
     private EditText search;
@@ -95,6 +95,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     service = openedService;
+                    currentStore = openedService.currentStore();
                     updateSelectionUi();
                     renderNotes();
                 });
@@ -128,7 +129,7 @@ public final class MainActivity extends Activity {
         if (incomingCheckInFlight) return;
         // The v1 receiver is deliberately disconnected once current-state
         // storage is active. Task 4 replaces it with the v2 receiver.
-        if (repository == null) return;
+        if (currentStore == null) return;
         if (ExchangeDirectory.savedTree(this) == null) {
             incomingStatus = null;
             return;
@@ -139,7 +140,7 @@ public final class MainActivity extends Activity {
         incomingIo.execute(() -> {
             try {
                 ExchangeDirectory.ScanReport report = IncomingReceive.scanPhone(
-                        this, repository, importedCount -> runOnUiThread(() -> {
+                        this, currentStore, importedCount -> runOnUiThread(() -> {
                             if (isFinishing() || isDestroyed()) return;
                             // Each new revision is already durable. Show it
                             // while older receipt files are still being scanned.

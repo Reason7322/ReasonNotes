@@ -202,7 +202,8 @@ public final class TransportBundle {
     }
 
     private static Validated validate(Item item) {
-        if (!item.kind.equals("receipt") && !item.kind.equals("revision")) {
+        if (!item.kind.equals("receipt") && !item.kind.equals("revision")
+                && !item.kind.equals("state-v2") && !item.kind.equals("ack-v2")) {
             throw new IllegalArgumentException("unsupported bundle item kind");
         }
         if (!IDENTITY.matcher(item.identity).matches()) {
@@ -212,9 +213,13 @@ public final class TransportBundle {
             throw new IllegalArgumentException("bundle envelope exceeds size limit");
         }
         String text = decode(item.envelope, "bundle envelope is not valid UTF-8");
-        String parsedIdentity = item.kind.equals("revision")
-                ? RevisionEnvelope.parse(item.envelope).revisionId()
-                : ReceiptEnvelope.parse(item.envelope).receiptId();
+        String parsedIdentity = switch (item.kind) {
+            case "revision" -> RevisionEnvelope.parse(item.envelope).revisionId();
+            case "receipt" -> ReceiptEnvelope.parse(item.envelope).receiptId();
+            case "state-v2" -> StateEnvelope.parse(item.envelope).changeId();
+            case "ack-v2" -> StateAckEnvelope.parse(item.envelope).ackId();
+            default -> throw new IllegalArgumentException("unsupported bundle item kind");
+        };
         if (!parsedIdentity.equals(item.identity)) {
             throw new IllegalArgumentException("bundle item identity differs from envelope");
         }
