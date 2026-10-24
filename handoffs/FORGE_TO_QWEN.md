@@ -77,3 +77,28 @@ performed. Physical Fedora/Android round-trip timing and durable receipt
 confirmation remain the separately authorized next stage. Do not deploy this
 candidate without that authorization, and do not use the protected recovery
 checkout for follow-up work.
+# Forge checkpoint — simplified sync v2 Task 2 RED
+
+Original goal: save/edit on Fedora and Android, explicit Sync transfer,
+two-version edit conflict choice, and permanent bidirectional deletion.
+
+Approved design and plan:
+
+- `docs/SIMPLIFIED_SYNC_V2_DESIGN_2026-10-24.md`
+- `docs/superpowers/plans/2026-10-24-simplified-sync-v2.md`
+
+Task 1 is complete cross-language: canonical `StateEnvelope` and
+`StateAckEnvelope` plus byte-identical Java/Python fixtures. Android suite passed;
+Fedora suite passed 296/296 with local-socket permission. Task 1 remote commits:
+Android `ee50f1a470924d13d1c3b4f5bbb596d1f726c10f`; Fedora
+`7de5e4678c671dcd6d6a8dc813b46d000f530ec7`.
+
+Current Android WIP is Task 2 RED only: `CurrentNoteStoreTest.java` expects
+durable current records, one coalesced pending state, edit/edit candidates,
+permanent content deletion, deletion fences, exact ack clearing, and interrupted
+pending recovery. The test fails because `CurrentNoteStore` is intentionally not
+implemented. No migration test or product implementation exists yet.
+
+No APK build/install, app launch, personal-data migration, or synchronization
+occurred. Potential next action: continue Task 2 from this failing test by adding
+the minimal `CurrentNoteStore`, then migration tests/implementation.

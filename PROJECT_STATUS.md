@@ -545,3 +545,33 @@ suite and `assembleDebug`. Candidate APK SHA-256:
 `6e2f4e72b7f4edaa97409150b35e41dcadc152482bbdc0f14ddbf0208cd2986e`
 (2,711,214 bytes). The candidate is not installed; actual NEW NOTE latency on
 the POCO remains the physical acceptance gate.
+
+## Simplified synchronization v2 checkpoint — 2026-10-24
+
+Reason approved replacing history-wide normal operation with the bounded v2
+design in `docs/SIMPLIFIED_SYNC_V2_DESIGN_2026-10-24.md`; the executable plan
+is `docs/superpowers/plans/2026-10-24-simplified-sync-v2.md`. The proven JSON
+bundle/KDE Connect path remains, while normal state becomes one current record
+per note, one coalesced pending change, temporary edit/edit conflict candidates,
+exact acknowledgments, and content-free deletion fences. Deletion permanently
+erases recoverable note content and wins over edits.
+
+Task 1 is complete in both repositories. Java and Python canonical v2 state and
+acknowledgment records share byte-identical fixtures and reject tampering;
+deletion records contain no title/body. Android full JVM tests passed. Fedora
+full suite passed 296/296 when run outside the socket-restricted sandbox.
+Verified Task 1 commits were Android `ee50f1a470924d13d1c3b4f5bbb596d1f726c10f`
+and Fedora `7de5e4678c671dcd6d6a8dc813b46d000f530ec7`, each mirrored to `handoff`
+and `github` before Task 2 began.
+
+Task 2 is intentionally checkpointed mid-RED. `CurrentNoteStoreTest.java`
+defines durable/coalesced local edits, two-version edit conflict resolution,
+permanent deletion with stale-carrier rejection, exact acknowledgment clearing,
+and interrupted-pending recovery. Its focused Gradle run fails because
+`CurrentNoteStore` does not exist yet; no store or migration implementation has
+been written. Continue by implementing the minimal Android current-state store,
+then add the synthetic-only legacy migration tests specified by the plan.
+
+PRODUCT INCOMPLETE. No v2 application candidate was built, installed, launched,
+migrated, or synchronized. The currently installed Android application and all
+personal data remain on the previously accepted checkpoint.
