@@ -82,7 +82,7 @@ public final class CurrentNoteStore {
         if (fenceFile(noteId).isFile()) throw new IllegalStateException("deleted note cannot be edited");
         if (conflict(noteId) != null) throw new IllegalStateException("conflict must be resolved first");
         StateEnvelope existing = get(noteId);
-        List<String> parents = existing == null ? List.of() : List.of(existing.changeId());
+        List<String> parents = localParents(noteId, existing);
         StateEnvelope state = StateEnvelope.createUpsert(
                 noteId, parents, deviceId, modifiedUtc, title, body);
         commitLocal(state);
@@ -119,6 +119,7 @@ public final class CurrentNoteStore {
         }
         if (incoming.parentChangeIds().contains(local.changeId())) {
             durableWrite(stateFile(current, noteId), incoming.serialize());
+            delete(stateFile(pending, noteId));
             clearConflict(noteId);
             queueAck(incoming);
             return new ApplyOutcome("applied", incoming.changeId());
@@ -129,7 +130,9 @@ public final class CurrentNoteStore {
             queueAck(incoming);
             return new ApplyOutcome("conflict", incoming.changeId());
         }
-        return new ApplyOutcome("needs-attention", incoming.changeId());
+        writeConflict(local, incoming);
+        queueAck(incoming);
+        return new ApplyOutcome("conflict", incoming.changeId());
     }
 
     public synchronized StateEnvelope resolve(
@@ -156,7 +159,7 @@ public final class CurrentNoteStore {
         Conflict value = conflict(noteId);
         ArrayList<String> parents = new ArrayList<>();
         if (value != null) value.candidates().forEach(item -> parents.add(item.changeId()));
-        else if (live != null) parents.add(live.changeId());
+        else if (live != null) parents.addAll(localParents(noteId, live));
         StateEnvelope deletion = StateEnvelope.createDeletion(
                 noteId, parents.stream().distinct().sorted().toList(), deviceId, modifiedUtc);
         persistDeletion(deletion, true);
@@ -270,6 +273,12 @@ public final class CurrentNoteStore {
         durableWrite(staged, state.serialize());
         durableWrite(stateFile(current, state.noteId()), state.serialize());
         move(staged, stateFile(pending, state.noteId()));
+    }
+
+    private List<String> localParents(UUID noteId, StateEnvelope currentState) {
+        StateEnvelope pendingState = readOptional(stateFile(pending, noteId));
+        if (pendingState != null) return pendingState.parentChangeIds();
+        return currentState == null ? List.of() : List.of(currentState.changeId());
     }
 
     private void persistDeletion(StateEnvelope deletion, boolean outgoing) {

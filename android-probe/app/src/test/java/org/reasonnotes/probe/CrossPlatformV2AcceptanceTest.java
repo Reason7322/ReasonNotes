@@ -139,6 +139,7 @@ public final class CrossPlatformV2AcceptanceTest {
         CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("android"));
         assertEquals(values.created, store.saveLocal(
                 NOTE, "Shared", "base", T0));
+        store.acknowledge(values.created.changeId());
         assertEquals(values.androidEdit, store.saveLocal(
                 NOTE, "Shared", "Android edit", T0.plusSeconds(120)));
 

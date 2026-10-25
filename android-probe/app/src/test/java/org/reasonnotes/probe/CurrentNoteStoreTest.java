@@ -29,7 +29,46 @@ public final class CurrentNoteStoreTest {
         CurrentNoteStore reopened = CurrentNoteStore.open(root, "android");
         assertEquals(second, reopened.get(NOTE));
         assertEquals(List.of(second), reopened.pendingStates());
-        assertEquals(List.of(first.changeId()), second.parentChangeIds());
+        assertEquals(first.parentChangeIds(), second.parentChangeIds());
+    }
+
+    @Test public void repeatedPendingAutosavesRemainOneBoundedDescendant() throws Exception {
+        StateEnvelope base = StateEnvelope.createUpsert(
+                NOTE, List.of(), "linux", NOW, "Base", "A");
+        CurrentNoteStore android = CurrentNoteStore.open(
+                temporary.newFolder("coalesced-android"), "android");
+        CurrentNoteStore linux = CurrentNoteStore.open(
+                temporary.newFolder("coalesced-linux"), "linux");
+        assertEquals("applied", android.apply(base).kind());
+        StateEnvelope linuxBase = linux.saveLocal(NOTE, "Base", "A", NOW);
+        linux.acknowledge(linuxBase.changeId());
+        assertEquals(base, linuxBase);
+
+        StateEnvelope middle = android.saveLocal(
+                NOTE, "Middle", "B", NOW.plusSeconds(1));
+        StateEnvelope latest = android.saveLocal(
+                NOTE, "Latest", "C", NOW.plusSeconds(2));
+
+        assertEquals(List.of(base.changeId()), middle.parentChangeIds());
+        assertEquals(List.of(base.changeId()), latest.parentChangeIds());
+        assertEquals("applied", linux.apply(latest).kind());
+        assertEquals(latest, linux.get(NOTE));
+
+        StateEnvelope deletion = android.deleteLocal(NOTE, NOW.plusSeconds(3));
+        assertEquals(List.of(base.changeId()), deletion.parentChangeIds());
+    }
+
+    @Test public void validUnknownAncestryBecomesExplicitConflict() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(
+                temporary.newFolder("unknown-ancestry"), "linux");
+        StateEnvelope local = store.saveLocal(NOTE, "Local", "complete local", NOW);
+        store.acknowledge(local.changeId());
+        StateEnvelope remote = StateEnvelope.createUpsert(
+                NOTE, List.of("a".repeat(64)), "android", NOW.plusSeconds(1),
+                "Remote", "complete remote");
+
+        assertEquals("conflict", store.apply(remote).kind());
+        assertEquals(2, store.conflict(NOTE).candidates().size());
     }
 
     @Test public void concurrentEditsPreserveBothCompleteVersionsUntilResolution() throws Exception {
