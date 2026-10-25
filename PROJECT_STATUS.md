@@ -771,3 +771,17 @@ authorization to install this exact hash, enable its special access once, then
 verify import, durable acknowledgment return, and the rest of physical Sync v2
 acceptance. No personal notes, phone data, KDE Connect configuration, desktop
 installation or production files were changed by this implementation.
+
+## Bounded autosave ancestry repair — 2026-10-25
+
+Sequential pending autosaves now retain their original parent set, so A -> B
+-> C sends bounded C as a direct descendant of A. Valid complete states with
+unorderable ancestry become explicit conflicts instead of `needs-attention`;
+superseding imports clear obsolete pending state. Genuine sibling conflicts
+remain protected. TDD reproduced the physical failure before implementation;
+all 207 Android JVM tests pass.
+
+Candidate:
+`/home/reason/Temporary/ReasonNotes-Sync-v2-Coalesced-Candidates/android/ReasonNotes-Android-coalesced-8f3d4f1.apk`, SHA-256
+`8f3d4f1513139b4ccbfe61d3e91baa0c8ed804b7ffe9fb9047d443e1e034fb96`.
+It has not been installed. Physical confirmation remains pending.

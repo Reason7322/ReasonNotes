@@ -240,3 +240,10 @@ Package/signature/icon remain compatible; All files permission is packaged.
 No install or phone mutation occurred. Next potential action requires Reason's
 explicit authorization for this exact APK hash, followed by enabling special
 access and resuming the single disposable physical round trip.
+
+# Bounded autosave ancestry repair
+
+Pending autosaves now coalesce against their original synchronized base;
+complete unknown ancestry becomes an explicit conflict. Android: 207 JVM tests
+PASS. Candidate SHA-256: `8f3d4f1513139b4ccbfe61d3e91baa0c8ed804b7ffe9fb9047d443e1e034fb96`.
+Not installed; physical acceptance pending.
