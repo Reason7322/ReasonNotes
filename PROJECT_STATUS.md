@@ -694,3 +694,37 @@ required before touching the POCO. Physical transfer, durable acknowledgments,
 conflict UI, deletion convergence, retry, restart persistence, and performance
 remain unverified. See
 `docs/SIMPLIFIED_SYNC_V2_OFFLINE_ACCEPTANCE_2026-10-24.md`.
+
+## Direct exchange access partial checkpoint — 2026-10-25
+
+Physical Sync v2 testing proved KDE Connect delivery of the single disposable
+`sync-v2-roundtrip` carrier, but Android's SAF receiver did not enumerate it.
+The exact 626-byte carrier is present in `/storage/emulated/0/ReasonNotes
+Exchange` and MediaStore exposes it as row `1000014125`; Android ran incoming
+scans at 12:53 and 13:04 without importing it or queuing an acknowledgment.
+The persisted SAF grant is valid, while Google DocumentsUI v17 refuses every
+replacement folder on this POCO. No personal note was transmitted by this
+test and Sync all was not pressed.
+
+Reason approved replacing SAF as the normal receive path with Android All
+files access, constrained in application code to the fixed `ReasonNotes
+Exchange` directory, plus removal of the obsolete Android foreground-deletion
+pairing controls. The approved design and executable plan are:
+
+- `docs/superpowers/specs/2026-10-25-direct-exchange-access-design.md`
+- `docs/superpowers/plans/2026-10-25-direct-exchange-access.md`
+
+Task 1 is partially complete. `SharedExchangeDirectory` directly scans only an
+explicit directory, reuses canonical carrier validation/current-state apply,
+queues exact acknowledgments, reports malformed carriers, and durably skips
+successfully processed files. `IncomingReceive` selects it only when Android
+reports All files access; otherwise the existing SAF path remains. Focused TDD
+verification passed both scanner tests after the expected missing-class RED.
+
+PRODUCT INCOMPLETE. Manifest permission, user-facing special-access Settings
+action, obsolete pairing-control removal, broader verification, APK build and
+artifact identity remain unimplemented. No new APK was built or installed and
+no phone data, grants, KDE Connect settings, notes, or ledgers were modified by
+the source work. Resume with Task 2's Settings/manifest RED tests; do not repeat
+the completed physical diagnosis or Task 1 focused test without contrary
+evidence.

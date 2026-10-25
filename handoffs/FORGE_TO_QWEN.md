@@ -200,3 +200,21 @@ KDE Connect operation, or physical synchronization occurred.
 - No install, launch, phone migration, KDE Connect operation, or physical sync.
 - First launch's one-way legacy migration requires a fresh recovery gate.
   Physical product acceptance remains pending.
+
+# Forge checkpoint — direct exchange access Task 1 partial
+
+Physical evidence established that KDE Connect and MediaStore see the exact
+disposable carrier, while Android SAF does not enumerate it despite a valid
+persisted tree grant; DocumentsUI v17 refuses every replacement folder. Reason
+approved a direct fixed-directory receiver using All files access and removal
+of obsolete Android deletion-pairing settings.
+
+Added the approved design/plan, `SharedExchangeDirectory`, its focused tests,
+and the All-files-access selection branch in `IncomingReceive`. Focused TDD:
+expected RED for the absent scanner, then 2/2 PASS. This checkpoint is
+intentionally partial: manifest permission, Settings action/cleanup, full
+verification, build and candidate identity are not done. No APK was built or
+installed and no application data or synchronization state was changed.
+
+Resume the same authorized milestone at Task 2 by adding Settings/manifest RED
+tests first. Do not redo Task 1 or the physical SAF diagnosis.

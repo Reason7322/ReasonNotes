@@ -1,6 +1,8 @@
 package org.reasonnotes.probe;
 
 import android.content.Context;
+import android.os.Build;
+import android.os.Environment;
 import java.io.File;
 import java.util.function.IntConsumer;
 
@@ -41,6 +43,15 @@ public final class IncomingReceive {
 
     public static ExchangeDirectory.ScanReport scanPhone(
             Context context, CurrentNoteStore store, IntConsumer progress) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && Environment.isExternalStorageManager()) {
+            File directory = new File(
+                    Environment.getExternalStorageDirectory(), "ReasonNotes Exchange");
+            File processed = new File(
+                    context.getFilesDir(), "reasonnotes-exchange-processed-v1.tsv");
+            return run(() -> SharedExchangeDirectory.scan(
+                    directory, processed, store, "android", progress));
+        }
         return run(() -> ExchangeDirectory.scan(context, store, "android", progress));
     }
 
