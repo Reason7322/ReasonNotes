@@ -2,15 +2,18 @@ package org.reasonnotes.probe;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
-import android.text.InputType;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -31,9 +34,6 @@ public final class SettingsActivity extends Activity {
     private static final int TREE_REQUEST = 41;
     private static final String STATE_DEVICE_EDITOR = "device-editor-open";
     private static final String STATE_DEVICE_DRAFT = "device-editor-draft";
-    private static final String STATE_PURGE_EDITOR = "purge-editor-open";
-    private static final String STATE_IP_DRAFT = "purge-ip-draft";
-    private static final String STATE_KEY_DRAFT = "purge-key-draft";
 
     private AppPreferences preferences;
     private TextView exchangeState;
@@ -46,17 +46,21 @@ public final class SettingsActivity extends Activity {
     private TextView orderingState;
     private EditText deviceId;
     private LinearLayout deviceEditor;
-    private LinearLayout purgeEditor;
-    private EditText computerIp;
-    private EditText pairingKey;
-    private TextView purgeState;
 
     public static List<String> sectionTitles() {
         return List.of("Appearance", "Sync", "Connection", "Notes");
     }
 
     public static List<String> syncFoundationActions() {
-        return List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device");
+        return List.of("Sync all notes", "Choose notes to sync", "Storage access", "Target device");
+    }
+
+    public static List<String> connectionActions() {
+        return List.of("Storage access", "Target device");
+    }
+
+    public static String storageAccessStatus(boolean granted) {
+        return granted ? "Access enabled" : "Tap to allow access";
     }
 
     public static List<AppPreferences.NoteOrder> orderChoices() {
@@ -94,13 +98,6 @@ public final class SettingsActivity extends Activity {
             deviceId.setText(state.getString(STATE_DEVICE_DRAFT,
                     preferences.targetDeviceId()));
         }
-        if (state != null && state.getBoolean(STATE_PURGE_EDITOR, false)) {
-            purgeEditor.setVisibility(View.VISIBLE);
-            computerIp.setText(state.getString(STATE_IP_DRAFT,
-                    ForegroundPurgeClient.settings(this).host()));
-            pairingKey.setText(state.getString(STATE_KEY_DRAFT,
-                    ForegroundPurgeClient.settings(this).key()));
-        }
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -109,10 +106,6 @@ public final class SettingsActivity extends Activity {
         if (deviceId != null) {
             state.putString(STATE_DEVICE_DRAFT, deviceId.getText().toString());
         }
-        state.putBoolean(STATE_PURGE_EDITOR,
-                purgeEditor != null && purgeEditor.getVisibility() == View.VISIBLE);
-        if (computerIp != null) state.putString(STATE_IP_DRAFT, computerIp.getText().toString());
-        if (pairingKey != null) state.putString(STATE_KEY_DRAFT, pairingKey.getText().toString());
         super.onSaveInstanceState(state);
     }
 
@@ -183,8 +176,8 @@ public final class SettingsActivity extends Activity {
 
         content.addView(sectionTitle("Connection"));
         LinearLayout connection = card();
-        folderRow = actionRow(R.drawable.ic_note_folder, "Exchange folder",
-                "Checking…", this::chooseTree);
+        folderRow = actionRow(R.drawable.ic_note_folder, "Storage access",
+                "Checking…", this::requestStorageAccess);
         exchangeState = (TextView) ((LinearLayout) folderRow.getChildAt(1)).getChildAt(1);
         connection.addView(folderRow);
         connection.addView(divider());
@@ -195,19 +188,6 @@ public final class SettingsActivity extends Activity {
         deviceEditor = buildDeviceEditor();
         deviceEditor.setVisibility(View.GONE);
         connection.addView(deviceEditor);
-        connection.addView(divider());
-        LinearLayout pairRow = actionRow(R.drawable.ic_note_sync,
-                "Automatic deletions", "Only while ReasonNotes is open",
-                this::togglePurgeEditor);
-        purgeState = (TextView) ((LinearLayout) pairRow.getChildAt(1)).getChildAt(1);
-        ForegroundPurgeClient.Settings linked = ForegroundPurgeClient.settings(this);
-        purgeState.setText(ForegroundPurgeClient.validLanIp(linked.host())
-                && ForegroundPurgeClient.validKey(linked.key())
-                ? "Paired computer · active while app is open" : "Tap to pair with Fedora");
-        connection.addView(pairRow);
-        purgeEditor = buildPurgeEditor();
-        purgeEditor.setVisibility(View.GONE);
-        connection.addView(purgeEditor);
         content.addView(connection, matchWrap());
 
         content.addView(sectionTitle("Notes"));
@@ -305,98 +285,6 @@ public final class SettingsActivity extends Activity {
         return container;
     }
 
-    private LinearLayout buildPurgeEditor() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(8), dp(16), dp(16));
-        TextView description = text(
-                "In Fedora ReasonNotes, open Settings and copy the computer "
-                + "address and private pairing key. Deletion sync stops when "
-                + "ReasonNotes is closed on either device.",
-                13, UiTokens.TEXT_SECONDARY);
-        panel.addView(description, matchWrap());
-
-        TextView ipLabel = text("Fedora computer IPv4 address", 13, UiTokens.TEXT_SECONDARY);
-        LinearLayout.LayoutParams ipLabelParams = matchWrap();
-        ipLabelParams.topMargin = dp(12);
-        panel.addView(ipLabel, ipLabelParams);
-
-        computerIp = new EditText(this);
-        computerIp.setSingleLine(true);
-        computerIp.setText(ForegroundPurgeClient.settings(this).host());
-        computerIp.setTextSize(15);
-        computerIp.setTextColor(UiTokens.TEXT);
-        computerIp.setHint("192.168.1.10");
-        computerIp.setHintTextColor(UiTokens.TEXT_SECONDARY);
-        computerIp.setInputType(InputType.TYPE_CLASS_PHONE);
-        computerIp.setMinHeight(dp(48));
-        computerIp.setPadding(dp(12), 0, dp(12), 0);
-        computerIp.setBackground(UiTokens.surface(this, UiTokens.BACKGROUND));
-        panel.addView(computerIp, matchWrap());
-
-        TextView keyLabel = text("Private pairing key", 13, UiTokens.TEXT_SECONDARY);
-        LinearLayout.LayoutParams keyLabelParams = matchWrap();
-        keyLabelParams.topMargin = dp(12);
-        panel.addView(keyLabel, keyLabelParams);
-
-        pairingKey = new EditText(this);
-        pairingKey.setSingleLine(true);
-        pairingKey.setText(ForegroundPurgeClient.settings(this).key());
-        pairingKey.setTextSize(14);
-        pairingKey.setTextColor(UiTokens.TEXT);
-        pairingKey.setHint("Paste pairing key from Fedora");
-        pairingKey.setHintTextColor(UiTokens.TEXT_SECONDARY);
-        pairingKey.setSelectAllOnFocus(true);
-        pairingKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        pairingKey.setMinHeight(dp(48));
-        pairingKey.setPadding(dp(12), 0, dp(12), 0);
-        pairingKey.setBackground(UiTokens.surface(this, UiTokens.BACKGROUND));
-        panel.addView(pairingKey, matchWrap());
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        Button cancel = actionButton("Cancel", false);
-        cancel.setOnClickListener(view -> purgeEditor.setVisibility(View.GONE));
-        actions.addView(cancel, new LinearLayout.LayoutParams(dp(96), dp(44)));
-        Button save = actionButton("Pair", true);
-        save.setOnClickListener(view -> savePurgePairing());
-        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(dp(96), dp(44));
-        saveParams.leftMargin = dp(8);
-        actions.addView(save, saveParams);
-        LinearLayout.LayoutParams actionParams = matchWrap();
-        actionParams.topMargin = dp(12);
-        panel.addView(actions, actionParams);
-        return panel;
-    }
-
-    private void togglePurgeEditor() {
-        if (purgeEditor.getVisibility() == View.VISIBLE) {
-            purgeEditor.setVisibility(View.GONE);
-        } else {
-            ForegroundPurgeClient.Settings linked = ForegroundPurgeClient.settings(this);
-            computerIp.setText(linked.host());
-            pairingKey.setText(linked.key());
-            purgeEditor.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void savePurgePairing() {
-        try {
-            ForegroundPurgeClient.configure(this,
-                    computerIp.getText().toString().trim(),
-                    pairingKey.getText().toString().trim());
-            purgeEditor.setVisibility(View.GONE);
-            purgeState.setText("Paired computer · active while app is open");
-            Toast.makeText(this, "Deletion sync pairing saved", Toast.LENGTH_SHORT).show();
-        } catch (IllegalArgumentException | IllegalStateException error) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Check pairing details")
-                    .setMessage(error.getMessage())
-                    .setPositiveButton("OK", null)
-                    .show();
-        }
-    }
-
     private void toggleDeviceEditor() {
         if (deviceEditor.getVisibility() == View.VISIBLE) {
             deviceId.setText(preferences.targetDeviceId());
@@ -472,6 +360,25 @@ public final class SettingsActivity extends Activity {
         startActivityForResult(intent, TREE_REQUEST);
     }
 
+    private void requestStorageAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            chooseTree();
+            return;
+        }
+        if (Environment.isExternalStorageManager()) {
+            Toast.makeText(this, "Storage access is already enabled", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        }
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == TREE_REQUEST && resultCode == RESULT_OK && data != null
@@ -483,11 +390,13 @@ public final class SettingsActivity extends Activity {
 
     private void refreshExchangeState() {
         if (exchangeState == null) return;
-        Uri value = ExchangeDirectory.savedTree(this);
-        String status = exchangeStatus(value == null ? null : value.toString());
+        boolean granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? Environment.isExternalStorageManager()
+                : ExchangeDirectory.savedTree(this) != null;
+        String status = storageAccessStatus(granted);
         exchangeState.setText(status);
         if (folderRow != null) {
-            folderRow.setContentDescription("Exchange folder. " + status);
+            folderRow.setContentDescription("Storage access. " + status);
         }
     }
 

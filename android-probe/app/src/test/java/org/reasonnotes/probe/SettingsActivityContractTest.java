@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.Test;
 
@@ -12,11 +15,29 @@ public final class SettingsActivityContractTest {
     public void settingsExposeOnlyImplementedGroupsAndActions() {
         assertEquals(List.of("Appearance", "Sync", "Connection", "Notes"), SettingsActivity.sectionTitles());
         assertEquals(
-                List.of("Sync all notes", "Choose notes to sync", "Exchange directory", "Target device"),
+                List.of("Sync all notes", "Choose notes to sync", "Storage access", "Target device"),
                 SettingsActivity.syncFoundationActions());
         assertFalse(SettingsActivity.sectionTitles().contains("About"));
         assertFalse(SettingsActivity.sectionTitles().contains("Privacy"));
         assertFalse(SettingsActivity.sectionTitles().contains("Sync pinned status across devices"));
+    }
+
+    @Test
+    public void connectionUsesDirectStorageAndHasNoLegacyDeletionPairing() {
+        assertEquals(List.of("Storage access", "Target device"),
+                SettingsActivity.connectionActions());
+        assertEquals("Access enabled", SettingsActivity.storageAccessStatus(true));
+        assertEquals("Tap to allow access", SettingsActivity.storageAccessStatus(false));
+        assertFalse(SettingsActivity.connectionActions().contains("Automatic deletions"));
+    }
+
+    @Test
+    public void manifestDeclaresAllFilesAccessForFixedExchangeDirectory() throws Exception {
+        String manifest = new String(
+                Files.readAllBytes(Path.of("src/main/AndroidManifest.xml")),
+                StandardCharsets.UTF_8);
+        assertTrue(manifest.contains(
+                "android.permission.MANAGE_EXTERNAL_STORAGE"));
     }
 
     @Test

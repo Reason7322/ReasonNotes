@@ -728,3 +728,46 @@ no phone data, grants, KDE Connect settings, notes, or ledgers were modified by
 the source work. Resume with Task 2's Settings/manifest RED tests; do not repeat
 the completed physical diagnosis or Task 1 focused test without contrary
 evidence.
+
+## Direct exchange access implementation complete — 2026-10-25
+
+The approved direct receive path is implemented. On Android 11 and newer,
+`IncomingReceive` uses All files access to scan only the fixed
+`/storage/emulated/0/ReasonNotes Exchange` directory; without that special
+access it safely retains the existing SAF compatibility path. The scanner
+reuses canonical bundle validation and current-state application, queues exact
+acknowledgments, reports malformed carriers, and persists successful file
+fingerprints to prevent replay work.
+
+Android Settings now exposes a single `Storage access` action/status that opens
+the application-specific All files access screen. The obsolete foreground LAN
+deletion pairing controls are removed from the UI; normal JSON synchronization
+remains responsible for deletion propagation. The fixed KDE Connect computer
+target and all unrelated settings remain.
+
+TDD evidence:
+
+- `SharedExchangeDirectoryTest`: expected missing-class RED, then 2/2 PASS for
+  canonical import/ack, unrelated-file handling, durable replay skipping and
+  malformed-carrier rejection.
+- `SettingsActivityContractTest`: expected missing API RED, then PASS for the
+  new storage action/status, manifest permission and absence of legacy pairing.
+- Final Android JVM suite: 205 tests PASS.
+- `assembleDebug`: PASS.
+
+Candidate APK:
+
+- `/home/reason/Temporary/ReasonNotes-Sync-v2-Candidates/android/ReasonNotes-Android-Sync-v2-direct-exchange-6d412f4.apk`
+- SHA-256 `6d412f4b0c6feef5c7186c9f68e6acbaa6de5f4383d0d07cc5ffac49f8dd77f5`
+- 2,712,633 bytes; package `org.reasonnotes.probe`, version `1` / `0.1`
+- APK Signature Scheme v2; certificate SHA-256
+  `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`
+- accepted launcher resource packaged; `MANAGE_EXTERNAL_STORAGE` packaged.
+
+PRODUCT INCOMPLETE. This exact APK has not been installed and All files access
+has not been enabled. The already-delivered disposable carrier remains on the
+phone, unimported and unacknowledged. Remaining acceptance requires explicit
+authorization to install this exact hash, enable its special access once, then
+verify import, durable acknowledgment return, and the rest of physical Sync v2
+acceptance. No personal notes, phone data, KDE Connect configuration, desktop
+installation or production files were changed by this implementation.

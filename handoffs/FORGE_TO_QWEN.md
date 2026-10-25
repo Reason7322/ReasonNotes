@@ -218,3 +218,25 @@ installed and no application data or synchronization state was changed.
 
 Resume the same authorized milestone at Task 2 by adding Settings/manifest RED
 tests first. Do not redo Task 1 or the physical SAF diagnosis.
+
+# Forge checkpoint — direct exchange access complete
+
+Implemented the approved replacement for the POCO's unusable SAF enumeration.
+With Android All files access enabled, incoming scans are constrained in code
+to `/storage/emulated/0/ReasonNotes Exchange`; canonical transport validation,
+current-state apply and acknowledgments are unchanged. SAF remains a safe
+fallback when special access is absent.
+
+Settings now opens the app-specific special-access screen and reports its
+state. Obsolete Android LAN deletion-pairing controls were removed; JSON sync
+continues to carry deletions. Focused RED→GREEN cycles passed, followed by the
+205-test JVM suite and `assembleDebug`.
+
+Candidate:
+`/home/reason/Temporary/ReasonNotes-Sync-v2-Candidates/android/ReasonNotes-Android-Sync-v2-direct-exchange-6d412f4.apk`, SHA-256
+`6d412f4b0c6feef5c7186c9f68e6acbaa6de5f4383d0d07cc5ffac49f8dd77f5`.
+Package/signature/icon remain compatible; All files permission is packaged.
+
+No install or phone mutation occurred. Next potential action requires Reason's
+explicit authorization for this exact APK hash, followed by enabling special
+access and resuming the single disposable physical round trip.
