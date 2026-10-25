@@ -646,3 +646,26 @@ or synchronized, and no personal-data migration was run. The currently
 installed Android application and all personal data remain on the previously
 accepted checkpoint. Task 3 application/service integration is the next plan
 task, not part of this checkpoint.
+
+## Simplified synchronization v2 Task 8 partial checkpoint — 2026-10-25
+
+The original product goal remains save/edit on both devices, explicit Sync
+transfer, complete two-version conflict choice, and permanent bidirectional
+deletion. Task 8 is interrupted at a useful cross-platform fixture checkpoint.
+
+Android now contains a deterministic eight-carrier fixture transcript shared
+with Fedora. The compiled Java implementation generated its four Android-owned
+canonical JSON carriers and verified all eight byte-for-byte. Its focused
+cross-platform test also imports Fedora's edit, conflict resolution,
+acknowledgment, and deletion carriers through `CurrentTransport`; conflict
+choice converges, exact acknowledgment clears pending state, deletion in both
+directions removes active content, and deleted text is absent from the store.
+Focused Gradle verification passed 2/2 using the retained project JDK 17 and
+Android SDK supplied command-locally. The host's new Java `25.0.4.1` is not
+parseable by this project's Kotlin tooling; no system configuration changed.
+
+Task 8 is NOT complete. The full Android suite and APK build have not been run,
+the offline acceptance document and project status on both sides still require
+finalization, no candidate artifact exists yet, and physical acceptance remains
+separately gated. No APK was installed, no application was launched, no
+personal data was migrated, and no KDE Connect transfer occurred.

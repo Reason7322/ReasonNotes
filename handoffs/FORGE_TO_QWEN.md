@@ -168,3 +168,20 @@ installed, no app was launched, and no personal data was migrated or synced.
 The previously documented Android SDK and project Gradle cache were absent;
 therefore the focused tests were compiled and run directly with the retained
 JDK 17 and cached Gson/JUnit dependencies. Task 3 remains unstarted.
+
+# Forge checkpoint — simplified sync v2 Task 8 partial
+
+Original goal: save/edit on Fedora and Android, explicit Sync transfer,
+two-version conflict choice, and permanent bidirectional deletion.
+
+Android Task 8 WIP adds `CrossPlatformV2AcceptanceTest` plus the shared eight
+canonical JSON carrier fixtures. Android-generated carriers are byte-identical
+to Fedora's parser output. The Java test imports Fedora edit/resolution/ack and
+deletion carriers through the real current transport and verifies convergence,
+exact confirmation, deletion both ways, stale-state rejection, and absence of
+deleted text. Focused Gradle result: 2/2 PASS with command-local JDK 17 and SDK.
+
+Task 8 remains incomplete: run the full suite once, build and identify the APK,
+finish the offline acceptance document/status, prepare the desktop candidate,
+and then checkpoint both repositories. No launch, installation, migration,
+KDE Connect operation, or physical synchronization occurred.
