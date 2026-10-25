@@ -247,3 +247,8 @@ Pending autosaves now coalesce against their original synchronized base;
 complete unknown ancestry becomes an explicit conflict. Android: 207 JVM tests
 PASS. Candidate SHA-256: `8f3d4f1513139b4ccbfe61d3e91baa0c8ed804b7ffe9fb9047d443e1e034fb96`.
 Not installed; physical acceptance pending.
+
+Physical checkpoint: repaired APK installed; Fedora explicit conflict UI
+preserved both versions; Reason chose Android. Android durably imported Fedora
+resolution `7d3836fc…` and queued its acknowledgment, but it has not transferred
+back. Fedora remains pending/unconfirmed. Do not retry without authorization.

@@ -785,3 +785,13 @@ Candidate:
 `/home/reason/Temporary/ReasonNotes-Sync-v2-Coalesced-Candidates/android/ReasonNotes-Android-coalesced-8f3d4f1.apk`, SHA-256
 `8f3d4f1513139b4ccbfe61d3e91baa0c8ed804b7ffe9fb9047d443e1e034fb96`.
 It has not been installed. Physical confirmation remains pending.
+
+## Physical conflict recovery checkpoint — 2026-10-25
+
+APK `8f3d4f15…` was installed in place and retained All files access. The old
+unknown-parent carrier became an explicit two-version conflict on Fedora.
+Reason selected the Android text. Fedora sent resolution change
+`7d3836fc2c77f0e2ca0aff6c5c0a4dfa7a61cce935d8c2c07df0af57671016c7`;
+Android durably imported it and queued its exact 348-byte acknowledgment.
+Both current states contain the selected Android text. The acknowledgment has
+not been returned, so Fedora correctly remains unconfirmed. No retry was made.
