@@ -154,7 +154,53 @@ public final class CurrentStateSyncTest {
         assertEquals(List.of(independent.changeId()), sent.stream()
                 .filter(file -> file.kind() == SyncCoordinator.FileKind.STATE)
                 .map(SyncCoordinator.OutgoingFile::identity).toList());
+        assertTrue(result.detail().contains(A.toString()));
         assertTrue(store.pendingStates().stream()
                 .anyMatch(state -> state.changeId().equals(local.changeId())));
+    }
+
+    @Test public void onlyConflictSendsAckButStillReturnsNamedAttention() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("only-conflict"), "android");
+        StateEnvelope base = store.saveLocal(A, "A", "base", NOW);
+        store.acknowledge(base.changeId());
+        store.saveLocal(A, "A local", "local", NOW.plusSeconds(1));
+        StateEnvelope remote = StateEnvelope.createUpsert(
+                A, List.of(base.changeId()), "linux", NOW.plusSeconds(2), "A remote", "remote");
+        assertEquals("conflict", store.apply(remote).kind());
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(0, 0, 0, List.of()),
+                files -> new SyncCoordinator.RequestEvidence(true, "must not send"),
+                () -> NOW.plusSeconds(3));
+
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.selected(Set.of(A)), false);
+
+        assertEquals(SyncStatus.Phase.ERROR, result.phase());
+        assertEquals(0, result.revisionsRequested());
+        assertEquals(1, result.receiptsRequested());
+        assertTrue(result.detail().contains(A.toString()));
+        assertTrue(result.detail().contains("conflict"));
+    }
+
+    @Test public void acknowledgmentOnlyOperationCompletesAfterAcceptedRequest() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("ack-only"), "android");
+        StateEnvelope incoming = StateEnvelope.createUpsert(
+                A, List.of(), "linux", NOW, "From Linux", "body");
+        assertEquals("applied", store.apply(incoming).kind());
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(0, 0, 0, List.of()),
+                files -> { sent.addAll(files); return new SyncCoordinator.RequestEvidence(true, "accepted"); },
+                () -> NOW.plusSeconds(1));
+
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.all(), false);
+
+        assertEquals(SyncStatus.Phase.COMPLETE, result.phase());
+        assertEquals(0, result.revisionsRequested());
+        assertEquals(1, result.receiptsRequested());
+        assertEquals(1, sent.size());
+        assertEquals(SyncCoordinator.FileKind.ACK, sent.get(0).kind());
+        assertTrue(store.pendingAcks().isEmpty());
     }
 }

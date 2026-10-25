@@ -97,7 +97,7 @@ public final class CurrentStoreApplicationTest {
         assertNull(store.conflict(NOTE));
         String bytes = Files.walk(root.toPath()).filter(Files::isRegularFile)
                 .map(path -> {
-                    try { return Files.readString(path, StandardCharsets.UTF_8); }
+                    try { return new String(Files.readAllBytes(path), StandardCharsets.UTF_8); }
                     catch (Exception error) { throw new RuntimeException(error); }
                 }).reduce("", String::concat);
         assertFalse(bytes.contains("Private title"));
@@ -115,7 +115,8 @@ public final class CurrentStoreApplicationTest {
         File legacyNoise = temporary.newFolder("legacy-noise");
         for (int index = 0; index < 400; index++) {
             File file = new File(legacyNoise, "revision-" + index + ".md");
-            Files.writeString(file.toPath(), "historical body " + index);
+            Files.write(file.toPath(),
+                    ("historical body " + index).getBytes(StandardCharsets.UTF_8));
         }
         long started = System.nanoTime();
         List<NoteService.NoteSummary> notes = service.listNotes("");

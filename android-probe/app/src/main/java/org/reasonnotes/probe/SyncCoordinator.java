@@ -181,6 +181,9 @@ public final class SyncCoordinator {
                     .filter(state -> selection.includes(state.noteId()))
                     .filter(state -> currentStore.conflict(state.noteId()) == null)
                     .toList();
+            List<java.util.UUID> conflicted = currentStore.conflicts().stream()
+                    .map(CurrentNoteStore.Conflict::noteId)
+                    .filter(selection::includes).sorted().toList();
             List<StateAckEnvelope> acknowledgments = currentStore.pendingAcks();
             ArrayList<OutgoingFile> files = new ArrayList<>();
             for (StateEnvelope state : states) {
@@ -194,6 +197,12 @@ public final class SyncCoordinator {
                 files.add(new OutgoingFile(FileKind.ACK, ack.ackId(), file));
             }
             if (files.isEmpty()) {
+                if (!conflicted.isEmpty()) {
+                    String detail = "conflict requires choice: " + conflicted.stream()
+                            .map(java.util.UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    return SyncStatus.error(detail);
+                }
                 return new SyncStatus(SyncStatus.Phase.COMPLETE, 0, 0,
                         scan.imported(), scan.confirmed(), scan.receiptsQueued(), List.of(),
                         "selected notes are synchronized");
@@ -205,11 +214,28 @@ public final class SyncCoordinator {
                         List.of(request.detail()), request.detail());
             }
             currentStore.markAcksRequested(acknowledgments);
+            if (states.isEmpty()) {
+                if (!conflicted.isEmpty()) {
+                    String detail = "conflict requires choice: " + conflicted.stream()
+                            .map(java.util.UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    return new SyncStatus(SyncStatus.Phase.ERROR, 0, acknowledgments.size(),
+                            scan.imported(), scan.confirmed(), scan.receiptsQueued(),
+                            List.of(detail), detail);
+                }
+                return new SyncStatus(SyncStatus.Phase.COMPLETE, 0, acknowledgments.size(),
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), List.of(),
+                        "selected notes are synchronized");
+            }
             String requestedIds = states.stream().map(StateEnvelope::changeId)
                     .sorted().collect(java.util.stream.Collectors.joining(","));
+            String conflictDetail = conflicted.isEmpty() ? "" : "; conflict requires choice: "
+                    + conflicted.stream().map(java.util.UUID::toString)
+                            .collect(java.util.stream.Collectors.joining(","));
             return new SyncStatus(SyncStatus.Phase.TRANSFER_REQUESTED,
                     states.size(), acknowledgments.size(), scan.imported(), scan.confirmed(),
-                    scan.receiptsQueued(), List.of(), "waiting for peer confirmation: " + requestedIds);
+                    scan.receiptsQueued(), List.of(),
+                    "waiting for peer confirmation: " + requestedIds + conflictDetail);
         } catch (RuntimeException error) {
             return SyncStatus.error(error.getMessage());
         }

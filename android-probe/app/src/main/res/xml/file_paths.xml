@@ -3,5 +3,6 @@
     <files-path name="probe_history" path="probe-repository/history/" />
     <files-path name="probe_receipts" path="probe-repository/receipts/outbox/" />
     <files-path name="probe_outgoing_bundles" path="probe-repository/outgoing/" />
+    <files-path name="current_outgoing_bundles" path="reasonnotes-v2/outgoing/" />
 </paths>
 

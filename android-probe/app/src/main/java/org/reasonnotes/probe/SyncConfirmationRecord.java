@@ -8,13 +8,13 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** A single durable display-only checkpoint, not evidence of receipt.
- * The authoritative, validated delivery state remains in DeliveryLedger.
+/** A single durable display-only checkpoint, not evidence of acknowledgment.
+ * The authoritative v2 delivery state remains in CurrentNoteStore pending files.
  * One stored value avoids mixing fields from different sync operations.
  */
 public final class SyncConfirmationRecord {
     private static final String KEY = "last-sync-confirmation";
-    private static final String PREFIX = "v1";
+    private static final String PREFIX = "v2";
     private static final int MAX_IDS = 4096;
 
     public record Pending(Set<String> revisionIds, OutgoingSelection selection) {

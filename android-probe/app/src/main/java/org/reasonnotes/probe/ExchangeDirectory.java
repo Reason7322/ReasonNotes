@@ -147,7 +147,7 @@ public final class ExchangeDirectory {
         int imported = 0, duplicates = 0, confirmed = 0, queued = 0, rejected = 0, ignored = 0;
         ArrayList<String> errors = new ArrayList<>();
         ProcessedExchangeIndex processed = new ProcessedExchangeIndex(
-                new File(context.getFilesDir(), "reasonnotes-exchange-processed-v2.tsv"));
+                new File(context.getFilesDir(), "reasonnotes-exchange-processed-v1.tsv"));
         for (IncomingDocument document : orderedDocuments(context, uri)) {
             if (processed.contains(document.name(), document.modifiedUtc(), document.size())) continue;
             boolean successful = false;

@@ -1,6 +1,34 @@
 # Forge -> Qwen Handoff
 
-## 2026-10-24 checkpoint — simplified sync v2 Android Task 4 WIP
+## 2026-10-25 checkpoint — simplified sync v2 Android Task 4 complete
+
+- Original goal: save/edit on Fedora and Android, explicit Sync transfer,
+  complete two-version conflict choice, and permanent bidirectional deletion.
+- Incoming WIP: `15b00a525cdd7a7f22b64345adb690dc3f5686ae`.
+- Completed milestone: Android Task 4 v2 JSON transport, acknowledgments,
+  retryable current pending state, and understandable operation-scoped status.
+- The existing JSON bundle/KDE Connect path now carries `state-v2` and `ack-v2`;
+  durable state precedes acknowledgment, exact acknowledgments clear pending
+  state, duplicates/reordering are idempotent, and v1 revisions remain readable.
+- One conflicted note no longer blocks independent notes. The UI reports only
+  synchronized, waiting for computer confirmation, transfer failed, or a named
+  conflict requiring choice.
+- Safety/performance follow-up: active v2 startup no longer runs the legacy
+  foreground purge repository; deletion erases drafts and blocks late draft
+  resurrection; v2 outgoing carriers are FileProvider-readable; the validated
+  existing processed index avoids rescanning roughly 400 historical files.
+- Fresh verification: clean `testDebugUnitTest` and `assembleDebug` succeeded;
+  199/199 tests passed across 39 suites, with zero failures/errors/skips.
+- APK: `android-probe/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
+  `eb0da72c4c6f281b4b2d3e4377f5b735cff3560330f5105956d7dd332a8519dd`;
+  package `org.reasonnotes.probe`; signer SHA-256
+  `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+- Deployment/runtime: not installed or launched; no personal-data migration,
+  device mutation, or synchronization occurred.
+- Product remains incomplete. Potential next action is Fedora Task 5 from the
+  approved v2 plan; it is not authorized by this checkpoint.
+
+## Superseded 2026-10-24 checkpoint — simplified sync v2 Android Task 4 WIP
 
 - Original goal: save/edit on Fedora and Android, explicit Sync transfer,
   complete two-version conflict choice, and permanent bidirectional deletion.

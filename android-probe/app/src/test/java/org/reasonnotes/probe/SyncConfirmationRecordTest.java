@@ -44,4 +44,11 @@ public final class SyncConfirmationRecordTest {
         assertThrows(IllegalArgumentException.class,
                 () -> state.save(Set.of("corrupt"), OutgoingSelection.all()));
     }
+
+    @Test public void validLegacyCheckpointIsNotReinterpretedAsV2Confirmation() {
+        PinStoreTest.FakePreferences preferences = new PinStoreTest.FakePreferences();
+        preferences.putString("last-sync-confirmation", "v1\nall\n\n" + R1);
+
+        assertNull(new SyncConfirmationRecord(preferences).load());
+    }
 }

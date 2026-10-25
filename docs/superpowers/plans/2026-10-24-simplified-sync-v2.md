@@ -114,13 +114,13 @@
 - Consumes Task 1 envelopes and Task 2 pending APIs.
 - Produces bundle item kinds `state-v2` and `ack-v2`; each sync operation snapshots current pending IDs and reports only their results.
 
-- [ ] Write failing tests for one-state-per-note output, state-before-ack import, durable-then-ack ordering, duplicate/reordered idempotence, independent-note progress after one failure, and current-operation-only status.
-- [ ] Implement v2 bundle classification/import/export while retaining v1 read compatibility.
-- [ ] Replace retry exhaustion with retryable pending state; no historical row may block another note.
-- [ ] Reduce visible status to synced, waiting for peer, transfer failed, or conflict, naming the affected live note where possible.
-- [ ] Run focused transport/sync/status tests, then the Android JVM suite and `assembleDebug`.
-- [ ] Record APK hash but do not install it.
-- [ ] Commit and dual-remote checkpoint the Android repository.
+- [x] Write failing tests for one-state-per-note output, state-before-ack import, durable-then-ack ordering, duplicate/reordered idempotence, independent-note progress after one failure, and current-operation-only status.
+- [x] Implement v2 bundle classification/import/export while retaining v1 read compatibility.
+- [x] Replace retry exhaustion with retryable pending state; no historical row may block another note.
+- [x] Reduce visible status to synced, waiting for peer, transfer failed, or conflict, naming the affected live note where possible.
+- [x] Run focused transport/sync/status tests, then the Android JVM suite and `assembleDebug`.
+- [x] Record APK hash but do not install it.
+- [x] Commit and dual-remote checkpoint the Android repository.
 
 ### Task 5: Fedora current-state store and restartable migration
 

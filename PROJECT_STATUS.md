@@ -1,31 +1,37 @@
 # ReasonNotes — Project Status
 
-## CHECKPOINT — Simplified synchronization v2 Android Task 4 WIP (2026-10-24)
+## Simplified synchronization v2 — Android Task 4 complete (2026-10-25)
 
-Task 4 is partially implemented and PRODUCT INCOMPLETE. The WIP extends the
-existing canonical carrier with `state-v2` and `ack-v2` items, adds pure v2
-carrier application, routes current-state pending notes and acknowledgments
-through a retryable coordinator path, and begins converting Android SAF receive,
-Home receive-on-resume, and Sync UI wiring away from historical delivery
-ledgers. Conflict candidates are excluded from outgoing state while independent
-pending notes continue; a chosen conflict resolution remains a normal pending
-state and therefore converges after peer import and acknowledgment.
+Android now sends and receives current `state-v2` and `ack-v2` records through
+the existing canonical JSON bundle and KDE Connect share path. Import persists
+state before queuing its exact acknowledgment, duplicate and reordered carriers
+are idempotent, and accepted acknowledgments clear only the matching pending
+change. Pending current state remains retryable without historical attempt
+exhaustion, one conflicted note does not block independent notes, and unresolved
+conflicts are named for explicit user choice rather than silently transmitted.
 
-Focused direct-JDK verification passes 44 tests, including mixed v1/v2 carrier
-validation, durable state-before-ack processing, duplicate/reordered replay,
-independent progress, unlimited retry after rejected transfer requests,
-operation-scoped confirmation, conflict isolation, and the prior Task 2/3
-storage, migration, CRUD, conflict, and deletion contracts.
+The visible Sync result is scoped to the current operation and uses four plain
+states: synchronized, waiting for computer confirmation, transfer failed, or a
+named note requiring conflict choice. New v2 outgoing carriers are exposed by
+the existing non-exported FileProvider. The active application no longer starts
+the legacy foreground purge/repository worker; deletion also erases drafts and
+late draft writes cannot resurrect deleted content. The v2 receiver reuses the
+validated processed-file index so an upgraded app does not rescan roughly 400
+historical exchange files on its first ordinary open. Legacy v1 revisions remain
+read-compatible, but v1 ledger/receipt history is not used to determine v2
+operation status.
 
-This is a preservation checkpoint, not a completed Task 4 candidate. The
-modified Android Activity/SAF path has not been compiled. A project-local SDK
-platform was reconstructed from the retained Gradle transform to attempt the
-Android JVM suite, but Gradle could not start its required local daemon socket
-inside the sandbox (`java.net.SocketException: Operation not permitted`). No
-APK was assembled or installed; no application was launched; no personal data
-was migrated or synchronized. Continue by compiling the Activity/SAF wiring,
-fixing any integration errors, completing focused status contracts, running the
-Android JVM suite and `assembleDebug`, and only then marking Task 4 complete.
+Fresh clean verification passed 199/199 Android JVM tests in 39 suites with no
+failures, errors, or skips, followed by a successful `assembleDebug`. The APK is
+`android-probe/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
+`eb0da72c4c6f281b4b2d3e4377f5b735cff3560330f5105956d7dd332a8519dd`, package
+`org.reasonnotes.probe`, version 1 / 0.1, min SDK 26, target SDK 35, signed with
+the established certificate SHA-256
+`d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+
+No APK was installed or launched, no Android or personal data was migrated, and
+no synchronization occurred. Product completion still requires Fedora Tasks 5
+through 7, cross-platform Task 8, and separately authorized physical acceptance.
 
 ## Simplified synchronization v2 — Android Task 3 current-state application path (2026-10-24)
 

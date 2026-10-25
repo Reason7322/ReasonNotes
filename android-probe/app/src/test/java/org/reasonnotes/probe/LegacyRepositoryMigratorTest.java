@@ -70,7 +70,8 @@ public final class LegacyRepositoryMigratorTest {
         File parent = temporary.newFolder("interrupted");
         File staging = new File(parent, "v2.staging");
         assertTrue(staging.mkdirs());
-        Files.writeString(new File(staging, "partial.txt").toPath(), "incomplete");
+        Files.write(new File(staging, "partial.txt").toPath(),
+                "incomplete".getBytes(StandardCharsets.UTF_8));
         File active = new File(parent, "v2");
 
         LegacyRepositoryMigrator.migrate(legacy, staging, active);
@@ -101,8 +102,8 @@ public final class LegacyRepositoryMigratorTest {
         ProbeRepository legacy = ProbeRepository.open(legacyRoot);
         File directory = new File(legacyRoot, "history/" + LIVE);
         assertTrue(directory.mkdirs());
-        Files.writeString(new File(directory, "a".repeat(64) + ".md").toPath(),
-                "not a revision", StandardCharsets.UTF_8);
+        Files.write(new File(directory, "a".repeat(64) + ".md").toPath(),
+                "not a revision".getBytes(StandardCharsets.UTF_8));
         File parent = temporary.newFolder("malformed");
 
         assertThrows(IllegalStateException.class, () -> LegacyRepositoryMigrator.migrate(

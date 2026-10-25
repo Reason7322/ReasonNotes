@@ -287,6 +287,7 @@ public final class CurrentNoteStore {
 
     private void eraseLiveContent(UUID noteId) {
         delete(stateFile(current, noteId));
+        delete(new File(new File(root.getParentFile(), "drafts"), noteId + ".draft"));
         clearConflict(noteId);
         File pendingState = stateFile(pending, noteId);
         if (pendingState.isFile()) {

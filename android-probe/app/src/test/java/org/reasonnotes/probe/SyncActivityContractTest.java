@@ -248,6 +248,9 @@ public final class SyncActivityContractTest {
         String manifest = new String(java.nio.file.Files.readAllBytes(
                 java.nio.file.Path.of("src/main/AndroidManifest.xml")),
                 java.nio.charset.StandardCharsets.UTF_8);
+        String providerPaths = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/main/res/xml/file_paths.xml")),
+                java.nio.charset.StandardCharsets.UTF_8);
 
         assertTrue(syncSource.contains("createTransportPayload("));
         assertTrue(syncSource.contains("TransportBundle.write("));
@@ -260,5 +263,6 @@ public final class SyncActivityContractTest {
         assertTrue(senderSource.contains("URI_GRANT_LIFETIME"));
         assertTrue(manifest.contains("android:name=\"androidx.core.content.FileProvider\""));
         assertTrue(manifest.contains("android:exported=\"false\""));
+        assertTrue(providerPaths.contains("path=\"reasonnotes-v2/outgoing/\""));
     }
 }

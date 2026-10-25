@@ -621,6 +621,8 @@ public final class SyncActivity extends Activity {
             RuntimeException failure = null;
             CompletionEvidence completion = CompletionEvidence.NEEDS_ATTENTION;
             Set<String> requestedThisRun = Set.of();
+            String affectedTitle = selectedTitle(outgoing);
+            String conflictTitle = selectedConflictTitle(outgoing);
             try {
                 Set<String> operationIds = currentStore.pendingStates().stream()
                         .filter(state -> outgoing.includes(state.noteId()))
@@ -639,16 +641,25 @@ public final class SyncActivity extends Activity {
             RuntimeException finalFailure = failure;
             CompletionEvidence finalCompletion = completion;
             Set<String> requestedIds = requestedThisRun;
+            String finalAffectedTitle = affectedTitle;
+            String finalConflictTitle = conflictTitle;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 syncInFlight = false;
                 if (finalFailure != null) {
-                    status.setText("Transfer failed: " + finalFailure.getMessage());
+                    status.setText(CurrentSyncPresentation.message(
+                            SyncStatus.error(finalFailure.getMessage()), finalAffectedTitle));
                     status.setTextColor(UiTokens.DANGER);
                 } else {
-                    status.setText(finalResult.phase() == SyncStatus.Phase.ERROR
-                            ? "Transfer failed: " + finalResult.detail()
-                            : conciseStatus(finalResult.phase(), finalCompletion));
+                    String message = finalConflictTitle != null
+                            ? CurrentSyncPresentation.conflict(finalConflictTitle)
+                            : CurrentSyncPresentation.message(finalResult, finalAffectedTitle);
+                    if (finalConflictTitle != null
+                            && finalResult.phase() == SyncStatus.Phase.TRANSFER_REQUESTED) {
+                        message = CurrentSyncPresentation.message(finalResult, finalAffectedTitle)
+                                + " · " + message;
+                    }
+                    status.setText(message);
                     status.setTextColor(
                             finalResult.phase() == SyncStatus.Phase.ERROR
                             || (finalResult.phase() == SyncStatus.Phase.COMPLETE
@@ -676,6 +687,19 @@ public final class SyncActivity extends Activity {
                 if (syncAll != null) syncAll.setEnabled(true);
             });
         });
+    }
+
+    private String selectedTitle(OutgoingSelection outgoing) {
+        if (outgoing.allNotes() || outgoing.noteIds().size() != 1) return null;
+        UUID selected = outgoing.noteIds().iterator().next();
+        return currentCatalogue().stream().filter(item -> item.noteId().equals(selected))
+                .map(SyncPlanner.CatalogueItem::title).findFirst().orElse(null);
+    }
+
+    private String selectedConflictTitle(OutgoingSelection outgoing) {
+        return currentCatalogue().stream()
+                .filter(item -> outgoing.includes(item.noteId()) && item.conflicted())
+                .map(SyncPlanner.CatalogueItem::title).findFirst().orElse(null);
     }
 
     private SyncCoordinator.RequestEvidence requestTransfer(

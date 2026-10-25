@@ -59,7 +59,7 @@ public final class DraftStore {
         Objects.requireNonNull(title, "title");
         Objects.requireNonNull(content, "content");
         return ProbeRepository.withRepositoryLock(
-                new File(root.getParentFile(), "probe-repository"), () -> withLock(() -> {
+                new File(root.getParentFile(), "reasonnotes-v2"), () -> withLock(() -> {
             if (isPurged(noteId)) {
                 throw new IllegalStateException("note was permanently deleted");
             }
@@ -90,7 +90,7 @@ public final class DraftStore {
         validateBase(savedRevisionId);
         validateBase(observedCurrentHeadId);
         ProbeRepository.withRepositoryLock(
-                new File(root.getParentFile(), "probe-repository"), () -> withLock(() -> {
+                new File(root.getParentFile(), "reasonnotes-v2"), () -> withLock(() -> {
             if (isPurged(noteId)) {
                 try { Files.deleteIfExists(path(noteId).toPath()); }
                 catch (IOException error) {
@@ -124,8 +124,10 @@ public final class DraftStore {
     }
 
     private boolean isPurged(UUID noteId) {
-        return new File(new File(root.getParentFile(), "probe-repository/purged"),
-                noteId + ".id").isFile();
+        return new File(new File(root.getParentFile(), "reasonnotes-v2/deleted"),
+                noteId + ".json").isFile()
+                || new File(new File(root.getParentFile(), "probe-repository/purged"),
+                        noteId + ".id").isFile();
     }
 
     private File path(UUID noteId) { return new File(root, noteId + ".draft"); }
