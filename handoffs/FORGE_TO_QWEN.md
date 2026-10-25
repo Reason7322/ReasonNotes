@@ -185,3 +185,18 @@ Task 8 remains incomplete: run the full suite once, build and identify the APK,
 finish the offline acceptance document/status, prepare the desktop candidate,
 and then checkpoint both repositories. No launch, installation, migration,
 KDE Connect operation, or physical synchronization occurred.
+
+# Forge checkpoint — simplified sync v2 Task 8 complete offline
+
+- Runtime source checkpoint: `100b3e0ca8d0c3c9371a6e24a5fde33a3931753b`.
+- Cross-language eight-carrier acceptance fixtures are byte-identical and cover
+  create/edit/conflict resolution/ack/deletion in both directions without
+  retaining deleted content.
+- Final Android JVM suite: 201/201 PASS across 40 suites; `assembleDebug` PASS.
+- APK:
+  `/home/reason/Temporary/ReasonNotes-Sync-v2-Candidates/android/ReasonNotes-Android-Sync-v2-100b3e0.apk`;
+  SHA-256 `eb0da72c4c6f281b4b2d3e4377f5b735cff3560330f5105956d7dd332a8519dd`.
+- Package, accepted signing certificate and launcher icon are intact.
+- No install, launch, phone migration, KDE Connect operation, or physical sync.
+- First launch's one-way legacy migration requires a fresh recovery gate.
+  Physical product acceptance remains pending.

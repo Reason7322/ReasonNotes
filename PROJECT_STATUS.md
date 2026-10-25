@@ -669,3 +669,28 @@ the offline acceptance document and project status on both sides still require
 finalization, no candidate artifact exists yet, and physical acceptance remains
 separately gated. No APK was installed, no application was launched, no
 personal data was migrated, and no KDE Connect transfer occurred.
+
+## Simplified synchronization v2 Task 8 complete offline — 2026-10-25
+
+The Android/Fedora eight-carrier fixture transcript is complete and
+byte-identical across Java and Python. Offline coverage demonstrates create,
+independent edits, two-version conflict choice, chosen-version convergence,
+permanent deletion from either platform, stale-carrier non-resurrection,
+duplicates, restart persistence, unreachable retry, independent-note progress,
+and exact acknowledgment convergence. Deleted title/body text is absent from
+stores and deletion carriers.
+
+Final Android verification passed 201/201 tests across 40 suites with no
+failures, errors, or skips; `assembleDebug` succeeded. Candidate APK:
+`/home/reason/Temporary/ReasonNotes-Sync-v2-Candidates/android/ReasonNotes-Android-Sync-v2-100b3e0.apk`,
+SHA-256 `eb0da72c4c6f281b4b2d3e4377f5b735cff3560330f5105956d7dd332a8519dd`.
+It retains package `org.reasonnotes.probe`, the accepted signing certificate,
+and packaged launcher icon. Runtime source is checkpoint `100b3e0ca8d0c3c9371a6e24a5fde33a3931753b`.
+
+Task 8's offline milestone is complete; product acceptance is not. The APK was
+not installed or launched. First launch performs a validated but one-way legacy
+history migration, so fresh recovery evidence and separate authorization are
+required before touching the POCO. Physical transfer, durable acknowledgments,
+conflict UI, deletion convergence, retry, restart persistence, and performance
+remain unverified. See
+`docs/SIMPLIFIED_SYNC_V2_OFFLINE_ACCEPTANCE_2026-10-24.md`.
