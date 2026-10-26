@@ -925,3 +925,9 @@ Focused receipt/sync/scanner tests passed, followed by all 221 Android JVM
 tests and `assembleDebug`. APK SHA-256:
 `4a1ada5fad2b3f0429e98d47c409b19c741e0f7ef2fe6430d3553823743b8751`.
 Physical automatic receipt return remains to be verified after in-place update.
+
+The first reverse-direction physical run then showed the Sync screen's receipt
+poll still called the obsolete SAF scanner. Fedora's receipt carrier reached
+`ReasonNotes Exchange`, but Android never consumed it. The poll now uses the
+same direct current-state receiver as the rest of the app. Focused contract and
+receipt-return tests plus `assembleDebug` pass; physical confirmation remains.

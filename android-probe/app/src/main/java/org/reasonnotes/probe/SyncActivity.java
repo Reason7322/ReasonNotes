@@ -587,7 +587,7 @@ public final class SyncActivity extends Activity {
         io.execute(() -> {
             RuntimeException failure = null;
             try {
-                ExchangeDirectory.scan(this, currentStore, "android", ignored -> {});
+                scanCurrentIncoming(this, currentStore);
             } catch (RuntimeException error) {
                 failure = error;
             }

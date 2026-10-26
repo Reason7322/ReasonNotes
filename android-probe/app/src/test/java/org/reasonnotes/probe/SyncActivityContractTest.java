@@ -6,6 +6,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotEquals;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
@@ -42,6 +44,11 @@ public final class SyncActivityContractTest {
         Method method = SyncActivity.class.getDeclaredMethod(
                 "scanCurrentIncoming", android.content.Context.class, CurrentNoteStore.class);
         assertEquals(ExchangeDirectory.ScanReport.class, method.getReturnType());
+        String source = new String(Files.readAllBytes(java.nio.file.Path.of(
+                "src/main/java/org/reasonnotes/probe/SyncActivity.java")),
+                StandardCharsets.UTF_8);
+        assertFalse(source.contains("ExchangeDirectory.scan(this, currentStore"));
+        assertTrue(source.contains("scanCurrentIncoming(this, currentStore)"));
     }
 
     @Test

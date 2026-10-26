@@ -306,3 +306,8 @@ waiting. `AutomaticAckReturn` now sends ACK files only after foreground receive
 scanning and retains them on failed requests. No note state is selected by this
 path. All 221 JVM tests and `assembleDebug` pass; APK SHA-256 is
 `4a1ada5fad2b3f0429e98d47c409b19c741e0f7ef2fe6430d3553823743b8751`.
+
+Reverse-direction physical testing found the waiting screen still polled the
+obsolete SAF scanner. It now routes confirmation polling through
+`scanCurrentIncoming` / direct exchange access. Focused contract and receipt
+tests and `assembleDebug` pass; physical confirmation remains.
