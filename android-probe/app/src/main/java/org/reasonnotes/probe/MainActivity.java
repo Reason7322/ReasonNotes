@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
@@ -45,6 +47,13 @@ public final class MainActivity extends Activity {
     private final ExecutorService incomingIo = Executors.newSingleThreadExecutor();
     private boolean incomingCheckPending;
     private boolean incomingCheckInFlight;
+    private final Handler incomingPollHandler = new Handler(Looper.getMainLooper());
+    private final Runnable incomingPoll = new Runnable() {
+        @Override public void run() {
+            checkIncomingOnResume();
+            incomingPollHandler.postDelayed(this, 1000L);
+        }
+    };
     private CurrentNoteStore currentStore;
     private NoteService service;
     private PinStore pins;
@@ -123,6 +132,13 @@ public final class MainActivity extends Activity {
         // A slow or broken incoming receipt must never gate the home list.
         incomingCheckPending = true;
         if (service != null) renderNotes();
+        incomingPollHandler.removeCallbacks(incomingPoll);
+        incomingPollHandler.post(incomingPoll);
+    }
+
+    @Override protected void onPause() {
+        incomingPollHandler.removeCallbacks(incomingPoll);
+        super.onPause();
     }
 
     /**
@@ -226,6 +242,7 @@ public final class MainActivity extends Activity {
         // Allow any already-confirmed, durable note operation to complete.
         io.shutdown();
         incomingIo.shutdown();
+        incomingPollHandler.removeCallbacks(incomingPoll);
         super.onDestroy();
     }
 
