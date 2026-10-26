@@ -2,6 +2,7 @@ package org.reasonnotes.probe;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -141,6 +142,11 @@ public final class SyncActivity extends Activity {
 
     static String readinessConfirmationMessage() {
         return "Is your computer visible and connected in KDE Connect?";
+    }
+
+    static ExchangeDirectory.ScanReport scanCurrentIncoming(
+            Context context, CurrentNoteStore store) {
+        return IncomingReceive.scanPhone(context, store, ignored -> {});
     }
 
     public static String deliveryLabel(String state) {
@@ -341,8 +347,7 @@ public final class SyncActivity extends Activity {
                 LINUX_PEER,
                 ActiveDraftRegistry::flush,
                 () -> {
-                    ExchangeDirectory.ScanReport report = ExchangeDirectory.scan(
-                            this, store, "android", ignored -> {});
+                    ExchangeDirectory.ScanReport report = scanCurrentIncoming(this, store);
                     return new SyncCoordinator.ScanEvidence(
                             report.imported(), report.confirmed(), report.receiptsQueued(), report.errors());
                 },

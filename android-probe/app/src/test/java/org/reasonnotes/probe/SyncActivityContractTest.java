@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotEquals;
 
 import java.io.File;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +35,13 @@ public final class SyncActivityContractTest {
         assertEquals(
                 "Is your computer visible and connected in KDE Connect?",
                 SyncActivity.readinessConfirmationMessage());
+    }
+
+    @Test
+    public void syncActivityUsesTheCurrentIncomingReceiveEntryPoint() throws Exception {
+        Method method = SyncActivity.class.getDeclaredMethod(
+                "scanCurrentIncoming", android.content.Context.class, CurrentNoteStore.class);
+        assertEquals(ExchangeDirectory.ScanReport.class, method.getReturnType());
     }
 
     @Test

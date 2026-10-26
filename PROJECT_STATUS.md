@@ -1,5 +1,25 @@
 # ReasonNotes — Project Status
 
+## Sync-screen direct receive-path repair (2026-10-26)
+
+Physical testing of the manual readiness candidate exposed a wiring regression:
+KDE Connect delivered the selected 718-byte carrier to the shared
+`ReasonNotes Exchange` directory, but `SyncActivity` bypassed
+`IncomingReceive.scanPhone(...)` and called the stale SAF scanner directly.
+The home screen already used the repaired direct reader. Consequently the Sync
+screen did not see the carrier, queued no acknowledgment, and incorrectly
+returned quickly with no useful work while Fedora remained pending.
+
+`SyncActivity` now uses the same current-state incoming entry point as the home
+screen. When Android has All files access, that entry point reads only the
+dedicated shared exchange directory directly; its tested SAF fallback remains
+for environments without that grant. Focused RED-to-GREEN verification covered
+the SyncActivity contract, `IncomingReceive`, and current-state synchronization,
+followed by a successful `assembleDebug`. The replacement offline APK SHA-256
+is `45eabdf14836872b8afbd59d8ff97922145040edf0fe1fc43b4b0cf951468fd6`.
+It has not been installed. The previously delivered disposable carrier and
+Fedora pending resolution remain preserved for a separately authorized retry.
+
 ## Android KDE Connect manual readiness gate (2026-10-26)
 
 Android user-initiated Sync and Retry actions now open the installed KDE
