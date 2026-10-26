@@ -297,3 +297,12 @@ All 219 JVM tests and `assembleDebug` pass. Candidate SHA-256:
 `f15e21c8af2687b49af69b6e2cbc8037b20a901a0052362c098106dbd26b224d`.
 Physical verification remains pending; preserve current app data and install
 only in place.
+
+# Automatic receipt return repair
+
+Physical local restoration was durable, but Android queued three exact v2
+acknowledgments without automatically sending them, leaving Fedora truthfully
+waiting. `AutomaticAckReturn` now sends ACK files only after foreground receive
+scanning and retains them on failed requests. No note state is selected by this
+path. All 221 JVM tests and `assembleDebug` pass; APK SHA-256 is
+`4a1ada5fad2b3f0429e98d47c409b19c741e0f7ef2fe6430d3553823743b8751`.

@@ -3,6 +3,7 @@ package org.reasonnotes.probe;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -19,6 +20,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.graphics.Insets;
+import androidx.core.content.FileProvider;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -32,6 +34,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
     private AppPreferences.ThemeMode displayedTheme;
@@ -146,10 +150,16 @@ public final class MainActivity extends Activity {
                             // while older receipt files are still being scanned.
                             renderNotes();
                         }));
+                SyncCoordinator.RequestEvidence acknowledgmentReturn =
+                        AutomaticAckReturn.send(currentStore, this::requestAutomaticAckTransfer);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     incomingCheckInFlight = false;
                     incomingStatus = IncomingReceive.status(report);
+                    if (!acknowledgmentReturn.requested()) {
+                        incomingStatus = (incomingStatus == null ? "" : incomingStatus + " · ")
+                                + "Confirmation return failed: " + acknowledgmentReturn.detail();
+                    }
                     renderNotes();
                 });
             } catch (RuntimeException error) {
@@ -161,6 +171,27 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private SyncCoordinator.RequestEvidence requestAutomaticAckTransfer(
+            List<SyncCoordinator.OutgoingFile> files) {
+        try {
+            File payload = SyncActivity.createTransportPayload(
+                    new File(new File(getFilesDir(), "reasonnotes-v2"), "outgoing"), files);
+            Uri uri = FileProvider.getUriForFile(
+                    this, getPackageName() + ".files", payload);
+            AppPreferences preferences = new AppPreferences(new AndroidLocalPreferences(
+                    getSharedPreferences(AppPreferences.PREFERENCES_NAME, MODE_PRIVATE)));
+            CompletableFuture<KdeConnectSender.RequestOutcome> launched = new CompletableFuture<>();
+            runOnUiThread(() -> launched.complete(KdeConnectSender.request(
+                    this, List.of(uri), preferences.targetDeviceId())));
+            KdeConnectSender.RequestOutcome outcome = launched.get(30, TimeUnit.SECONDS);
+            return new SyncCoordinator.RequestEvidence(outcome.requested(), outcome.detail());
+        } catch (Exception error) {
+            return new SyncCoordinator.RequestEvidence(
+                    false, error.getMessage() == null
+                            ? error.getClass().getSimpleName() : error.getMessage());
+        }
     }
 
     /** Called only for foreground remote deletions, on Android UI thread. */

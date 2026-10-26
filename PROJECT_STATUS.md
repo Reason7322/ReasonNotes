@@ -910,3 +910,18 @@ SHA-256 `f15e21c8af2687b49af69b6e2cbc8037b20a901a0052362c098106dbd26b224d`,
 SHA-256 `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
 Installation in place is explicitly authorized but is recorded separately from
 this source checkpoint. Physical local-delete/restoration acceptance remains.
+
+## Automatic durable-confirmation return — 2026-10-26
+
+Physical restoration proved Android durably imported the desktop states in
+about one second, but Fedora remained waiting because three correct receipts
+stayed in Android's `outgoing-acks` directory with no automatic sender. Android
+now returns only pending acknowledgments immediately after foreground incoming
+scanning. This path cannot stage or send Android note states. Accepted requests
+remove the queued acknowledgments; failed requests leave them retryable and
+surface a confirmation-return error.
+
+Focused receipt/sync/scanner tests passed, followed by all 221 Android JVM
+tests and `assembleDebug`. APK SHA-256:
+`4a1ada5fad2b3f0429e98d47c409b19c741e0f7ef2fe6430d3553823743b8751`.
+Physical automatic receipt return remains to be verified after in-place update.
