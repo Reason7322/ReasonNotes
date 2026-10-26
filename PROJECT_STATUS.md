@@ -885,3 +885,28 @@ Reason selected the Android text. Fedora sent resolution change
 Android durably imported it and queued its exact 348-byte acknowledgment.
 Both current states contain the selected Android text. The acknowledgment has
 not been returned, so Fedora correctly remains unconfirmed. No retry was made.
+
+## Local-only deletion and explicit restoration — 2026-10-26
+
+Android now matches the owner-approved symmetric deletion contract. Delete
+immediately purges current state, conflict candidates, draft, pending state,
+note-specific acknowledgments, and obsolete deletion fence from Android only.
+It sends no tombstone, deletion acknowledgment, or peer command. Incoming
+legacy deletion envelopes are ignored without mutating live notes or queuing an
+acknowledgment. The durable processed-file index still suppresses unchanged
+historical carrier occurrences.
+
+Explicit Sync now restages selected current live snapshots without changing
+their IDs. One Sync on the device that still holds a note can therefore restore
+the locally deleted peer; both-deleted notes have no live state to send.
+Restaged snapshots have a separate durable marker so later Android autosaves
+retain correct ancestry instead of becoming false conflicts.
+
+Verification: all 219 Android JVM tests passed and `assembleDebug` passed.
+Candidate:
+`/home/reason/Temporary/ReasonNotes-Local-Only-Deletion-Candidates/android/ReasonNotes-Android-local-only-delete.apk`,
+SHA-256 `f15e21c8af2687b49af69b6e2cbc8037b20a901a0052362c098106dbd26b224d`,
+2,716,725 bytes. Package `org.reasonnotes.probe`, version `1` / `0.1`; signer
+SHA-256 `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+Installation in place is explicitly authorized but is recorded separately from
+this source checkpoint. Physical local-delete/restoration acceptance remains.

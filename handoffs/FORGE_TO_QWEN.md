@@ -285,3 +285,15 @@ Physical checkpoint: repaired APK installed; Fedora explicit conflict UI
 preserved both versions; Reason chose Android. Android durably imported Fedora
 resolution `7d3836fc…` and queued its acknowledgment, but it has not transferred
 back. Fedora remains pending/unconfirmed. Do not retry without authorization.
+
+# Local-only deletion implementation
+
+Android deletion now performs an immediate note-scoped local purge and emits
+no tombstone, acknowledgment, or peer action. Incoming old deletion envelopes
+are ignored. Explicit Sync restages current live notes so one Sync on the
+surviving device can restore a deleted peer; both-deleted notes remain absent.
+A durable restage marker keeps this distinct from coalesced unsent autosaves.
+All 219 JVM tests and `assembleDebug` pass. Candidate SHA-256:
+`f15e21c8af2687b49af69b6e2cbc8037b20a901a0052362c098106dbd26b224d`.
+Physical verification remains pending; preserve current app data and install
+only in place.
