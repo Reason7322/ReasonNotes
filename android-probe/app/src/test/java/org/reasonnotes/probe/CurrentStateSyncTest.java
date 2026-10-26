@@ -105,6 +105,52 @@ public final class CurrentStateSyncTest {
         assertEquals(2, store.pendingStates().size());
     }
 
+    @Test public void rejectedHistoricalFileDoesNotBlockIndependentOutgoingWork() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(
+                temporary.newFolder("historical-warning"), "android");
+        StateEnvelope pending = store.saveLocal(A, "A", "safe", NOW);
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(
+                        0, 0, 0, List.of("reasonnotes-partial.md: truncated envelope")),
+                files -> {
+                    sent.addAll(files);
+                    return new SyncCoordinator.RequestEvidence(true, "accepted");
+                },
+                () -> NOW.plusSeconds(1));
+
+        SyncStatus result = coordinator.synchronize(
+                OutgoingSelection.selected(Set.of(A)), false);
+
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, result.phase());
+        assertEquals(List.of(pending.changeId()), sent.stream()
+                .filter(file -> file.kind() == SyncCoordinator.FileKind.STATE)
+                .map(SyncCoordinator.OutgoingFile::identity).toList());
+    }
+
+    @Test public void unavailableExchangeStorageStillBlocksOutgoingWork() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(
+                temporary.newFolder("fatal-scan"), "android");
+        store.saveLocal(A, "A", "safe", NOW);
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(
+                        0, 0, 0, List.of("shared exchange directory is unavailable")),
+                files -> {
+                    sent.addAll(files);
+                    return new SyncCoordinator.RequestEvidence(true, "must not send");
+                },
+                () -> NOW.plusSeconds(1));
+
+        SyncStatus result = coordinator.synchronize(
+                OutgoingSelection.selected(Set.of(A)), false);
+
+        assertEquals(SyncStatus.Phase.ERROR, result.phase());
+        assertTrue(sent.isEmpty());
+    }
+
     @Test public void operationStatusTracksOnlyRequestedSelectionAndDurableAck() throws Exception {
         CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("status"), "android");
         StateEnvelope a = store.saveLocal(A, "A", "one", NOW);

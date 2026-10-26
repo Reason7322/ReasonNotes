@@ -71,5 +71,10 @@ public final class SharedExchangeDirectoryTest {
         assertEquals(1, report.errors().size());
         assertNull(store.get(NOTE));
         assertEquals(0, store.pendingAcks().size());
+
+        ExchangeDirectory.ScanReport replay = SharedExchangeDirectory.scan(
+                exchange, index, store, "android", ignored -> {});
+        assertEquals(0, replay.rejectedRevisions());
+        assertTrue(replay.errors().isEmpty());
     }
 }

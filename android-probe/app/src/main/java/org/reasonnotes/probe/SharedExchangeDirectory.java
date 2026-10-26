@@ -47,6 +47,7 @@ final class SharedExchangeDirectory {
             long size = file.length();
             if (processed.contains(name, modified, size)) continue;
             boolean successful = false;
+            boolean bytesRead = false;
             try {
                 if (!ExchangeDirectory.isCandidateFilename(name)) {
                     ignored++;
@@ -54,6 +55,7 @@ final class SharedExchangeDirectory {
                     continue;
                 }
                 byte[] data = Files.readAllBytes(file.toPath());
+                bytesRead = true;
                 CurrentTransport.ScanReport result;
                 if (TransportBundle.isBundleFilename(name)) {
                     result = CurrentTransport.applyBundle(data, name, store, localDevice);
@@ -77,7 +79,10 @@ final class SharedExchangeDirectory {
                 rejected++;
                 errors.add(name + ": " + error.getMessage());
             } finally {
-                if (successful) processed.record(name, modified, size);
+                // A completely read but malformed file is preserved in the
+                // exchange directory and reported once. Re-reading it on every
+                // Sync would let one historical fragment block unrelated work.
+                if (successful || bytesRead) processed.record(name, modified, size);
             }
         }
         processed.save();

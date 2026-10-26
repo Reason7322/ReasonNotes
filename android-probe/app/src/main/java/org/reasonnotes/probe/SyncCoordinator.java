@@ -170,11 +170,13 @@ public final class SyncCoordinator {
             FlushEvidence flush = flusher.flush();
             if (!flush.saved()) return SyncStatus.error(flush.detail());
             ScanEvidence scan = scanner.scan();
-            if (!scan.errors().isEmpty()) {
-                String detail = String.join("; ", scan.errors());
+            List<String> fatalScanErrors = scan.errors().stream()
+                    .filter(error -> !error.contains(": ")).toList();
+            if (!fatalScanErrors.isEmpty()) {
+                String detail = String.join("; ", fatalScanErrors);
                 return new SyncStatus(SyncStatus.Phase.ERROR, 0, 0,
                         scan.imported(), scan.confirmed(), scan.receiptsQueued(),
-                        scan.errors(), detail);
+                        fatalScanErrors, detail);
             }
 
             List<StateEnvelope> states = currentStore.pendingStates().stream()
@@ -204,7 +206,7 @@ public final class SyncCoordinator {
                     return SyncStatus.error(detail);
                 }
                 return new SyncStatus(SyncStatus.Phase.COMPLETE, 0, 0,
-                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), List.of(),
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), scan.errors(),
                         "selected notes are synchronized");
             }
             RequestEvidence request = requester.request(List.copyOf(files));
@@ -224,7 +226,7 @@ public final class SyncCoordinator {
                             List.of(detail), detail);
                 }
                 return new SyncStatus(SyncStatus.Phase.COMPLETE, 0, acknowledgments.size(),
-                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), List.of(),
+                        scan.imported(), scan.confirmed(), scan.receiptsQueued(), scan.errors(),
                         "selected notes are synchronized");
             }
             String requestedIds = states.stream().map(StateEnvelope::changeId)
@@ -234,7 +236,7 @@ public final class SyncCoordinator {
                             .collect(java.util.stream.Collectors.joining(","));
             return new SyncStatus(SyncStatus.Phase.TRANSFER_REQUESTED,
                     states.size(), acknowledgments.size(), scan.imported(), scan.confirmed(),
-                    scan.receiptsQueued(), List.of(),
+                    scan.receiptsQueued(), scan.errors(),
                     "waiting for peer confirmation: " + requestedIds + conflictDetail);
         } catch (RuntimeException error) {
             return SyncStatus.error(error.getMessage());

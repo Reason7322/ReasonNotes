@@ -1,5 +1,25 @@
 # ReasonNotes — Project Status
 
+## Historical malformed-file isolation repair (2026-10-26)
+
+After the direct receive-path repair imported the disposable resolution and
+queued its exact acknowledgment, the next selected sync still failed before
+requesting KDE Connect. Read-only comparison found exactly one unprocessed file
+among 405 shared exchange files: the intentionally incomplete historical
+fixture `reasonnotes-partial.md`. Its repeated parse error was treated as a
+global scan failure and blocked the independent valid acknowledgment.
+
+The direct scanner now records a completely read malformed file in the durable
+processed index after reporting its rejection once; the original file remains
+untouched for evidence. Current-state synchronization treats filename-scoped
+rejections (`<filename>: <error>`) as isolated warnings and continues valid
+independent outgoing work. Missing or unreadable exchange storage remains a
+fatal pre-send error. Focused RED-to-GREEN tests cover both guarantees and the
+debug APK build succeeds. Replacement APK SHA-256:
+`1a0b6585de76eac3cc35a09867588b25b008ecc79890d0bdd331dc0d5901ed20`.
+It has not been installed. The 348-byte acknowledgment remains queued and
+Fedora remains pending; no retry occurred after this source repair.
+
 ## Sync-screen direct receive-path repair (2026-10-26)
 
 Physical testing of the manual readiness candidate exposed a wiring regression:
