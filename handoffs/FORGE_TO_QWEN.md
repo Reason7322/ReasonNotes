@@ -1,5 +1,38 @@
 # Forge -> Qwen Handoff
 
+## 2026-10-26 checkpoint — physical sync repair installed, retry pending
+
+- Original goal: reliable two-device save/edit synchronization, truthful
+  durable confirmation, explicit conflict choice, and permanent deletion.
+- Repair source checkpoint before this documentation commit:
+  `5964d5189055c2dbc97dd0e76cacc0a0a393ab14` on
+  `forge/android-json-v1-integration`.
+- Installed in place without clearing data: package `org.reasonnotes.probe`,
+  APK SHA-256
+  `1a0b6585de76eac3cc35a09867588b25b008ecc79890d0bdd331dc0d5901ed20`,
+  signer SHA-256
+  `d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+- The build contains the manual KDE Connect readiness gate, the direct shared
+  exchange receive path, and isolation of fully read malformed historical
+  files so they cannot block independent current-state work.
+- Physical state is preserved: Android durably imported the disposable
+  `sync-v2-roundtrip` resolution and queued its exact 348-byte acknowledgment;
+  Fedora still has the matching pending change. No retry occurred after the
+  final APK installation, so durable round-trip confirmation remains pending.
+- Verification already completed before this checkpoint: readiness-gate full
+  JVM suite 212/212 plus instrumentation-source compilation and APK assembly;
+  later direct-reader and malformed-file repairs passed their focused tests
+  and APK builds. Tests and builds were not repeated for this documentation
+  checkpoint.
+- New binding requirement: after propagated deletion, no ReasonNotes-managed
+  note content, history, conflict candidate, pending operation, acknowledgment,
+  or durable deletion fence may remain on either device. Current sync-v2 keeps
+  content-free deletion fences, so this requirement remains unresolved.
+- One potential next action, requiring renewed authorization after this STOP:
+  retry only `sync-v2-roundtrip`, then verify Android acknowledgment delivery,
+  Fedora durable acknowledgment import, and pending-file clearance. Do not
+  begin the no-trace deletion redesign as part of that retry.
+
 ## 2026-10-25 checkpoint — simplified sync v2 Android Task 4 complete
 
 - Original goal: save/edit on Fedora and Android, explicit Sync transfer,

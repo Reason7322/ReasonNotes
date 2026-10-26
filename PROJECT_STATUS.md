@@ -1,5 +1,29 @@
 # ReasonNotes — Project Status
 
+## Physical synchronization repair checkpoint (2026-10-26)
+
+The Android repair source is commit
+`5964d5189055c2dbc97dd0e76cacc0a0a393ab14`. Its debug APK was installed in
+place on the connected POCO without clearing application data. The built and
+installed APK bytes both have SHA-256
+`1a0b6585de76eac3cc35a09867588b25b008ecc79890d0bdd331dc0d5901ed20`;
+the package remains `org.reasonnotes.probe` and the signing certificate remains
+`d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+
+The disposable `sync-v2-roundtrip` resolution was durably imported on Android
+and its exact 348-byte acknowledgment is queued. Fedora still retains the
+matching pending change and therefore remains truthfully unconfirmed. No
+selected-note retry was performed after installing the final malformed-file
+isolation repair.
+
+Reason has additionally made permanent no-trace deletion a binding product
+requirement: after successful propagation, ReasonNotes-managed note content,
+history, conflict candidates, pending operations, acknowledgments, and durable
+deletion fences must be removed on both devices. The current sync-v2 design
+retains content-free deletion fences and therefore does not yet satisfy this
+requirement. Correcting that cross-platform behavior is future work and was not
+started during this checkpoint.
+
 ## Historical malformed-file isolation repair (2026-10-26)
 
 After the direct receive-path repair imported the disposable resolution and
@@ -17,8 +41,9 @@ independent outgoing work. Missing or unreadable exchange storage remains a
 fatal pre-send error. Focused RED-to-GREEN tests cover both guarantees and the
 debug APK build succeeds. Replacement APK SHA-256:
 `1a0b6585de76eac3cc35a09867588b25b008ecc79890d0bdd331dc0d5901ed20`.
-It has not been installed. The 348-byte acknowledgment remains queued and
-Fedora remains pending; no retry occurred after this source repair.
+It was subsequently installed in place as recorded above. The 348-byte
+acknowledgment remains queued and Fedora remains pending; no retry occurred
+after this source repair.
 
 ## Sync-screen direct receive-path repair (2026-10-26)
 
