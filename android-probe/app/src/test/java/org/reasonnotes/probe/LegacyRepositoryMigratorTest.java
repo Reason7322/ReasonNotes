@@ -59,7 +59,8 @@ public final class LegacyRepositoryMigratorTest {
         assertNull(migrated.get(DELETED));
         StateEnvelope stale = StateEnvelope.createUpsert(
                 DELETED, List.of(), "linux", NOW, "Erase me", "secret");
-        assertEquals("rejected-deleted", migrated.apply(stale).kind());
+        assertEquals("applied", migrated.apply(stale).kind());
+        assertEquals(stale, migrated.get(DELETED));
         assertFalse(legacyRoot.exists());
     }
 

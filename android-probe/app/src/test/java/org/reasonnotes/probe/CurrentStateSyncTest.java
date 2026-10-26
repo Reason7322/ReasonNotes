@@ -105,6 +105,71 @@ public final class CurrentStateSyncTest {
         assertEquals(2, store.pendingStates().size());
     }
 
+    @Test public void explicitSyncRestagesConfirmedUnchangedLiveNote() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("restage"), "android");
+        StateEnvelope live = store.saveLocal(A, "A", "unchanged", NOW);
+        store.acknowledge(live.changeId());
+        assertTrue(store.pendingStates().isEmpty());
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(0, 0, 0, List.of()),
+                files -> { sent.addAll(files); return new SyncCoordinator.RequestEvidence(true, "accepted"); },
+                () -> NOW.plusSeconds(1));
+
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.selected(Set.of(A)), false);
+
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, result.phase());
+        assertEquals(List.of(live.changeId()), sent.stream()
+                .filter(file -> file.kind() == SyncCoordinator.FileKind.STATE)
+                .map(SyncCoordinator.OutgoingFile::identity).toList());
+        assertEquals(List.of(live), store.pendingStates());
+    }
+
+    @Test public void oneSyncFromSurvivingDeviceRestoresLocallyDeletedReceiver() throws Exception {
+        CurrentNoteStore sender = CurrentNoteStore.open(temporary.newFolder("restore-sender"), "android");
+        CurrentNoteStore receiver = CurrentNoteStore.open(temporary.newFolder("restore-receiver"), "linux");
+        StateEnvelope live = sender.saveLocal(A, "A", "survives", NOW);
+        receiver.apply(live);
+        receiver.deleteLocal(A);
+        sender.acknowledge(live.changeId());
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                sender, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(0, 0, 0, List.of()),
+                files -> { sent.addAll(files); return new SyncCoordinator.RequestEvidence(true, "accepted"); },
+                () -> NOW.plusSeconds(1));
+
+        coordinator.synchronize(OutgoingSelection.selected(Set.of(A)), false);
+        SyncCoordinator.OutgoingFile stateFile = sent.stream()
+                .filter(file -> file.kind() == SyncCoordinator.FileKind.STATE).findFirst().orElseThrow();
+        TransportBundle.Carrier carrier = TransportBundle.create(List.of(
+                new TransportBundle.Item("state-v2", stateFile.identity(),
+                        java.nio.file.Files.readAllBytes(stateFile.file().toPath()))));
+        CurrentTransport.ScanReport restored = CurrentTransport.applyBundle(
+                carrier.payload(), carrier.filename(), receiver, "linux");
+
+        assertEquals(1, restored.imported());
+        assertEquals("survives", receiver.get(A).body());
+    }
+
+    @Test public void bothLocallyDeletedDevicesHaveNoStateToSend() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("both-delete"), "android");
+        store.saveLocal(A, "A", "gone", NOW);
+        store.deleteLocal(A);
+        ArrayList<SyncCoordinator.OutgoingFile> sent = new ArrayList<>();
+        SyncCoordinator coordinator = new SyncCoordinator(
+                store, "linux", SyncCoordinator.FlushEvidence::success,
+                () -> new SyncCoordinator.ScanEvidence(0, 0, 0, List.of()),
+                files -> { sent.addAll(files); return new SyncCoordinator.RequestEvidence(true, "unexpected"); },
+                () -> NOW.plusSeconds(1));
+
+        SyncStatus result = coordinator.synchronize(OutgoingSelection.all(), false);
+
+        assertEquals(SyncStatus.Phase.COMPLETE, result.phase());
+        assertTrue(sent.isEmpty());
+    }
+
     @Test public void rejectedHistoricalFileDoesNotBlockIndependentOutgoingWork() throws Exception {
         CurrentNoteStore store = CurrentNoteStore.open(
                 temporary.newFolder("historical-warning"), "android");
@@ -173,9 +238,10 @@ public final class CurrentStateSyncTest {
         CurrentTransport.applyBundle(carrier.payload(), carrier.filename(), store, "android");
 
         assertEquals(List.of(B), store.pendingStates().stream().map(StateEnvelope::noteId).toList());
-        SyncStatus settled = coordinator.synchronize(OutgoingSelection.selected(Set.of(A)), false);
-        assertEquals(SyncStatus.Phase.COMPLETE, settled.phase());
-        assertEquals(0, settled.revisionsRequested());
+        SyncStatus repeatedExplicitSync = coordinator.synchronize(
+                OutgoingSelection.selected(Set.of(A)), false);
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, repeatedExplicitSync.phase());
+        assertEquals(1, repeatedExplicitSync.revisionsRequested());
     }
 
     @Test public void conflictedNoteDoesNotBlockIndependentPendingNote() throws Exception {
@@ -228,7 +294,7 @@ public final class CurrentStateSyncTest {
         assertTrue(result.detail().contains("conflict"));
     }
 
-    @Test public void acknowledgmentOnlyOperationCompletesAfterAcceptedRequest() throws Exception {
+    @Test public void importedLiveStateAndItsAcknowledgmentAreBothSentOnExplicitSync() throws Exception {
         CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("ack-only"), "android");
         StateEnvelope incoming = StateEnvelope.createUpsert(
                 A, List.of(), "linux", NOW, "From Linux", "body");
@@ -242,11 +308,13 @@ public final class CurrentStateSyncTest {
 
         SyncStatus result = coordinator.synchronize(OutgoingSelection.all(), false);
 
-        assertEquals(SyncStatus.Phase.COMPLETE, result.phase());
-        assertEquals(0, result.revisionsRequested());
+        assertEquals(SyncStatus.Phase.TRANSFER_REQUESTED, result.phase());
+        assertEquals(1, result.revisionsRequested());
         assertEquals(1, result.receiptsRequested());
-        assertEquals(1, sent.size());
-        assertEquals(SyncCoordinator.FileKind.ACK, sent.get(0).kind());
+        assertEquals(2, sent.size());
+        assertEquals(Set.of(SyncCoordinator.FileKind.ACK, SyncCoordinator.FileKind.STATE),
+                sent.stream().map(SyncCoordinator.OutgoingFile::kind)
+                        .collect(java.util.stream.Collectors.toSet()));
         assertTrue(store.pendingAcks().isEmpty());
     }
 }

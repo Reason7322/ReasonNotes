@@ -52,6 +52,12 @@ public final class SharedExchangeDirectoryTest {
         assertEquals(0, second.duplicates());
         assertEquals(0, second.receiptsQueued());
         assertTrue(second.errors().isEmpty());
+
+        store.deleteLocal(NOTE);
+        ExchangeDirectory.ScanReport afterDeletion = SharedExchangeDirectory.scan(
+                exchange, index, store, "android", ignored -> {});
+        assertEquals(0, afterDeletion.imported());
+        assertNull(store.get(NOTE));
     }
 
     @Test public void malformedCarrierIsReportedAndNeverCreatesNote() throws Exception {

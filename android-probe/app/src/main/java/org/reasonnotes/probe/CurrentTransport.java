@@ -36,7 +36,7 @@ public final class CurrentTransport {
                 CurrentNoteStore.ApplyOutcome outcome = store.apply(state);
                 switch (outcome.kind()) {
                     case "applied", "deleted" -> imported++;
-                    case "duplicate" -> duplicates++;
+                    case "duplicate", "ignored-deletion", "rejected-deleted" -> duplicates++;
                     case "conflict" -> { imported++; conflicts++; }
                     default -> errors.add(item.identity() + ": " + outcome.kind());
                 }
@@ -69,7 +69,8 @@ public final class CurrentTransport {
         return new ScanReport(
                 outcome.kind().equals("applied") || outcome.kind().equals("deleted")
                         || outcome.kind().equals("conflict") ? 1 : 0,
-                outcome.kind().equals("duplicate") ? 1 : 0,
+                outcome.kind().equals("duplicate") || outcome.kind().equals("ignored-deletion")
+                        || outcome.kind().equals("rejected-deleted") ? 1 : 0,
                 0, outcome.kind().equals("conflict") ? 1 : 0,
                 Math.max(0, store.pendingAcks().size() - before),
                 List.of());

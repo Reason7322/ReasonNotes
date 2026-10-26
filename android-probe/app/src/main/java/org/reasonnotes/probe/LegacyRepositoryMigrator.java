@@ -132,8 +132,8 @@ public final class LegacyRepositoryMigrator {
                 throw new IllegalStateException("staged conflict did not reopen exactly");
         }
         for (StateEnvelope deletion : expected.deletions()) {
-            if (!store.isDeleted(deletion.noteId()) || store.get(deletion.noteId()) != null)
-                throw new IllegalStateException("staged deletion did not reopen exactly");
+            if (store.isDeleted(deletion.noteId()) || store.get(deletion.noteId()) != null)
+                throw new IllegalStateException("staged deleted note was not purged");
         }
     }
 

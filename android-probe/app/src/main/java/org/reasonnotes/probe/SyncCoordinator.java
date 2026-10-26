@@ -179,6 +179,7 @@ public final class SyncCoordinator {
                         fatalScanErrors, detail);
             }
 
+            currentStore.stageLiveForSync(selection);
             List<StateEnvelope> states = currentStore.pendingStates().stream()
                     .filter(state -> selection.includes(state.noteId()))
                     .filter(state -> currentStore.conflict(state.noteId()) == null)

@@ -160,19 +160,24 @@ public final class CrossPlatformV2AcceptanceTest {
         store.deleteLocal(NOTE);
         CurrentTransport.ScanReport ackReport = applyFixture(
                 "fedora-ack.carrier.json", store);
-        assertEquals(1, ackReport.confirmed());
+        assertEquals(0, ackReport.confirmed());
         assertTrue(ackReport.errors().isEmpty());
         assertTrue(store.pendingStates().stream()
                 .noneMatch(state -> state.noteId().equals(NOTE)));
-        assertEquals("rejected-deleted", store.apply(values.created).kind());
+        assertEquals("applied", store.apply(values.resolution).kind());
+        assertEquals(values.resolution, store.get(NOTE));
+        store.deleteLocal(NOTE);
         assertNull(store.get(NOTE));
 
         assertEquals(values.secondaryCreate, store.saveLocal(
                 SECOND, "Erase both", "Never retain", T0.plusSeconds(360)));
         CurrentTransport.ScanReport deletionReport = applyFixture(
                 "fedora-delete.carrier.json", store);
-        assertEquals(1, deletionReport.imported());
+        assertEquals(0, deletionReport.imported());
+        assertEquals(1, deletionReport.duplicates());
         assertTrue(deletionReport.errors().isEmpty());
+        assertEquals(values.secondaryCreate, store.get(SECOND));
+        store.deleteLocal(SECOND);
         assertNull(store.get(SECOND));
 
         ArrayList<byte[]> files = new ArrayList<>();

@@ -27,6 +27,7 @@ public final class CurrentNoteStore {
     private final File conflicts;
     private final File deleted;
     private final File pending;
+    private final File restaged;
     private final File outgoingAcks;
 
     private CurrentNoteStore(File root, String deviceId) {
@@ -36,6 +37,7 @@ public final class CurrentNoteStore {
         this.conflicts = new File(root, "conflicts");
         this.deleted = new File(root, "deleted");
         this.pending = new File(root, "pending");
+        this.restaged = new File(root, "restaged");
         this.outgoingAcks = new File(root, "outgoing-acks");
     }
 
@@ -160,6 +162,20 @@ public final class CurrentNoteStore {
                 .toList();
     }
 
+    public synchronized List<StateEnvelope> stageLiveForSync(OutgoingSelection selection) {
+        ArrayList<StateEnvelope> staged = new ArrayList<>();
+        for (StateEnvelope state : list()) {
+            if (!selection.includes(state.noteId()) || conflict(state.noteId()) != null) continue;
+            File pendingFile = stateFile(pending, state.noteId());
+            if (!pendingFile.isFile()) {
+                durableWrite(pendingFile, state.serialize());
+                durableWrite(restagedFile(state.noteId()), new byte[0]);
+            }
+            staged.add(state);
+        }
+        return List.copyOf(staged);
+    }
+
     public synchronized List<StateAckEnvelope> pendingAcks() {
         File[] files = outgoingAcks.listFiles(file -> file.isFile() && file.getName().endsWith(".json"));
         if (files == null) throw new IllegalStateException("cannot inspect outgoing acknowledgments");
@@ -175,7 +191,10 @@ public final class CurrentNoteStore {
     public synchronized void acknowledge(String changeId) {
         StateEnvelope.validateHash(changeId, "acknowledged change ID");
         for (StateEnvelope state : pendingStates()) {
-            if (state.changeId().equals(changeId)) delete(stateFile(pending, state.noteId()));
+            if (state.changeId().equals(changeId)) {
+                delete(stateFile(pending, state.noteId()));
+                delete(restagedFile(state.noteId()));
+            }
         }
     }
 
@@ -188,6 +207,7 @@ public final class CurrentNoteStore {
             if (!state.noteId().equals(ack.noteId()))
                 throw new IllegalArgumentException("acknowledgment note does not match change");
             delete(stateFile(pending, state.noteId()));
+            delete(restagedFile(state.noteId()));
             return true;
         }
         return false;
@@ -261,11 +281,17 @@ public final class CurrentNoteStore {
         durableWrite(staged, state.serialize());
         durableWrite(stateFile(current, state.noteId()), state.serialize());
         move(staged, stateFile(pending, state.noteId()));
+        delete(restagedFile(state.noteId()));
     }
 
     private List<String> localParents(UUID noteId, StateEnvelope currentState) {
         StateEnvelope pendingState = readOptional(stateFile(pending, noteId));
-        if (pendingState != null) return pendingState.parentChangeIds();
+        if (pendingState != null) {
+            if (restagedFile(noteId).isFile()) {
+                return currentState == null ? List.of() : List.of(currentState.changeId());
+            }
+            return pendingState.parentChangeIds();
+        }
         return currentState == null ? List.of() : List.of(currentState.changeId());
     }
 
@@ -276,6 +302,7 @@ public final class CurrentNoteStore {
     private void purgeNote(UUID noteId) {
         eraseLiveContent(noteId);
         delete(stateFile(pending, noteId));
+        delete(restagedFile(noteId));
         delete(pendingTemporary(noteId));
         delete(fenceFile(noteId));
         for (StateAckEnvelope ack : pendingAcks()) {
@@ -366,7 +393,7 @@ public final class CurrentNoteStore {
 
     private void ensureDirectories() {
         ensureDirectory(root);
-        for (File directory : List.of(current, conflicts, deleted, pending, outgoingAcks)) {
+        for (File directory : List.of(current, conflicts, deleted, pending, restaged, outgoingAcks)) {
             ensureDirectory(directory);
         }
     }
@@ -413,6 +440,7 @@ public final class CurrentNoteStore {
     private File stateFile(File directory, UUID noteId) { return new File(directory, noteId + ".json"); }
     private File fenceFile(UUID noteId) { return stateFile(deleted, noteId); }
     private File pendingTemporary(UUID noteId) { return new File(pending, noteId + ".pending.tmp"); }
+    private File restagedFile(UUID noteId) { return new File(restaged, noteId.toString()); }
     private File conflictDirectory(UUID noteId) { return new File(conflicts, noteId.toString()); }
     private File ackForChange(String changeId) { return new File(outgoingAcks, changeId + ".json"); }
 }
