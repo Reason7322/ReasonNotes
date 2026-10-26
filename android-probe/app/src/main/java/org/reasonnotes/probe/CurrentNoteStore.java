@@ -335,8 +335,11 @@ public final class CurrentNoteStore {
     private void queueAck(StateEnvelope incoming) {
         File existing = ackForChange(incoming.changeId());
         if (existing.isFile()) return;
+        String destination = incoming.originDevice().equals(deviceId)
+                ? (deviceId.equals("android") ? "linux" : "android")
+                : incoming.originDevice();
         StateAckEnvelope ack = StateAckEnvelope.create(
-                incoming.noteId(), incoming.changeId(), deviceId, incoming.originDevice(),
+                incoming.noteId(), incoming.changeId(), deviceId, destination,
                 Instant.now().truncatedTo(ChronoUnit.SECONDS));
         durableWrite(existing, ack.serialize());
     }

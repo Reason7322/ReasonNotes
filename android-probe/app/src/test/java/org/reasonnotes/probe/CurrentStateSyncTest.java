@@ -64,22 +64,23 @@ public final class CurrentStateSyncTest {
         assertTrue(replay.duplicates() >= 1);
     }
 
-    @Test public void malformedItemDoesNotBlockIndependentValidState() throws Exception {
+    @Test public void peerMayReturnStateOriginallyAuthoredOnThisDevice() throws Exception {
         CurrentNoteStore receiver = CurrentNoteStore.open(temporary.newFolder("independent"), "android");
         StateEnvelope good = StateEnvelope.createUpsert(B, List.of(), "linux", NOW, "Good", "safe");
-        StateEnvelope wrongDestinationState = StateEnvelope.createUpsert(
-                A, List.of(), "android", NOW, "Wrong", "local echo");
+        StateEnvelope returned = StateEnvelope.createUpsert(
+                A, List.of(), "android", NOW, "Returned", "restore me");
         TransportBundle.Carrier carrier = TransportBundle.create(List.of(
                 new TransportBundle.Item("state-v2", good.changeId(), good.serialize()),
-                new TransportBundle.Item("state-v2", wrongDestinationState.changeId(),
-                        wrongDestinationState.serialize())));
+                new TransportBundle.Item("state-v2", returned.changeId(),
+                        returned.serialize())));
 
         CurrentTransport.ScanReport report = CurrentTransport.applyBundle(
                 carrier.payload(), carrier.filename(), receiver, "android");
 
-        assertEquals(1, report.imported());
+        assertEquals(2, report.imported());
         assertEquals("safe", receiver.get(B).body());
-        assertEquals(1, report.errors().size());
+        assertEquals("restore me", receiver.get(A).body());
+        assertTrue(report.errors().isEmpty());
     }
 
     @Test public void failedRequestLeavesPendingAndNextRequestRetriesWithoutExhaustion() throws Exception {

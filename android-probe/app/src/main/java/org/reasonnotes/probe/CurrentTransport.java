@@ -31,8 +31,6 @@ public final class CurrentTransport {
                 StateEnvelope state = item.kind().equals("state-v2")
                         ? StateEnvelope.parse(item.envelope())
                         : convertLegacy(RevisionEnvelope.parse(item.envelope()));
-                if (state.originDevice().equals(localDevice))
-                    throw new IllegalArgumentException("state originated on this device");
                 CurrentNoteStore.ApplyOutcome outcome = store.apply(state);
                 switch (outcome.kind()) {
                     case "applied", "deleted" -> imported++;
@@ -62,8 +60,6 @@ public final class CurrentTransport {
             byte[] data, CurrentNoteStore store, String localDevice) {
         RevisionEnvelope revision = RevisionEnvelope.parse(data);
         StateEnvelope state = convertLegacy(revision);
-        if (state.originDevice().equals(localDevice))
-            throw new IllegalArgumentException("state originated on this device");
         int before = store.pendingAcks().size();
         CurrentNoteStore.ApplyOutcome outcome = store.apply(state);
         return new ScanReport(
