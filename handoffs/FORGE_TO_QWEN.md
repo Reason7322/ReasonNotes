@@ -311,3 +311,13 @@ Reverse-direction physical testing found the waiting screen still polled the
 obsolete SAF scanner. It now routes confirmation polling through
 `scanCurrentIncoming` / direct exchange access. Focused contract and receipt
 tests and `assembleDebug` pass; physical confirmation remains.
+
+# Physical local-deletion checkpoint
+
+Three Android-local deletions were restored from Fedora. Android now accepts
+peer-returned Android-origin states, sends their ACKs to Linux, polls the direct
+exchange every second while visible, and uses the direct receiver on the Sync
+waiting screen. Latest deployed APK SHA-256:
+`d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
+Focused tests and build pass; final owner confirmation of bar completion is
+pending. Installation preserved app data.

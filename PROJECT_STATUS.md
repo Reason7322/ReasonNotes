@@ -931,3 +931,22 @@ poll still called the obsolete SAF scanner. Fedora's receipt carrier reached
 `ReasonNotes Exchange`, but Android never consumed it. The poll now uses the
 same direct current-state receiver as the rest of the app. Focused contract and
 receipt-return tests plus `assembleDebug` pass; physical confirmation remains.
+
+## Physical local-deletion checkpoint — 2026-10-26
+
+Three notes deleted locally on Android were restored by one Fedora Sync All.
+Testing then exposed two confirmation blockers: returned Android-origin states
+were rejected as local echoes, and the visible Android notes screen scanned the
+exchange only once on resume. Android now accepts peer-returned self-authored
+live states, addresses their acknowledgments to Linux, and polls the indexed
+direct exchange once per second while visible. Historical processed carriers
+remain suppressed; no background service was added.
+
+Latest source before this documentation commit: `98b094f`. Deployed APK
+SHA-256: `d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
+Focused returned-origin, store, SyncActivity, routing, and receipt tests passed;
+`assembleDebug` passed. The full 221-test suite passed before the final two
+narrow routing/poll changes and was not repeated during checkpoint preparation.
+The APK was installed in place without clearing data. Owner confirmation that
+the outstanding desktop progress bar clears after reopening Android remains
+pending.
