@@ -30,6 +30,13 @@ public final class SyncActivityContractTest {
     }
 
     @Test
+    public void readinessConfirmationExplainsWhatTheUserMustVerify() {
+        assertEquals(
+                "Is your computer visible and connected in KDE Connect?",
+                SyncActivity.readinessConfirmationMessage());
+    }
+
+    @Test
     public void independentCatalogueSupportsSearchSelectAllClearAndEmptyDisable() {
         SyncActivity.SelectionModel model = new SyncActivity.SelectionModel(catalogue());
         assertFalse(model.canSync());

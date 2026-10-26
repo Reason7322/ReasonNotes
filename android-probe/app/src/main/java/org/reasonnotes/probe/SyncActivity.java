@@ -54,6 +54,11 @@ public final class SyncActivity extends Activity {
     private static final String LINUX_PEER = "linux";
     private static final String STATE_QUERY = "query";
     private static final String STATE_SELECTED = "selected";
+    private static final String STATE_READINESS_ACTIVE = "readiness-active";
+    private static final String STATE_READINESS_ALL = "readiness-all";
+    private static final String STATE_READINESS_IDS = "readiness-ids";
+    private static final String STATE_READINESS_RETRY = "readiness-retry";
+    private static final String STATE_READINESS_RETURNED = "readiness-returned";
     private static final long CONFIRMATION_POLL_MS = 15000L;
     private static final String CONFIRMATION_PREFS = "reasonnotes-sync-confirmation";
 
@@ -126,9 +131,16 @@ public final class SyncActivity extends Activity {
     private long confirmationGeneration;
     private boolean confirmationPollInFlight;
     private boolean activityVisible;
+    private KdeConnectReadinessGate readinessGate = new KdeConnectReadinessGate();
+    private boolean kdeConnectLaunchInProgress;
+    private boolean readinessDialogVisible;
 
     public static List<String> modeActions() {
         return List.of("Sync all notes", "Choose notes to sync");
+    }
+
+    static String readinessConfirmationMessage() {
+        return "Is your computer visible and connected in KDE Connect?";
     }
 
     public static String deliveryLabel(String state) {
@@ -241,6 +253,18 @@ public final class SyncActivity extends Activity {
             Set<UUID> selectedIds = ids == null ? Set.of() : ids.stream().map(UUID::fromString)
                     .collect(java.util.stream.Collectors.toSet());
             restored = new SelectionSnapshot(query, selectedIds);
+            if (state.getBoolean(STATE_READINESS_ACTIVE, false)) {
+                ArrayList<String> readinessIds = state.getStringArrayList(STATE_READINESS_IDS);
+                Set<UUID> noteIds = readinessIds == null ? Set.of() : readinessIds.stream()
+                        .map(UUID::fromString).collect(java.util.stream.Collectors.toSet());
+                OutgoingSelection pending = state.getBoolean(STATE_READINESS_ALL, false)
+                        ? OutgoingSelection.all() : OutgoingSelection.selected(noteIds);
+                readinessGate = new KdeConnectReadinessGate(new KdeConnectReadinessGate.Snapshot(
+                        new KdeConnectReadinessGate.Request(
+                                pending, state.getBoolean(STATE_READINESS_RETRY, false)),
+                        state.getBoolean(STATE_READINESS_RETURNED, false)));
+                kdeConnectLaunchInProgress = !readinessGate.canConfirm();
+            }
         }
         confirmationRecord = new SyncConfirmationRecord(new AndroidLocalPreferences(
                 getSharedPreferences(CONFIRMATION_PREFS, MODE_PRIVATE)));
@@ -260,12 +284,27 @@ public final class SyncActivity extends Activity {
             state.putStringArrayList(STATE_SELECTED,
                     new ArrayList<>(snapshot.selected().stream().map(UUID::toString).toList()));
         }
+        KdeConnectReadinessGate.Snapshot readiness = readinessGate.snapshot();
+        if (readiness.request() != null) {
+            state.putBoolean(STATE_READINESS_ACTIVE, true);
+            state.putBoolean(STATE_READINESS_ALL, readiness.request().selection().allNotes());
+            state.putStringArrayList(STATE_READINESS_IDS, new ArrayList<>(
+                    readiness.request().selection().noteIds().stream().map(UUID::toString).toList()));
+            state.putBoolean(STATE_READINESS_RETRY, readiness.request().retryUnconfirmed());
+            state.putBoolean(STATE_READINESS_RETURNED, readiness.returned());
+        }
         super.onSaveInstanceState(state);
     }
 
     @Override protected void onResume() {
         super.onResume();
         activityVisible = true;
+        if (readinessGate.canConfirm()) {
+            showReadinessConfirmation();
+        } else if (kdeConnectLaunchInProgress && readinessGate.returnedFromKdeConnect()) {
+            kdeConnectLaunchInProgress = false;
+            showReadinessConfirmation();
+        }
         if (!awaitingRevisionIds.isEmpty()) scheduleConfirmationPoll(500L);
     }
 
@@ -424,7 +463,7 @@ public final class SyncActivity extends Activity {
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
             syncSelected = button("Sync selected notes", true);
             syncSelected.setEnabled(false);
-            syncSelected.setOnClickListener(view -> startSync(
+            syncSelected.setOnClickListener(view -> prepareSync(
                     OutgoingSelection.selected(selection.selected())));
             syncSelected.setOnLongClickListener(view -> {
                 if (selection != null && selection.canSync()) {
@@ -441,7 +480,7 @@ public final class SyncActivity extends Activity {
             root.addView(explanation, withTopMargin(matchWrap()));
             syncAll = button("Start sync", true);
             syncAll.setEnabled(false);
-            syncAll.setOnClickListener(view -> startSync(OutgoingSelection.all()));
+            syncAll.setOnClickListener(view -> prepareSync(OutgoingSelection.all()));
             syncAll.setOnLongClickListener(view -> {
                 offerRetry(OutgoingSelection.all());
                 return true;
@@ -596,12 +635,51 @@ public final class SyncActivity extends Activity {
                 .setTitle("Retry previous transfers?")
                 .setMessage("Resend notes still waiting for confirmation from your computer?")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Retry", (dialog, which) -> startSync(outgoing, true))
+                .setPositiveButton("Retry", (dialog, which) -> prepareSync(outgoing, true))
                 .show();
     }
 
-    private void startSync(OutgoingSelection outgoing) {
-        startSync(outgoing, false);
+    private void prepareSync(OutgoingSelection outgoing) {
+        prepareSync(outgoing, false);
+    }
+
+    private void prepareSync(OutgoingSelection outgoing, boolean retryUnconfirmed) {
+        if (coordinator == null || syncInFlight
+                || !readinessGate.begin(outgoing, retryUnconfirmed)) return;
+        kdeConnectLaunchInProgress = true;
+        KdeConnectSender.RequestOutcome outcome = KdeConnectSender.launchApplication(this);
+        if (outcome.requested()) return;
+        kdeConnectLaunchInProgress = false;
+        readinessGate.cancel();
+        status.setVisibility(View.VISIBLE);
+        status.setText(outcome.detail());
+        status.setTextColor(UiTokens.DANGER);
+    }
+
+    private void showReadinessConfirmation() {
+        if (!readinessGate.canConfirm() || readinessDialogVisible
+                || isFinishing() || isDestroyed()) return;
+        readinessDialogVisible = true;
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Confirm KDE Connect")
+                .setMessage(readinessConfirmationMessage())
+                .setNegativeButton("Not yet", (ignored, which) -> {
+                    readinessDialogVisible = false;
+                    readinessGate.cancel();
+                })
+                .setPositiveButton("Yes, continue", (ignored, which) -> {
+                    readinessDialogVisible = false;
+                    KdeConnectReadinessGate.Request request = readinessGate.confirm();
+                    if (request != null) {
+                        startSync(request.selection(), request.retryUnconfirmed());
+                    }
+                })
+                .create();
+        dialog.setOnCancelListener(ignored -> {
+            readinessDialogVisible = false;
+            readinessGate.cancel();
+        });
+        dialog.show();
     }
 
     private void startSync(OutgoingSelection outgoing, boolean retryUnconfirmed) {

@@ -20,6 +20,17 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public final class KdeConnectSenderInstrumentedTest {
     @Test
+    public void installedApplicationLaunchIntentTargetsKdeConnect() {
+        var context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+
+        Intent intent = KdeConnectSender.buildApplicationIntent(context);
+
+        assertNotNull("installed KDE Connect application must be launchable", intent);
+        assertEquals(KdeConnectSender.PACKAGE, intent.getPackage());
+        assertNotNull(context.getPackageManager().resolveActivity(intent, 0));
+    }
+
+    @Test
     public void explicitInstalledActivityResolvesAndGrantedContentUriOpens() throws Exception {
         var context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         File outbox = new File(context.getFilesDir(), "probe-repository/outgoing");

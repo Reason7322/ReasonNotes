@@ -22,6 +22,24 @@ public final class KdeConnectSender {
 
     private KdeConnectSender() {}
 
+    public static Intent buildApplicationIntent(Context context) {
+        Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE);
+        return launch == null ? null : new Intent(launch).setPackage(PACKAGE);
+    }
+
+    public static RequestOutcome launchApplication(Activity activity) {
+        Intent intent = buildApplicationIntent(activity);
+        if (intent == null) {
+            return new RequestOutcome(false, true, "KDE Connect is not installed or cannot be opened");
+        }
+        try {
+            activity.startActivity(intent);
+            return new RequestOutcome(true, true, "KDE Connect opened for readiness confirmation");
+        } catch (ActivityNotFoundException error) {
+            return new RequestOutcome(false, true, "KDE Connect is not installed or cannot be opened");
+        }
+    }
+
     private static void grantReadAccess(Context context, List<Uri> uris) {
         for (Uri uri : uris) {
             context.grantUriPermission(PACKAGE, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);

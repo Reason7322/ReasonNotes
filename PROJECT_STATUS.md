@@ -1,5 +1,30 @@
 # ReasonNotes — Project Status
 
+## Android KDE Connect manual readiness gate (2026-10-26)
+
+Android user-initiated Sync and Retry actions now open the installed KDE
+Connect application before ReasonNotes creates a carrier or changes transfer
+state. When the owner returns, ReasonNotes asks whether the Fedora computer is
+visible and connected. Only **Yes, continue** resumes the exact all-notes or
+selected-note request; **Not yet**, dialog cancellation, an unavailable KDE
+Connect package, and overlapping taps leave pending states and acknowledgments
+untouched. The transient request and retry flag survive activity recreation.
+
+This is an explicit foreground readiness gate, not proof of delivery. The
+existing distinction between transfer request, durable peer import, and
+ReasonNotes acknowledgment remains binding. Fedora retains its machine-readable
+KDE Connect reachability check. No carrier format, note/conflict/deletion logic,
+or global KDE Connect configuration changed.
+
+Verification used the project JDK 17 and Android SDK. The full Android JVM run
+passed 212 tests with zero failures, errors, or skips, Android instrumentation
+test sources compiled, and `assembleDebug` succeeded. The resulting offline APK
+is `android-probe/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
+`a74f83dc478fc10742d3b9e4cf192fe34c126854b9aebf3440ce7bdbbddfeb83`.
+It was not installed or launched. Actual launch/return/dialog behavior and the
+pending physical acknowledgment retry remain subject to separately authorized
+device verification.
+
 ## Simplified synchronization v2 — Android Task 4 complete (2026-10-25)
 
 Android now sends and receives current `state-v2` and `ack-v2` records through
