@@ -157,8 +157,7 @@ public final class CrossPlatformV2AcceptanceTest {
         assertNull(store.conflict(NOTE));
         assertEquals("Android edit", store.get(NOTE).body());
 
-        assertEquals(values.androidDeletion, store.deleteLocal(
-                NOTE, T0.plusSeconds(240)));
+        store.deleteLocal(NOTE);
         CurrentTransport.ScanReport ackReport = applyFixture(
                 "fedora-ack.carrier.json", store);
         assertEquals(1, ackReport.confirmed());

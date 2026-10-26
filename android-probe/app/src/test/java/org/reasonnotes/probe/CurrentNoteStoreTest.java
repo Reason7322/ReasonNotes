@@ -54,8 +54,6 @@ public final class CurrentNoteStoreTest {
         assertEquals("applied", linux.apply(latest).kind());
         assertEquals(latest, linux.get(NOTE));
 
-        StateEnvelope deletion = android.deleteLocal(NOTE, NOW.plusSeconds(3));
-        assertEquals(List.of(base.changeId()), deletion.parentChangeIds());
     }
 
     @Test public void validUnknownAncestryBecomesExplicitConflict() throws Exception {
@@ -92,15 +90,27 @@ public final class CurrentNoteStoreTest {
         assertEquals(List.of(resolved), store.pendingStates());
     }
 
-    @Test public void deletionErasesContentAndRejectsEveryOldLiveCarrier() throws Exception {
+    @Test public void deletionPermanentlyPurgesEveryNoteSpecificRecordLocally() throws Exception {
         File root = temporary.newFolder("delete");
         CurrentNoteStore store = CurrentNoteStore.open(root, "android");
-        StateEnvelope live = store.saveLocal(NOTE, "Secret title", "secret body", NOW);
-        StateEnvelope deletion = store.deleteLocal(NOTE, NOW.plusSeconds(1));
+        store.saveLocal(NOTE, "Secret title", "secret body", NOW);
+        File draft = new File(root.getParentFile(), "drafts/" + NOTE + ".draft");
+        draft.getParentFile().mkdirs();
+        Files.write(draft.toPath(), "draft secret".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        StateEnvelope remote = StateEnvelope.createUpsert(
+                NOTE, List.of("a".repeat(64)), "linux", NOW.plusSeconds(1),
+                "Remote secret", "remote body");
+        assertEquals("conflict", store.apply(remote).kind());
+        assertFalse(store.pendingAcks().isEmpty());
+
+        store.deleteLocal(NOTE);
 
         assertNull(store.get(NOTE));
-        assertEquals(List.of(deletion), store.pendingStates());
-        assertEquals("rejected-deleted", store.apply(live).kind());
+        assertNull(store.conflict(NOTE));
+        assertTrue(store.pendingStates().isEmpty());
+        assertTrue(store.pendingAcks().isEmpty());
+        assertFalse(draft.exists());
+        assertFalse(store.isDeleted(NOTE));
         String all = Files.walk(root.toPath()).filter(Files::isRegularFile)
                 .map(path -> {
                     try { return new String(Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8); }
@@ -108,6 +118,23 @@ public final class CurrentNoteStoreTest {
                 }).reduce("", String::concat);
         assertFalse(all.contains("Secret title"));
         assertFalse(all.contains("secret body"));
+        assertFalse(all.contains("Remote secret"));
+
+        CurrentNoteStore reopened = CurrentNoteStore.open(root, "android");
+        assertNull(reopened.get(NOTE));
+        assertTrue(reopened.pendingStates().isEmpty());
+        assertTrue(reopened.pendingAcks().isEmpty());
+    }
+
+    @Test public void incomingDeletionIsIgnoredWithoutAcknowledgment() throws Exception {
+        CurrentNoteStore store = CurrentNoteStore.open(temporary.newFolder("ignore-delete"), "android");
+        StateEnvelope live = store.saveLocal(NOTE, "Keep", "body", NOW);
+        StateEnvelope deletion = StateEnvelope.createDeletion(
+                NOTE, List.of(live.changeId()), "linux", NOW.plusSeconds(1));
+
+        assertEquals("ignored-deletion", store.apply(deletion).kind());
+        assertEquals(live, store.get(NOTE));
+        assertTrue(store.pendingAcks().isEmpty());
     }
 
     @Test public void exactAcknowledgmentClearsOnlyMatchingPendingState() throws Exception {

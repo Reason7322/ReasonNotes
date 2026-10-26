@@ -81,7 +81,7 @@ public final class CurrentStoreApplicationTest {
                 .map(StateEnvelope::changeId).toList());
     }
 
-    @Test public void deletionImmediatelyErasesContentAndAlwaysWinsOverStaleEdit() throws Exception {
+    @Test public void deletionImmediatelyErasesContentAndLaterExplicitLiveImportRestoresIt() throws Exception {
         File root = temporary.newFolder("delete");
         CurrentNoteStore store = CurrentNoteStore.open(root, "android");
         NoteService service = service(store, NOTE);
@@ -90,11 +90,6 @@ public final class CurrentStoreApplicationTest {
 
         assertTrue(service.listNotes("").isEmpty());
         assertThrows(NoteService.NoteNotFoundException.class, () -> service.openNote(NOTE));
-        StateEnvelope stale = StateEnvelope.createUpsert(
-                NOTE, List.of(), "linux", Instant.parse("2026-10-24T16:02:00Z"),
-                "Private title", "private body");
-        assertEquals("rejected-deleted", store.apply(stale).kind());
-        assertNull(store.conflict(NOTE));
         String bytes = Files.walk(root.toPath()).filter(Files::isRegularFile)
                 .map(path -> {
                     try { return new String(Files.readAllBytes(path), StandardCharsets.UTF_8); }
@@ -102,6 +97,13 @@ public final class CurrentStoreApplicationTest {
                 }).reduce("", String::concat);
         assertFalse(bytes.contains("Private title"));
         assertFalse(bytes.contains("private body"));
+
+        StateEnvelope restored = StateEnvelope.createUpsert(
+                NOTE, List.of(), "linux", Instant.parse("2026-10-24T16:02:00Z"),
+                "Private title", "private body");
+        assertEquals("applied", store.apply(restored).kind());
+        assertEquals(restored, store.get(NOTE));
+        assertNull(store.conflict(NOTE));
     }
 
     @Test public void sevenCurrentNotesListWithoutScanningHundredsOfLegacyRevisions() throws Exception {

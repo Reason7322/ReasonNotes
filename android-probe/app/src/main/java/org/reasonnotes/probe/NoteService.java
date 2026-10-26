@@ -232,7 +232,7 @@ public final class NoteService {
                 throw new IllegalStateException("note changed before deletion");
             }
             if (actual.isEmpty()) throw new NoteNotFoundException(noteId);
-            currentStore.deleteLocal(noteId, now());
+            currentStore.deleteLocal(noteId);
             return;
         }
         List<RevisionEnvelope> heads = repository.requireHeads(noteId, expectedHeadIds);
@@ -246,7 +246,7 @@ public final class NoteService {
         Objects.requireNonNull(snapshot, "snapshot");
         if (currentStore != null) {
             requireCurrentSnapshot(snapshot);
-            currentStore.deleteLocal(snapshot.noteId(), now());
+            currentStore.deleteLocal(snapshot.noteId());
             return;
         }
         repository.purgeConflictedNote(
@@ -266,7 +266,7 @@ public final class NoteService {
                 if (currentStore.conflict(noteId) != null || currentStore.get(noteId) == null) {
                     skipped.add(noteId);
                 } else {
-                    currentStore.deleteLocal(noteId, now());
+                    currentStore.deleteLocal(noteId);
                     deleted.add(noteId);
                 }
             } catch (RuntimeException error) {

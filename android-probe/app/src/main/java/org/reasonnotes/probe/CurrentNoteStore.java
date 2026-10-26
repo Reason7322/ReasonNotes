@@ -49,7 +49,7 @@ public final class CurrentNoteStore {
         CurrentNoteStore store = new CurrentNoteStore(root, deviceId);
         store.ensureDirectories();
         store.recoverInterruptedPending();
-        store.finishDurableDeletions();
+        store.retireLegacyDeletions();
         store.validateAll();
         return store;
     }
@@ -79,7 +79,6 @@ public final class CurrentNoteStore {
 
     public synchronized StateEnvelope saveLocal(
             UUID noteId, String title, String body, Instant modifiedUtc) {
-        if (fenceFile(noteId).isFile()) throw new IllegalStateException("deleted note cannot be edited");
         if (conflict(noteId) != null) throw new IllegalStateException("conflict must be resolved first");
         StateEnvelope existing = get(noteId);
         List<String> parents = localParents(noteId, existing);
@@ -92,6 +91,9 @@ public final class CurrentNoteStore {
     public synchronized ApplyOutcome apply(StateEnvelope incoming) {
         Objects.requireNonNull(incoming, "incoming");
         UUID noteId = incoming.noteId();
+        if (incoming.operation().equals("delete")) {
+            return new ApplyOutcome("ignored-deletion", incoming.changeId());
+        }
         StateEnvelope fence = readOptional(fenceFile(noteId));
         if (fence != null) {
             if (incoming.operation().equals("delete")
@@ -101,12 +103,6 @@ public final class CurrentNoteStore {
             }
             return new ApplyOutcome("rejected-deleted", incoming.changeId());
         }
-        if (incoming.operation().equals("delete")) {
-            persistDeletion(incoming, false);
-            queueAck(incoming);
-            return new ApplyOutcome("deleted", incoming.changeId());
-        }
-
         StateEnvelope local = get(noteId);
         if (local == null) {
             durableWrite(stateFile(current, noteId), incoming.serialize());
@@ -154,16 +150,8 @@ public final class CurrentNoteStore {
         return resolution;
     }
 
-    public synchronized StateEnvelope deleteLocal(UUID noteId, Instant modifiedUtc) {
-        StateEnvelope live = get(noteId);
-        Conflict value = conflict(noteId);
-        ArrayList<String> parents = new ArrayList<>();
-        if (value != null) value.candidates().forEach(item -> parents.add(item.changeId()));
-        else if (live != null) parents.addAll(localParents(noteId, live));
-        StateEnvelope deletion = StateEnvelope.createDeletion(
-                noteId, parents.stream().distinct().sorted().toList(), deviceId, modifiedUtc);
-        persistDeletion(deletion, true);
-        return deletion;
+    public synchronized void deleteLocal(UUID noteId) {
+        purgeNote(noteId);
     }
 
     public synchronized List<StateEnvelope> pendingStates() {
@@ -263,7 +251,7 @@ public final class CurrentNoteStore {
     synchronized void writeMigratedDeletion(StateEnvelope deletion) {
         if (!deletion.operation().equals("delete"))
             throw new IllegalArgumentException("migrated fence must be a deletion");
-        persistDeletion(deletion, true);
+        purgeNote(deletion.noteId());
     }
 
     synchronized boolean isDeleted(UUID noteId) { return fenceFile(noteId).isFile(); }
@@ -281,28 +269,24 @@ public final class CurrentNoteStore {
         return currentState == null ? List.of() : List.of(currentState.changeId());
     }
 
-    private void persistDeletion(StateEnvelope deletion, boolean outgoing) {
-        File staged = pendingTemporary(deletion.noteId());
-        if (outgoing) durableWrite(staged, deletion.serialize());
-        durableWrite(fenceFile(deletion.noteId()), deletion.serialize());
-        eraseLiveContent(deletion.noteId());
-        if (outgoing) move(staged, stateFile(pending, deletion.noteId()));
-        else delete(stateFile(pending, deletion.noteId()));
+    private void retireLegacyDeletions() {
+        for (StateEnvelope fence : readStates(deleted)) purgeNote(fence.noteId());
     }
 
-    private void finishDurableDeletions() {
-        for (StateEnvelope fence : readStates(deleted)) eraseLiveContent(fence.noteId());
+    private void purgeNote(UUID noteId) {
+        eraseLiveContent(noteId);
+        delete(stateFile(pending, noteId));
+        delete(pendingTemporary(noteId));
+        delete(fenceFile(noteId));
+        for (StateAckEnvelope ack : pendingAcks()) {
+            if (ack.noteId().equals(noteId)) delete(ackForChange(ack.acknowledgedChangeId()));
+        }
     }
 
     private void eraseLiveContent(UUID noteId) {
         delete(stateFile(current, noteId));
         delete(new File(new File(root.getParentFile(), "drafts"), noteId + ".draft"));
         clearConflict(noteId);
-        File pendingState = stateFile(pending, noteId);
-        if (pendingState.isFile()) {
-            StateEnvelope value = readState(pendingState);
-            if (!value.operation().equals("delete")) delete(pendingState);
-        }
     }
 
     private void writeConflict(StateEnvelope left, StateEnvelope right) {
