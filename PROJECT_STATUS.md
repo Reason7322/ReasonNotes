@@ -968,3 +968,39 @@ is `d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
 No further engineering milestone is authorized. Potential next action: none
 unless the owner later requests maintenance or a separate desktop production
 cutover.
+
+## Public release complete — 2026-10-27
+
+ReasonNotes is public under the MIT License:
+
+- Android/umbrella source: https://github.com/Reason7322/ReasonNotes
+- Fedora source: https://github.com/Reason7322/ReasonNotesKvantum
+- Release: https://github.com/Reason7322/ReasonNotes/releases/tag/v0.1.0
+
+Both repositories are public with `main` as the default branch. The release tag
+`v0.1.0` is an annotated tag whose peeled commit is
+`d24c53122a3b1272b9586bfea5a375d89bdabe61`; local, handoff, and GitHub tag
+objects match at `2e24c0fab24f734a58b2ae208f22b2b38ca0b9c9`.
+
+The release contains three publicly downloadable assets:
+
+- `reasonnotes-android-0.1.apk`, 2,717,764 bytes, SHA-256
+  `d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
+- `reasonnotes-0.1.0-1.cdf6323.fc44.x86_64.rpm`, 658,576 bytes, SHA-256
+  `ef734264722788d6222312c9608bf6ab2866411942477fad871cc9ae9f26bb11`.
+- `SHA256SUMS`, 204 bytes, SHA-256
+  `be70922a659e4a2609b4a1a682411bf2dc51617847f1f6dce96327f1bb833644`.
+
+Fresh unauthenticated downloads passed the published checksum file. APK
+metadata is package `org.reasonnotes.probe`, version `0.1` / versionCode 1,
+minimum SDK 26, target SDK 35. APK Signature Scheme v2 verifies and the signer
+certificate SHA-256 is
+`d30a8083a422ed86f1b177b3d5c56d1d51db1a926f8c3d15807609c860eaa147`.
+Runtime source remains accepted checkpoint `98b094f`; release documentation and
+the preserved `main` README merge do not alter the APK.
+
+The final object-database safety scan found no high-confidence credential
+patterns, sensitive backup/key filenames, or literal content from the six live
+notes in either public repository. Existing third-party notices were preserved
+and project-owned source is MIT. No Android installation, application launch,
+data change, or synchronization occurred during publication.

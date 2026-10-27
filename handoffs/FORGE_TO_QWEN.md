@@ -331,3 +331,18 @@ edit remained unsent. The owner accepted both apps as done. The Android candidat
 remains installed in place with data preserved. No further milestone is
 authorized; there is no next action unless the owner later requests maintenance
 or a separate desktop production cutover.
+
+## 2026-10-27 public release complete
+
+Public source: `https://github.com/Reason7322/ReasonNotes` and
+`https://github.com/Reason7322/ReasonNotesKvantum`. Canonical release:
+`https://github.com/Reason7322/ReasonNotes/releases/tag/v0.1.0`.
+
+Tag `v0.1.0` peels to Android release commit
+`d24c53122a3b1272b9586bfea5a375d89bdabe61`. Released APK SHA-256 is
+`d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`;
+released RPM SHA-256 is
+`ef734264722788d6222312c9608bf6ab2866411942477fad871cc9ae9f26bb11`.
+Fresh unauthenticated downloads and `SHA256SUMS` verification pass. Both repos
+are public on `main` with MIT licensing and third-party notices. Publication did
+not access Android or change app data.
