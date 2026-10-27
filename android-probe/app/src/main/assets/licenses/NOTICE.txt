@@ -1,0 +1,13 @@
+ReasonNotes Android third-party dependency notice
+
+The application uses AndroidX Core 1.15.0 and AndroidX DocumentFile 1.0.1.
+AndroidX is developed by the Android Open Source Project and is licensed under
+the Apache License, Version 2.0.
+https://developer.android.com/jetpack/androidx
+
+The application uses Gson 2.10.1, copyright Google LLC, licensed under the
+Apache License, Version 2.0.
+https://github.com/google/gson
+
+The complete Apache License, Version 2.0 is included alongside this notice as
+LICENSE-Apache-2.0.txt.

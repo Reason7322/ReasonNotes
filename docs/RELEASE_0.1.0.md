@@ -20,6 +20,11 @@ https://github.com/Reason7322/ReasonNotes/releases/tag/v0.1.0
 The public filename is a byte-identical copy of the owner-accepted
 development-certificate-signed `app-debug.apk`.
 
+The accepted APK predates the release-documentation correction that embeds the
+Apache License 2.0 and dependency notice in future APKs. See the complete
+[third-party notices](../THIRD_PARTY_NOTICES.md); the released APK remains
+unchanged.
+
 ## Fedora
 
 - File: `reasonnotes-0.1.0-1.cdf6323.fc44.x86_64.rpm`
@@ -34,3 +39,7 @@ development-certificate-signed `app-debug.apk`.
 The accepted RPM is unsigned and retained byte-for-byte. Its embedded RPM
 license header predates public release; current source and future-build package
 metadata are MIT.
+
+The accepted RPM also predates the correction that includes project and
+protocol license files in future RPM payloads. The desktop repository publishes
+the complete [third-party notices](https://github.com/Reason7322/ReasonNotesKvantum/blob/main/THIRD_PARTY_NOTICES.md).

@@ -26,12 +26,19 @@ background sync. Notes and synchronization state remain on your devices.
 ## Manual KDE Connect synchronization
 
 1. Install KDE Connect on Fedora and Android, pair the devices, and confirm
-   they are reachable.
-2. In Android ReasonNotes Settings, grant **All files access**. The app uses
-   `/storage/emulated/0/ReasonNotes Exchange` as its controlled receive folder.
-3. Keep ReasonNotes open on Android when receiving a new transfer.
-4. Choose all notes or selected notes and press Sync on either device.
-5. KDE Connect carries the generated JSON bundle. The receiver validates and
+   they are reachable. On Fedora, run `kdeconnect-cli -l` and copy the paired
+   Fedora computer's 32-character device ID.
+2. In Android ReasonNotes, open **Settings → Computer** and replace the
+   prefilled development value with that Fedora device ID.
+3. Configure KDE Connect on Android to save received files in
+   `ReasonNotes Exchange`. Fedora receives incoming bundles through
+   `~/Downloads`.
+4. Give ReasonNotes access to the Android receive folder. On Android 11 and
+   newer, grant **All files access**. On Android 8–10, use ReasonNotes' storage
+   directory picker to select the KDE Connect receive folder.
+5. Keep ReasonNotes open on Android when receiving a new transfer.
+6. Choose all notes or selected notes and press Sync on either device.
+7. KDE Connect carries the generated JSON bundle. The receiver validates and
    durably imports it, then returns acknowledgments. Completion is shown only
    after the sender imports those acknowledgments.
 
@@ -50,15 +57,15 @@ Download these files from the
 Verify the download, then open the APK with Android's package installer:
 
 ```sh
-sha256sum -c SHA256SUMS
+grep 'reasonnotes-android-0.1.apk$' SHA256SUMS | sha256sum -c -
 ```
 
 The APK requires Android 8.0 (API 26) or newer. It is signed with the accepted
 development certificate and uses package ID `org.reasonnotes.probe`. Android
 may ask you to allow installation from the app that opened the download.
 
-After installation, install/pair KDE Connect and grant ReasonNotes **All files
-access** before the first cross-device sync.
+After installation, complete the first-sync setup above before transferring a
+note.
 
 ## Install on Fedora
 
@@ -66,7 +73,7 @@ Download `reasonnotes-0.1.0-1.cdf6323.fc44.x86_64.rpm` and `SHA256SUMS` from
 the same release:
 
 ```sh
-sha256sum -c SHA256SUMS
+grep 'reasonnotes-0.1.0-1.cdf6323.fc44.x86_64.rpm$' SHA256SUMS | sha256sum -c -
 sudo dnf5 --no-gpgchecks install ./reasonnotes-0.1.0-1.cdf6323.fc44.x86_64.rpm
 ```
 
@@ -100,8 +107,9 @@ documentation commits do not change those bytes.
 - Synchronization is explicit and foreground-oriented, not continuous cloud
   sync.
 - KDE Connect pairing and reachability are required.
-- Android requires the special **All files access** grant for the controlled
-  exchange directory.
+- Android 11+ requires the special **All files access** grant for the
+  controlled exchange directory. Android 8–10 uses the system directory
+  picker instead.
 - The first public APK is development-certificate signed and is not an app
   store build.
 - The Fedora RPM is unsigned and targets Fedora 44 x86_64/Wayland.

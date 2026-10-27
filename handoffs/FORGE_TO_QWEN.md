@@ -346,3 +346,8 @@ released RPM SHA-256 is
 Fresh unauthenticated downloads and `SHA256SUMS` verification pass. Both repos
 are public on `main` with MIT licensing and third-party notices. Publication did
 not access Android or change app data.
+
+Post-publication review corrections add complete first-sync/storage guidance,
+a single-APK checksum command, and Apache/AndroidX/Gson notice assets for future
+APK builds. The accepted release APK was neither rebuilt nor replaced. Focused
+documentation tests pass 2/2. No next milestone is authorized.

@@ -1004,3 +1004,10 @@ patterns, sensitive backup/key filenames, or literal content from the six live
 notes in either public repository. Existing third-party notices were preserved
 and project-owned source is MIT. No Android installation, application launch,
 data change, or synchronization occurred during publication.
+
+Post-publication review corrections are source/documentation only. The README
+now documents the required KDE Connect device ID, **Settings → Computer**,
+Android receive destination, Fedora inbox, Android 8–10 SAF picker, Android 11+
+special access, and a single-APK checksum command. Future APK builds package
+the Apache License 2.0 and an AndroidX/Gson notice as assets; the accepted
+public APK is unchanged. Focused public-release documentation tests pass 2/2.

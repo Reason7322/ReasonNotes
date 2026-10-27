@@ -15,6 +15,13 @@ The Android application uses:
 - Android platform APIs — distributed under the Android SDK terms and upstream
   component licenses.
 
+Future APK builds carry the complete Apache License 2.0 and this dependency
+notice in `android-probe/app/src/main/assets/licenses/`. The full Apache text is
+[`android-probe/app/src/main/assets/licenses/LICENSE-Apache-2.0.txt`](android-probe/app/src/main/assets/licenses/LICENSE-Apache-2.0.txt).
+The accepted v0.1.0 APK predates that packaging correction and remains
+byte-identical to the owner-accepted artifact; these public source notices are
+the corresponding distribution notice for that unchanged binary.
+
 The retained Qt Quick prototype contains Lucide-derived icons. Its upstream
 ISC/MIT notices are preserved verbatim in
 `linux-app/qml/icons/lucide/LICENSE`; those files are not relicensed by the
