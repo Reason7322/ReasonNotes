@@ -321,3 +321,13 @@ waiting screen. Latest deployed APK SHA-256:
 `d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
 Focused tests and build pass; final owner confirmation of bar completion is
 pending. Installation preserved app data.
+
+## 2026-10-27 final owner-acceptance checkpoint
+
+The final selected sync of `sync-v2-roundtrip` completed, Android durably
+confirmed the requested revision, the desktop progress indicator cleared, and
+both sides' relevant ACK queues were empty. An unrelated Android-local pending
+edit remained unsent. The owner accepted both apps as done. The Android candidate
+remains installed in place with data preserved. No further milestone is
+authorized; there is no next action unless the owner later requests maintenance
+or a separate desktop production cutover.

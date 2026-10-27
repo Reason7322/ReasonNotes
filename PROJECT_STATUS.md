@@ -950,3 +950,21 @@ narrow routing/poll changes and was not repeated during checkpoint preparation.
 The APK was installed in place without clearing data. Owner confirmation that
 the outstanding desktop progress bar clears after reopening Android remains
 pending.
+
+## Final owner acceptance — 2026-10-27
+
+The final physical selected-sync check passed for `sync-v2-roundtrip`. Android
+durably confirmed the one requested desktop revision; the desktop reported
+`Completed` and cleared its progress indicator within seconds. Desktop pending
+and outgoing-ACK queues and Android's outgoing-ACK queue were empty. The
+unrelated Android-local pending edit for `Sen` remained pending and was not
+transmitted.
+
+The owner explicitly accepted both the desktop and phone apps as done. No new
+tests, builds, installations, deployments, synchronization, or application
+interaction occurred during this documentation checkpoint. The accepted Android
+candidate remains installed in place with app data preserved; its APK SHA-256
+is `d0aef58c05567a928e4aad35ee2535988aeb01582458b64e7ee8cf1fce3d27d8`.
+No further engineering milestone is authorized. Potential next action: none
+unless the owner later requests maintenance or a separate desktop production
+cutover.
