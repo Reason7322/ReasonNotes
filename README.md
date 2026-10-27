@@ -1,4 +1,4 @@
-# ReasonNotes
+# ReasonNotes - coded in its ENTIRETY by Codex. Use at your own discretion
 
 ReasonNotes is an offline-first notes application for Android and Fedora with
 explicit, manual synchronization through KDE Connect. This repository contains
